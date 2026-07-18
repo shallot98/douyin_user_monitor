@@ -1,0 +1,165 @@
+from __future__ import annotations
+
+import tempfile
+import unittest
+from pathlib import Path
+from typing import Any, Dict, List
+from unittest.mock import AsyncMock, patch
+
+import httpx
+
+from douyin_user_monitor.monitor.downloader import AwemeAssetDownloader
+from douyin_user_monitor.monitor.original_play import (
+    build_original_play_url,
+    extract_video_id,
+    looks_like_source_cdn,
+    resolve_original_play_url,
+)
+from douyin_user_monitor.monitor.video_source import QUALITY_BIT_RATE, QUALITY_ORIGINAL
+
+
+class OriginalPlayHelpersTests(unittest.TestCase):
+    def test_extract_video_id_from_play_addr(self):
+        detail = {
+            "video": {
+                "play_addr": {"uri": "v2800fgi0000d7meamvog65qpql92v50", "url_list": ["https://cdn/x.mp4"]},
+            }
+        }
+        self.assertEqual(extract_video_id(detail), "v2800fgi0000d7meamvog65qpql92v50")
+
+    def test_extract_video_id_from_bit_rate_when_top_missing(self):
+        detail = {
+            "video": {
+                "bit_rate": [
+                    {"play_addr": {"uri": "v_from_bitrate", "url_list": ["https://cdn/a.mp4"]}},
+                ]
+            }
+        }
+        self.assertEqual(extract_video_id(detail), "v_from_bitrate")
+
+    def test_build_original_play_url_uses_default_ratio(self):
+        url = build_original_play_url("v2800abc")
+        self.assertIn("video_id=v2800abc", url)
+        self.assertIn("ratio=default", url)
+        self.assertIn("/aweme/v1/play/", url)
+
+    def test_looks_like_source_cdn(self):
+        self.assertTrue(
+            looks_like_source_cdn(
+                "https://v3-dy-o.zjcdn.com/tos-cn-v-0015c000-ce/oUEAEo/video.mp4"
+            )
+        )
+        self.assertFalse(looks_like_source_cdn("https://cdn.example/tos-cn-ve-0015/x.mp4"))
+
+
+class ResolveOriginalPlayTests(unittest.IsolatedAsyncioTestCase):
+    async def test_resolve_follows_redirect_to_cdn(self):
+        play_url = build_original_play_url("v_test_id")
+        cdn_url = "https://v3-dy-o.zjcdn.com/tos-cn-v-0015/source.mp4"
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            if "aweme/v1/play" in str(request.url):
+                return httpx.Response(302, headers={"Location": cdn_url})
+            if str(request.url).startswith(cdn_url):
+                return httpx.Response(200, content=b"video-bytes")
+            return httpx.Response(404)
+
+        transport = httpx.MockTransport(handler)
+        async with httpx.AsyncClient(transport=transport, follow_redirects=True) as client:
+            result = await resolve_original_play_url(
+                "v_test_id",
+                {"User-Agent": "test"},
+                client=client,
+            )
+        self.assertEqual(result, cdn_url)
+        self.assertIn("ratio=default", play_url)
+
+    async def test_resolve_returns_none_on_http_error(self):
+        def handler(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(403, content=b"forbidden")
+
+        transport = httpx.MockTransport(handler)
+        async with httpx.AsyncClient(transport=transport, follow_redirects=True) as client:
+            result = await resolve_original_play_url("v_bad", {}, client=client)
+        self.assertIsNone(result)
+
+
+class DownloaderOriginalPreferenceTests(unittest.IsolatedAsyncioTestCase):
+    def setUp(self):
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp_dir.cleanup)
+        self.downloader = AwemeAssetDownloader(Path(self.temp_dir.name))
+
+    def _detail(self) -> Dict[str, Any]:
+        return {
+            "aweme_id": "123",
+            "desc": "demo",
+            "create_time": 1_700_000_000,
+            "video": {
+                "play_addr": {
+                    "uri": "v_original_id",
+                    "url_list": ["https://cdn/default.mp4"],
+                    "width": 720,
+                    "height": 1280,
+                },
+                "bit_rate": [
+                    {
+                        "bit_rate": 3_000_000,
+                        "gear_name": "normal_1080",
+                        "play_addr": {
+                            "url_list": ["https://cdn/1080.mp4"],
+                            "width": 1080,
+                            "height": 1920,
+                        },
+                    }
+                ],
+            },
+        }
+
+    async def test_prefers_original_play_url(self):
+        original_url = "https://v3-dy-o.zjcdn.com/tos-cn-v-x/source.mp4"
+        with patch(
+            "douyin_user_monitor.monitor.downloader.resolve_original_play_url",
+            new=AsyncMock(return_value=original_url),
+        ):
+            with patch.object(
+                self.downloader,
+                "_download_video",
+                new=AsyncMock(return_value=True),
+            ) as download_mock:
+                result = await self.downloader.download_aweme_assets(
+                    aweme_id="123",
+                    sec_user_id="sec",
+                    user_nickname="user",
+                    aweme_detail=self._detail(),
+                    headers={"Cookie": "x=1"},
+                )
+        self.assertEqual(result["video_source"]["quality_source"], QUALITY_ORIGINAL)
+        self.assertEqual(result["video_source"]["gear_name"], "original")
+        download_mock.assert_awaited()
+        self.assertEqual(download_mock.await_args.args[0], original_url)
+
+    async def test_falls_back_to_bit_rate_when_original_fails(self):
+        with patch(
+            "douyin_user_monitor.monitor.downloader.resolve_original_play_url",
+            new=AsyncMock(return_value=None),
+        ):
+            with patch.object(
+                self.downloader,
+                "_download_video",
+                new=AsyncMock(return_value=True),
+            ) as download_mock:
+                result = await self.downloader.download_aweme_assets(
+                    aweme_id="123",
+                    sec_user_id="sec",
+                    user_nickname="user",
+                    aweme_detail=self._detail(),
+                    headers={},
+                )
+        self.assertEqual(result["video_source"]["quality_source"], QUALITY_BIT_RATE)
+        self.assertEqual(result["video_source"]["gear_name"], "normal_1080")
+        self.assertEqual(download_mock.await_args.args[0], "https://cdn/1080.mp4")
+
+
+if __name__ == "__main__":
+    unittest.main()

@@ -7,14 +7,20 @@ import aiofiles
 import httpx
 
 from douyin_user_monitor.monitor.media_urls import extract_image_urls
+from douyin_user_monitor.monitor.original_play import (
+    extract_video_id,
+    resolve_original_play_url,
+)
 from douyin_user_monitor.monitor.video_source import (
     VideoSource,
+    build_original_video_source,
     extract_video_source,
     select_clearest_video_source,
     select_highest_bit_rate_source,
 )
 
 DOWNLOAD_TIMEOUT_SECONDS = 30
+VIDEO_DOWNLOAD_TIMEOUT_SECONDS = 300
 MAX_DESC_LENGTH = 48
 MAX_USER_FOLDER_LENGTH = 64
 IMAGE_ROOT_FOLDER = "图片"
@@ -59,7 +65,7 @@ class AwemeAssetDownloader:
                 existing_file_count=image_result["existing_file_count"],
                 image_count=len(image_urls),
             )
-        video_source = self._extract_video_source(aweme_detail)
+        video_source = await self._resolve_video_source(aweme_detail, headers)
         if video_source:
             video_file = user_folder / f"{filename}.mp4"
             is_downloaded = await self._download_video(video_source.url, headers, video_file)
@@ -72,10 +78,35 @@ class AwemeAssetDownloader:
             )
         raise ValueError(f"作品 {aweme_id} 未找到可下载的视频或图片链接")
 
+    async def _resolve_video_source(
+        self,
+        aweme_detail: Dict[str, Any],
+        headers: Dict[str, str],
+    ) -> Optional[VideoSource]:
+        original = await self._try_original_source(aweme_detail, headers)
+        if original is not None:
+            return original
+        return self._extract_video_source(aweme_detail)
+
+    async def _try_original_source(
+        self,
+        aweme_detail: Dict[str, Any],
+        headers: Dict[str, str],
+    ) -> Optional[VideoSource]:
+        video_id = extract_video_id(aweme_detail)
+        if not video_id:
+            return None
+        final_url = await resolve_original_play_url(video_id, headers)
+        if not final_url:
+            return None
+        width, height = _play_addr_dimensions(aweme_detail)
+        return build_original_video_source(final_url, width=width, height=height)
+
     async def _download_video(self, video_url: str, headers: Dict[str, str], file_path: Path) -> bool:
         if file_path.exists():
             return False
-        async with httpx.AsyncClient(timeout=DOWNLOAD_TIMEOUT_SECONDS, follow_redirects=True) as client:
+        timeout = httpx.Timeout(VIDEO_DOWNLOAD_TIMEOUT_SECONDS)
+        async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
             async with client.stream("GET", video_url, headers=headers) as response:
                 response.raise_for_status()
                 async with aiofiles.open(file_path, "wb") as output_file:
@@ -183,3 +214,21 @@ class AwemeAssetDownloader:
             except OSError:
                 continue
         return total
+
+
+def _play_addr_dimensions(aweme_detail: Dict[str, Any]) -> tuple[int, int]:
+    video = aweme_detail.get("video")
+    if not isinstance(video, dict):
+        return 0, 0
+    play_addr = video.get("play_addr")
+    if not isinstance(play_addr, dict):
+        return 0, 0
+    try:
+        width = int(play_addr.get("width") or 0)
+    except (TypeError, ValueError):
+        width = 0
+    try:
+        height = int(play_addr.get("height") or 0)
+    except (TypeError, ValueError):
+        height = 0
+    return width, height

@@ -3,6 +3,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 
+QUALITY_ORIGINAL = "original"
+QUALITY_BIT_RATE = "bit_rate"
+QUALITY_FALLBACK = "fallback"
+
 
 @dataclass(frozen=True)
 class VideoSource:
@@ -11,6 +15,7 @@ class VideoSource:
     width: int = 0
     height: int = 0
     gear_name: str = ""
+    quality_source: str = QUALITY_BIT_RATE
 
     def to_record(self) -> Dict[str, Any]:
         return {
@@ -18,6 +23,7 @@ class VideoSource:
             "width": self.width,
             "height": self.height,
             "gear_name": self.gear_name,
+            "quality_source": self.quality_source,
         }
 
 
@@ -25,7 +31,30 @@ def extract_video_source(aweme_detail: Dict[str, Any]) -> Optional[VideoSource]:
     video_data = aweme_detail.get("video", {})
     if not isinstance(video_data, dict):
         return None
-    return select_clearest_video_source(video_data) or select_fallback_video_source(video_data)
+    source = select_clearest_video_source(video_data)
+    if source:
+        return source
+    fallback = select_fallback_video_source(video_data)
+    if fallback is None:
+        return None
+    return VideoSource(
+        url=fallback.url,
+        bit_rate=fallback.bit_rate,
+        width=fallback.width,
+        height=fallback.height,
+        gear_name=fallback.gear_name,
+        quality_source=QUALITY_FALLBACK,
+    )
+
+
+def build_original_video_source(url: str, *, width: int = 0, height: int = 0) -> VideoSource:
+    return VideoSource(
+        url=url,
+        width=width,
+        height=height,
+        gear_name="original",
+        quality_source=QUALITY_ORIGINAL,
+    )
 
 
 def select_clearest_video_source(video_data: Dict[str, Any]) -> Optional[VideoSource]:
@@ -66,6 +95,7 @@ def build_bit_rate_source(item: Any) -> Optional[VideoSource]:
         width=safe_int(play_addr.get("width") or item.get("width")),
         height=safe_int(play_addr.get("height") or item.get("height")),
         gear_name=str(item.get("gear_name") or ""),
+        quality_source=QUALITY_BIT_RATE,
     )
 
 
@@ -84,6 +114,7 @@ def select_fallback_video_source(video_data: Dict[str, Any]) -> Optional[VideoSo
                 width=safe_int(play_addr_data.get("width")),
                 height=safe_int(play_addr_data.get("height")),
                 gear_name=key,
+                quality_source=QUALITY_FALLBACK,
             )
         )
     return pick_clearest_source(candidates)
