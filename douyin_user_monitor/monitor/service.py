@@ -1,7 +1,7 @@
 import asyncio
 import uuid
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from time import monotonic
 from typing import Any, Dict, List, Optional, Set
 
 from douyin_user_monitor.monitor.crawler_protocol import MonitorCrawlerProtocol
@@ -38,6 +38,9 @@ from douyin_user_monitor.monitor.user_lookup import find_user_by_id, find_user_b
 from douyin_user_monitor.monitor.user_sync import UserSyncService
 
 MIN_INTERVAL_HOURS = SCHEDULE_MIN_INTERVAL_HOURS
+CHINA_TZ = timezone(timedelta(hours=8))
+COVERAGE_PHASE_RUNNING = "running"
+COVERAGE_PHASE_IDLE = "idle"
 LEGACY_COOKIE_KEYS = (
     "cookie_last_updated_at",
     "cookie_last_updated_source",
@@ -45,6 +48,33 @@ LEGACY_COOKIE_KEYS = (
     "cookie_last_length",
     "cookie_last_upstream_result",
 )
+
+
+def _parse_iso_datetime(value: Any) -> datetime | None:
+    text = str(value or "").strip()
+    if not text:
+        return None
+    try:
+        parsed = datetime.fromisoformat(text)
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=CHINA_TZ)
+    return parsed
+
+
+def _seconds_until(iso_value: Any) -> float:
+    target = _parse_iso_datetime(iso_value)
+    if target is None:
+        return 0.0
+    return max(0.0, (datetime.now(target.tzinfo) - target).total_seconds() * -1)
+
+
+def _elapsed_since(iso_value: Any) -> float:
+    started = _parse_iso_datetime(iso_value)
+    if started is None:
+        return 0.0
+    return max(0.0, (datetime.now(started.tzinfo) - started).total_seconds())
 
 
 class MonitorService:
@@ -76,12 +106,18 @@ class MonitorService:
 
         self._coverage_priority_user_ids: List[str] = []
         self._active_coverage_state: Optional[Dict[str, Any]] = None
+        self._wake_event = asyncio.Event()
         self._reset_runtime_state()
 
     def _reset_runtime_state(self) -> None:
         state = self._storage.load_state()
         monitoring = state["monitoring"]
-        self._was_running = bool(monitoring.get("is_running", False))
+        # 优先用 desired_running（用户意图）；兼容旧数据里只有 is_running=True 的情况
+        if "desired_running" in monitoring:
+            self._was_running = bool(monitoring.get("desired_running"))
+        else:
+            self._was_running = bool(monitoring.get("is_running", False))
+            monitoring["desired_running"] = self._was_running
         monitoring["is_running"] = False
         self._apply_runtime_from_monitoring(monitoring)
         monitoring["updated_at"] = utc_now()
@@ -92,12 +128,13 @@ class MonitorService:
         self._storage.save_state(state)
 
     async def auto_resume(self) -> None:
-        """Resume monitoring loop if it was running before restart."""
+        """进程启动后若用户意图仍是监控中，则恢复循环并接续覆盖进度。"""
         if self._was_running:
             await self.start_monitoring(
                 mode=self._mode,
                 interval_hours=self._interval_hours,
                 coverage_hours=self._coverage_hours,
+                resume=True,
             )
 
     def _apply_runtime_from_monitoring(self, monitoring: Dict[str, Any]) -> None:
@@ -309,6 +346,8 @@ class MonitorService:
         mode: str,
         interval_hours: float,
         coverage_hours: float,
+        *,
+        resume: bool = False,
     ) -> Dict[str, Any]:
         validate_options(
             mode=mode,
@@ -321,27 +360,32 @@ class MonitorService:
         self._mode = mode
         self._interval_hours = interval_hours
         self._coverage_hours = coverage_hours
-        self._coverage_priority_user_ids = []
+        self._wake_event.clear()
+        if resume:
+            self._restore_priority_from_progress()
+        else:
+            self._coverage_priority_user_ids = []
+            self._clear_coverage_progress()
 
-        await self._update_monitoring_state(is_running=True)
+        await self._update_monitoring_state(is_running=True, desired_running=True)
         self._loop_task = asyncio.create_task(self._monitor_loop(), name="douyin-monitor")
         return self.get_status()
 
     async def stop_monitoring(self) -> Dict[str, Any]:
-        if self._loop_task is None:
-            await self._update_monitoring_state(is_running=False)
-            return self.get_status()
-
-        task = self._loop_task
-        self._loop_task = None
-        task.cancel()
-        try:
-            await task
-        except asyncio.CancelledError:
-            pass
+        """用户主动停止：清除运行意图与轮询进度。"""
+        if self._loop_task is not None:
+            task = self._loop_task
+            self._loop_task = None
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
 
         self._coverage_priority_user_ids = []
-        await self._update_monitoring_state(is_running=False)
+        self._wake_event.clear()
+        self._clear_coverage_progress()
+        await self._update_monitoring_state(is_running=False, desired_running=False)
         return self.get_status()
 
     def get_status(self) -> Dict[str, Any]:
@@ -350,6 +394,7 @@ class MonitorService:
 
         monitoring = state["monitoring"]
         monitoring["is_running"] = running
+        monitoring.setdefault("desired_running", False)
         monitoring["mode"] = self._mode
         monitoring["interval_hours"] = self._interval_hours
         monitoring["coverage_hours"] = self._coverage_hours
@@ -362,9 +407,28 @@ class MonitorService:
         return monitoring
 
     async def shutdown(self) -> None:
-        await self.stop_monitoring()
+        """进程退出：保留 desired_running 与覆盖进度，便于重启后续跑。"""
+        await self._graceful_pause_for_restart()
         await self._close_resource(self._crawler)
         await self._close_resource(self._notifier)
+
+    async def _graceful_pause_for_restart(self) -> None:
+        was_running = bool(self._loop_task and not self._loop_task.done())
+        self._persist_runtime_checkpoint()
+        if self._loop_task is not None:
+            task = self._loop_task
+            self._loop_task = None
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
+        self._coverage_priority_user_ids = []
+        self._wake_event.clear()
+        if was_running:
+            await self._update_monitoring_state(is_running=False, desired_running=True)
+        else:
+            await self._update_monitoring_state(is_running=False)
 
     async def run_once(self) -> Dict[str, Any]:
         async with self._run_lock:
@@ -412,14 +476,17 @@ class MonitorService:
     async def _monitor_loop(self) -> None:
         while True:
             try:
+                await self._drain_priority_users()
                 if self._mode == MODE_INTERVAL:
                     await self._run_interval_cycle()
-                    await asyncio.sleep(self._interval_hours * 3600.0)
+                    await self._drain_priority_users()
+                    await self._sleep_interruptible(self._interval_hours * 3600.0)
                 else:
+                    await self._resume_coverage_idle_if_needed()
                     delay = await self._run_coverage_cycle()
-                    if delay > 0:
-                        await asyncio.sleep(delay)
+                    await self._wait_coverage_idle(delay)
             except asyncio.CancelledError:
+                self._persist_runtime_checkpoint()
                 raise
             except Exception as exc:
                 self._save_loop_error(str(exc))
@@ -433,54 +500,300 @@ class MonitorService:
             self._save_summary(state, summary)
             await self._maybe_run_cookie_liveness(state)
 
+    async def _resume_coverage_idle_if_needed(self) -> None:
+        """若上次停在覆盖周期结束后的空闲等待，重启后补完剩余等待。"""
+        progress = self._read_coverage_progress()
+        if progress.get("phase") != COVERAGE_PHASE_IDLE:
+            return
+        remaining = _seconds_until(progress.get("idle_until"))
+        if remaining > 0:
+            await self._wait_coverage_idle(remaining)
+        self._clear_coverage_progress()
+
     async def _run_coverage_cycle(self) -> float:
         async with self._run_lock:
             state = self._storage.load_state()
             self._active_coverage_state = state
             try:
-                pending_users = self._enabled_users(state)
-                processed_user_ids: Set[str] = set()
-                summary = {"checked_users": 0, "downloaded_items": 0, "errors": []}
-                cycle_seconds = self._coverage_hours * 3600
-                cycle_start = monotonic()
-
-                while pending_users:
-                    self._insert_priority_users_into_pending(state, pending_users, processed_user_ids)
-                    user = pending_users.pop(0)
-                    user_id = str(user.get("id") or "")
-                    if not user.get("enabled", True) or user_id in processed_user_ids:
-                        continue
-
-                    summary["checked_users"] += 1
-                    await self._sync_service.sync_one_user(user, summary)
-                    processed_user_ids.add(user_id)
-
-                    self._insert_priority_users_into_pending(state, pending_users, processed_user_ids)
-                    delay = self._calculate_coverage_delay(
-                        cycle_seconds=cycle_seconds,
-                        cycle_start=cycle_start,
-                        pending_count=len(pending_users),
-                    )
-                    if delay > 0:
-                        await asyncio.sleep(delay)
-
-                self._save_summary(state, summary)
-                await self._maybe_run_cookie_liveness(state)
-                elapsed = monotonic() - cycle_start
-                return max(0.0, cycle_seconds - elapsed)
+                return await self._run_coverage_cycle_locked(state)
             finally:
                 self._active_coverage_state = None
 
-    def _calculate_coverage_delay(self, *, cycle_seconds: float, cycle_start: float, pending_count: int) -> float:
+    async def _run_coverage_cycle_locked(self, state: Dict[str, Any]) -> float:
+        progress = self._prepare_coverage_cycle_progress(state)
+        processed_user_ids = set(progress["processed_user_ids"])
+        pending_users = [
+            user
+            for user in self._enabled_users(state)
+            if str(user.get("id") or "") not in processed_user_ids
+        ]
+        summary = {
+            "checked_users": int(progress.get("checked_users") or 0),
+            "downloaded_items": int(progress.get("downloaded_items") or 0),
+            "errors": list(progress.get("errors") or []),
+        }
+        cycle_seconds = self._coverage_hours * 3600.0
+        cycle_started_at = str(progress["cycle_started_at"])
+
+        while pending_users:
+            self._insert_priority_users_into_pending(state, pending_users, processed_user_ids)
+            user = pending_users.pop(0)
+            user_id = str(user.get("id") or "")
+            if not user.get("enabled", True) or user_id in processed_user_ids:
+                continue
+
+            summary["checked_users"] += 1
+            await self._sync_service.sync_one_user(user, summary)
+            processed_user_ids.add(user_id)
+            self._checkpoint_coverage_running(
+                state,
+                cycle_started_at=cycle_started_at,
+                processed_user_ids=processed_user_ids,
+                summary=summary,
+            )
+
+            self._insert_priority_users_into_pending(state, pending_users, processed_user_ids)
+            delay = self._calculate_coverage_delay_wall(
+                cycle_seconds=cycle_seconds,
+                cycle_started_at=cycle_started_at,
+                pending_count=len(pending_users),
+            )
+            if delay > 0:
+                await self._sleep_interruptible(delay)
+
+        self._save_summary(state, summary)
+        await self._maybe_run_cookie_liveness(state)
+        remaining = max(0.0, cycle_seconds - _elapsed_since(cycle_started_at))
+        self._checkpoint_coverage_idle(state, remaining)
+        return remaining
+
+    async def _wait_coverage_idle(self, delay: float) -> None:
+        """覆盖周期结束后的等待；新用户插队可打断并立即同步。"""
+        if delay <= 0:
+            self._clear_coverage_progress()
+            return
+        idle_until = (datetime.now(CHINA_TZ) + timedelta(seconds=delay)).isoformat(timespec="seconds")
+        self._write_coverage_progress(
+            {
+                "phase": COVERAGE_PHASE_IDLE,
+                "cycle_started_at": None,
+                "idle_until": idle_until,
+                "processed_user_ids": [],
+                "checked_users": 0,
+                "downloaded_items": 0,
+                "errors": [],
+                "priority_user_ids": list(self._coverage_priority_user_ids),
+            }
+        )
+        deadline = datetime.now(CHINA_TZ) + timedelta(seconds=delay)
+        while True:
+            await self._drain_priority_users()
+            remaining = max(0.0, (deadline - datetime.now(CHINA_TZ)).total_seconds())
+            if remaining <= 0:
+                self._clear_coverage_progress()
+                return
+            woken = await self._sleep_interruptible(remaining)
+            if not woken:
+                self._clear_coverage_progress()
+                return
+
+    async def _drain_priority_users(self) -> None:
+        """在轮次间隙处理优先用户（增量 + 一页历史回填）。"""
+        if not self._coverage_priority_user_ids:
+            return
+        if self._active_coverage_state is not None:
+            # 覆盖周期进行中：由 _insert_priority_users_into_pending 插队处理
+            return
+
+        async with self._run_lock:
+            if not self._coverage_priority_user_ids:
+                return
+            state = self._storage.load_state()
+            priority_ids = self._pop_priority_user_ids()
+            summary = {"checked_users": 0, "downloaded_items": 0, "errors": []}
+            for user_id in priority_ids:
+                user = find_user_by_id(state["users"], user_id)
+                if user is None or not user.get("enabled", True):
+                    continue
+                summary["checked_users"] += 1
+                await self._sync_service.sync_one_user(user, summary)
+            if summary["checked_users"] > 0:
+                self._save_summary(state, summary)
+
+    def _pop_priority_user_ids(self) -> List[str]:
+        priority_ids = list(self._coverage_priority_user_ids)
+        self._coverage_priority_user_ids = []
+        return priority_ids
+
+    async def _sleep_interruptible(self, seconds: float) -> bool:
+        """可被优先队列唤醒的 sleep；返回 True 表示被提前唤醒。"""
+        if seconds <= 0:
+            return False
+        self._wake_event.clear()
+        if self._coverage_priority_user_ids:
+            return True
+        try:
+            await asyncio.wait_for(self._wake_event.wait(), timeout=seconds)
+            return True
+        except asyncio.TimeoutError:
+            return False
+
+    def _calculate_coverage_delay_wall(
+        self,
+        *,
+        cycle_seconds: float,
+        cycle_started_at: str,
+        pending_count: int,
+    ) -> float:
         if pending_count <= 0:
             return 0.0
-
-        remaining_seconds = max(0.0, cycle_seconds - (monotonic() - cycle_start))
+        remaining_seconds = max(0.0, cycle_seconds - _elapsed_since(cycle_started_at))
         future_gap_count = pending_count - 1
         return choose_coverage_delay(
             remaining_seconds=remaining_seconds,
             future_gap_count=future_gap_count,
         )
+
+    def _empty_coverage_progress(self) -> Dict[str, Any]:
+        return {
+            "phase": COVERAGE_PHASE_RUNNING,
+            "cycle_started_at": None,
+            "idle_until": None,
+            "processed_user_ids": [],
+            "checked_users": 0,
+            "downloaded_items": 0,
+            "errors": [],
+            "priority_user_ids": [],
+        }
+
+    def _read_coverage_progress(self) -> Dict[str, Any]:
+        state = self._storage.load_state()
+        raw = state["monitoring"].get("coverage_progress")
+        base = self._empty_coverage_progress()
+        if not isinstance(raw, dict):
+            return base
+        phase = str(raw.get("phase") or "").strip()
+        if phase not in {COVERAGE_PHASE_RUNNING, COVERAGE_PHASE_IDLE}:
+            phase = COVERAGE_PHASE_RUNNING
+        processed = raw.get("processed_user_ids")
+        errors = raw.get("errors")
+        priority = raw.get("priority_user_ids")
+        base.update(
+            {
+                "phase": phase,
+                "cycle_started_at": raw.get("cycle_started_at"),
+                "idle_until": raw.get("idle_until"),
+                "processed_user_ids": [str(x) for x in processed] if isinstance(processed, list) else [],
+                "checked_users": max(0, int(raw.get("checked_users") or 0)),
+                "downloaded_items": max(0, int(raw.get("downloaded_items") or 0)),
+                "errors": list(errors) if isinstance(errors, list) else [],
+                "priority_user_ids": [str(x) for x in priority] if isinstance(priority, list) else [],
+            }
+        )
+        return base
+
+    def _write_coverage_progress(self, progress: Dict[str, Any]) -> None:
+        state = self._storage.load_state()
+        state["monitoring"]["coverage_progress"] = progress
+        state["monitoring"]["updated_at"] = utc_now()
+        self._storage.save_state(state)
+
+    def _clear_coverage_progress(self) -> None:
+        state = self._storage.load_state()
+        if state["monitoring"].get("coverage_progress") is None:
+            return
+        state["monitoring"]["coverage_progress"] = None
+        state["monitoring"]["updated_at"] = utc_now()
+        self._storage.save_state(state)
+
+    def _prepare_coverage_cycle_progress(self, state: Dict[str, Any]) -> Dict[str, Any]:
+        progress = self._read_coverage_progress()
+        cycle_seconds = self._coverage_hours * 3600.0
+        reusable = (
+            progress.get("phase") == COVERAGE_PHASE_RUNNING
+            and progress.get("cycle_started_at")
+            and _elapsed_since(progress.get("cycle_started_at")) < cycle_seconds
+        )
+        if reusable:
+            return progress
+
+        started_at = utc_now()
+        fresh = self._empty_coverage_progress()
+        fresh["cycle_started_at"] = started_at
+        state["monitoring"]["coverage_progress"] = fresh
+        state["monitoring"]["updated_at"] = utc_now()
+        self._storage.save_state(state)
+        return fresh
+
+    def _checkpoint_coverage_running(
+        self,
+        state: Dict[str, Any],
+        *,
+        cycle_started_at: str,
+        processed_user_ids: Set[str],
+        summary: Dict[str, Any],
+    ) -> None:
+        progress = {
+            "phase": COVERAGE_PHASE_RUNNING,
+            "cycle_started_at": cycle_started_at,
+            "idle_until": None,
+            "processed_user_ids": list(processed_user_ids),
+            "checked_users": int(summary.get("checked_users") or 0),
+            "downloaded_items": int(summary.get("downloaded_items") or 0),
+            "errors": list(summary.get("errors") or [])[-20:],
+            "priority_user_ids": list(self._coverage_priority_user_ids),
+        }
+        state["monitoring"]["coverage_progress"] = progress
+        state["monitoring"]["last_run_at"] = utc_now()
+        state["monitoring"]["last_run_result"] = {
+            "checked_users": progress["checked_users"],
+            "downloaded_items": progress["downloaded_items"],
+            "errors": progress["errors"],
+            "coverage_progress": {
+                "processed_count": len(progress["processed_user_ids"]),
+                "phase": COVERAGE_PHASE_RUNNING,
+            },
+        }
+        state["monitoring"]["updated_at"] = utc_now()
+        self._storage.save_state(state)
+
+    def _checkpoint_coverage_idle(self, state: Dict[str, Any], remaining: float) -> None:
+        idle_until = None
+        if remaining > 0:
+            idle_until = (datetime.now(CHINA_TZ) + timedelta(seconds=remaining)).isoformat(timespec="seconds")
+        progress = {
+            "phase": COVERAGE_PHASE_IDLE,
+            "cycle_started_at": None,
+            "idle_until": idle_until,
+            "processed_user_ids": [],
+            "checked_users": 0,
+            "downloaded_items": 0,
+            "errors": [],
+            "priority_user_ids": list(self._coverage_priority_user_ids),
+        }
+        state["monitoring"]["coverage_progress"] = progress if remaining > 0 else None
+        state["monitoring"]["updated_at"] = utc_now()
+        self._storage.save_state(state)
+
+    def _persist_runtime_checkpoint(self) -> None:
+        """进程退出前把优先队列写回 coverage_progress，便于续跑。"""
+        state = self._storage.load_state()
+        monitoring = state["monitoring"]
+        progress = monitoring.get("coverage_progress")
+        if not isinstance(progress, dict):
+            if not self._coverage_priority_user_ids:
+                return
+            progress = self._empty_coverage_progress()
+            progress["phase"] = COVERAGE_PHASE_IDLE
+        progress["priority_user_ids"] = list(self._coverage_priority_user_ids)
+        monitoring["coverage_progress"] = progress
+        monitoring["updated_at"] = utc_now()
+        self._storage.save_state(state)
+
+    def _restore_priority_from_progress(self) -> None:
+        progress = self._read_coverage_progress()
+        priority_ids = progress.get("priority_user_ids") or []
+        self._coverage_priority_user_ids = [str(x) for x in priority_ids if str(x).strip()]
 
     def _attach_user_to_active_coverage_state(self, user: Dict[str, Any]) -> None:
         state = self._active_coverage_state
@@ -491,13 +804,12 @@ class MonitorService:
         state["users"].append(user)
 
     def _enqueue_coverage_priority_user(self, user_id: str) -> None:
-        if self._mode != MODE_COVERAGE:
-            return
+        """将用户加入优先检查队列并唤醒监控循环（插队到下一个）。"""
         if self._loop_task is None or self._loop_task.done():
             return
-        if user_id in self._coverage_priority_user_ids:
-            return
-        self._coverage_priority_user_ids.append(user_id)
+        if user_id not in self._coverage_priority_user_ids:
+            self._coverage_priority_user_ids.append(user_id)
+        self._wake_event.set()
 
     def _insert_priority_users_into_pending(
         self,
@@ -508,21 +820,21 @@ class MonitorService:
         if not self._coverage_priority_user_ids:
             return
 
+        queued_ids = self._pop_priority_user_ids()
         users = state["users"]
         priority_users: List[Dict[str, Any]] = []
         priority_ids: Set[str] = set()
-        for user_id in self._coverage_priority_user_ids:
-            if user_id in processed_user_ids:
+        for user_id in queued_ids:
+            if user_id in processed_user_ids or user_id in priority_ids:
                 continue
 
             user = find_user_by_id(users, user_id)
-            if user is None or not user.get("enabled", True) or user_id in priority_ids:
+            if user is None or not user.get("enabled", True):
                 continue
 
             priority_users.append(user)
             priority_ids.add(user_id)
 
-        self._coverage_priority_user_ids = []
         if not priority_users:
             return
 
@@ -561,10 +873,17 @@ class MonitorService:
         monitoring["updated_at"] = utc_now()
         self._storage.save_state(state)
 
-    async def _update_monitoring_state(self, is_running: bool) -> None:
+    async def _update_monitoring_state(
+        self,
+        is_running: bool,
+        *,
+        desired_running: bool | None = None,
+    ) -> None:
         state = self._storage.load_state()
         monitoring = state["monitoring"]
         monitoring["is_running"] = is_running
+        if desired_running is not None:
+            monitoring["desired_running"] = desired_running
         monitoring["mode"] = self._mode
         monitoring["interval_hours"] = self._interval_hours
         monitoring["coverage_hours"] = self._coverage_hours

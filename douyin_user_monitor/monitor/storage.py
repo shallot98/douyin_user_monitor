@@ -14,6 +14,8 @@ DEFAULT_RANDOM_MAX_SECONDS = 0.0
 
 MONITORING_DEFAULTS = {
     "is_running": False,
+    # 用户期望是否持续监控；进程重启后依据此字段自动恢复，而不是 is_running
+    "desired_running": False,
     "mode": DEFAULT_MODE,
     "interval_hours": DEFAULT_INTERVAL_HOURS,
     "coverage_hours": DEFAULT_COVERAGE_HOURS,
@@ -21,6 +23,8 @@ MONITORING_DEFAULTS = {
     "random_max_seconds": DEFAULT_RANDOM_MAX_SECONDS,
     "last_run_at": None,
     "last_run_result": {},
+    # 覆盖轮询进度：重启后从已处理用户之后继续
+    "coverage_progress": None,
 }
 
 
