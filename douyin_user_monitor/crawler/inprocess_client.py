@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import asyncio
+from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any, AsyncIterator, Dict
 
 DEFAULT_HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
@@ -31,9 +33,44 @@ class InProcessDouyinClient:
 
         self._config_path = path
         self._crawler = DouyinWebCrawler()
+        self._cookie_lock = asyncio.Lock()
 
     async def aclose(self) -> None:
         return None
+
+    def _headers_bucket(self) -> Dict[str, Any]:
+        from crawlers.douyin.web.config_loader import get_config
+
+        config = get_config()
+        return config["TokenManager"]["douyin"]["headers"]
+
+    async def get_cookie(self) -> str:
+        async with self._cookie_lock:
+            return str(self._headers_bucket().get("Cookie") or "")
+
+    async def update_cookie(self, cookie: str) -> None:
+        text = (cookie or "").strip()
+        if not text:
+            raise ValueError("Cookie 不能为空")
+        async with self._cookie_lock:
+            try:
+                await self._crawler.update_cookie(text)
+            except Exception as exc:
+                raise RuntimeError(f"更新 Cookie 失败: {exc}") from exc
+
+    @asynccontextmanager
+    async def temporary_cookie(self, cookie: str) -> AsyncIterator[None]:
+        text = (cookie or "").strip()
+        if not text:
+            raise ValueError("Cookie 不能为空")
+        async with self._cookie_lock:
+            headers = self._headers_bucket()
+            previous = headers.get("Cookie")
+            headers["Cookie"] = text
+            try:
+                yield
+            finally:
+                headers["Cookie"] = previous
 
     async def get_douyin_headers(self) -> Dict[str, Dict[str, str]]:
         try:

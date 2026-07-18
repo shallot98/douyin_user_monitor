@@ -11,6 +11,7 @@ from pydantic import BaseModel, Field
 
 from douyin_user_monitor.api.models import ErrorResponseModel, ResponseModel
 from douyin_user_monitor.monitor.cookie_liveness import CookieLivenessConfig, CookieLivenessService
+from douyin_user_monitor.monitor.cookie_pool import CookiePoolService
 from douyin_user_monitor.monitor.hermes_weixin_sender import HermesWeixinConfig, HermesWeixinSender
 from douyin_user_monitor.monitor.notifier import NoopMonitorNotifier
 from douyin_user_monitor.monitor.service import (
@@ -36,6 +37,7 @@ HTML_NO_CACHE_HEADERS = {
 SETTINGS = load_settings()
 DASHBOARD_PATH = SETTINGS.project_root / "douyin_user_monitor" / "web" / "dashboard.html"
 STATISTICS_DASHBOARD_PATH = SETTINGS.project_root / "douyin_user_monitor" / "web" / "statistics.html"
+COOKIES_DASHBOARD_PATH = SETTINGS.project_root / "douyin_user_monitor" / "web" / "cookies.html"
 
 CRAWLER_CLIENT = InProcessDouyinClient(SETTINGS.crawler.config_path)
 MONITOR_STORAGE = MonitorStorage(SETTINGS.monitor.state_path)
@@ -82,6 +84,12 @@ COOKIE_LIVENESS_SERVICE = CookieLivenessService(
     alerter=HERMES_SENDER,
 )
 
+COOKIE_POOL_SERVICE = CookiePoolService(
+    storage=MONITOR_STORAGE,
+    crawler=CRAWLER_CLIENT,
+    liveness_service=COOKIE_LIVENESS_SERVICE,
+)
+
 monitor_service = MonitorService(
     crawler=CRAWLER_CLIENT,
     storage=MONITOR_STORAGE,
@@ -99,25 +107,41 @@ class UpdateUserPayload(BaseModel):
     enabled: bool
 
 
+class AddCookiePayload(BaseModel):
+    cookie: str = Field(min_length=1, description="抖音 Web Cookie 字符串")
+    name: str | None = Field(default=None, description="可选名称/备注")
+
+
+class UpdateCookiePayload(BaseModel):
+    name: str | None = Field(default=None, description="可选名称/备注")
+    cookie: str | None = Field(default=None, description="可选新的 Cookie 字符串")
+
 class StartMonitorPayload(BaseModel):
     mode: str = Field(default=MODE_INTERVAL, description=f"监控模式: {MODE_INTERVAL} | {MODE_COVERAGE}")
     interval_hours: float = Field(default=0.05, ge=MIN_INTERVAL_HOURS, description="定时模式轮询间隔(小时)")
     coverage_hours: float = Field(default=24.0, gt=0, description="覆盖模式下，全量用户完成一轮的目标小时数")
 
 
-def _build_error(request: Request, message: str) -> HTTPException:
+def _build_error(request: Request, message: str, status_code: int = 400) -> HTTPException:
     detail = ErrorResponseModel(
-        code=400,
+        code=status_code,
         message=message,
         router=request.url.path,
         params=dict(request.query_params),
     )
-    return HTTPException(status_code=400, detail=detail.model_dump())
+    return HTTPException(status_code=status_code, detail=detail.model_dump())
 
 
 def _build_success(request: Request, data: Any) -> ResponseModel:
     return ResponseModel(code=200, router=request.url.path, data=data)
 
+
+def _map_cookie_error(request: Request, exc: Exception) -> HTTPException:
+    if isinstance(exc, KeyError):
+        return _build_error(request, str(exc) or "Cookie 不存在", status_code=404)
+    if isinstance(exc, ValueError):
+        return _build_error(request, str(exc), status_code=400)
+    return _build_error(request, str(exc), status_code=400)
 
 def _find_user_or_raise(user_id: str) -> dict[str, Any]:
     user = find_user_by_id(monitor_service.list_users(), user_id)
@@ -169,6 +193,84 @@ async def statistics_dashboard() -> str:
         content=STATISTICS_DASHBOARD_PATH.read_text(encoding="utf-8"),
         headers=HTML_NO_CACHE_HEADERS,
     )
+
+
+@router.get("/cookies/dashboard", response_class=HTMLResponse, summary="Cookie 池管理页面/Cookie pool page")
+async def cookies_dashboard() -> str:
+    if not COOKIES_DASHBOARD_PATH.exists():
+        raise HTTPException(status_code=404, detail=f"Cookie 池页面不存在: {COOKIES_DASHBOARD_PATH}")
+    return HTMLResponse(
+        content=COOKIES_DASHBOARD_PATH.read_text(encoding="utf-8"),
+        headers=HTML_NO_CACHE_HEADERS,
+    )
+
+
+@router.get("/cookies", response_model=ResponseModel, summary="获取 Cookie 池列表/List cookie pool")
+async def list_cookies(request: Request) -> ResponseModel:
+    try:
+        items = await COOKIE_POOL_SERVICE.list_items()
+    except Exception as exc:  # noqa: BLE001
+        raise _map_cookie_error(request, exc)
+    return _build_success(request, {"items": items})
+
+
+@router.post("/cookies", response_model=ResponseModel, summary="新增 Cookie/Add cookie to pool")
+async def add_cookie(request: Request, payload: AddCookiePayload) -> ResponseModel:
+    try:
+        item = await COOKIE_POOL_SERVICE.add_item(cookie=payload.cookie, name=payload.name)
+    except Exception as exc:  # noqa: BLE001
+        raise _map_cookie_error(request, exc)
+    return _build_success(request, item)
+
+
+@router.patch("/cookies/{cookie_id}", response_model=ResponseModel, summary="更新 Cookie/Update cookie")
+async def update_cookie(request: Request, cookie_id: str, payload: UpdateCookiePayload) -> ResponseModel:
+    if payload.name is None and payload.cookie is None:
+        raise _build_error(request, "至少提供 name 或 cookie 之一")
+    try:
+        item = await COOKIE_POOL_SERVICE.update_item(
+            cookie_id,
+            name=payload.name,
+            cookie=payload.cookie,
+        )
+    except Exception as exc:  # noqa: BLE001
+        raise _map_cookie_error(request, exc)
+    return _build_success(request, item)
+
+
+@router.delete("/cookies/{cookie_id}", response_model=ResponseModel, summary="删除 Cookie/Delete cookie")
+async def delete_cookie(request: Request, cookie_id: str) -> ResponseModel:
+    try:
+        item = await COOKIE_POOL_SERVICE.delete_item(cookie_id)
+    except Exception as exc:  # noqa: BLE001
+        raise _map_cookie_error(request, exc)
+    return _build_success(request, item)
+
+
+@router.post(
+    "/cookies/{cookie_id}/activate",
+    response_model=ResponseModel,
+    summary="启用 Cookie/Activate cookie for crawler",
+)
+async def activate_cookie(request: Request, cookie_id: str) -> ResponseModel:
+    try:
+        item = await COOKIE_POOL_SERVICE.activate(cookie_id)
+    except Exception as exc:  # noqa: BLE001
+        raise _map_cookie_error(request, exc)
+    return _build_success(request, item)
+
+
+@router.post(
+    "/cookies/{cookie_id}/check",
+    response_model=ResponseModel,
+    summary="测活 Cookie/Check cookie liveness",
+)
+async def check_cookie(request: Request, cookie_id: str) -> ResponseModel:
+    try:
+        item = await COOKIE_POOL_SERVICE.check_item(cookie_id)
+    except Exception as exc:  # noqa: BLE001
+        raise _map_cookie_error(request, exc)
+    return _build_success(request, item)
 
 
 @router.get("/users", response_model=ResponseModel, summary="获取监控用户列表/Get monitor users")
