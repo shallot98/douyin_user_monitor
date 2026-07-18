@@ -105,13 +105,15 @@
       font-size: 13px; box-shadow: 0 10px 15px -3px rgba(0,0,0,.2); max-width: 360px;
     }
     .toast.error { background: #991b1b; }
+    /* 与 dashboard 一致：默认不拦截点击；打开时 z-index 低于侧栏，避免挡导航 */
     .overlay {
-      display: none; position: fixed; inset: 0; background: rgba(15,23,42,.4); z-index: 45;
+      position: fixed; inset: 0; background: rgba(15, 23, 42, 0.28);
+      z-index: 39; opacity: 0; pointer-events: none; transition: opacity 0.2s;
     }
-    .overlay.show { display: block; }
+    .overlay.show { opacity: 1; pointer-events: auto; }
     @media (max-width: 900px) {
-      .sidebar { position: fixed; left: -280px; height: 100%; }
-      .sidebar.open { left: 0; }
+      .sidebar { position: fixed; left: -280px; height: 100vh; z-index: 40; }
+      .sidebar.show { left: 0; }
       .btn.mobile-sidebar-toggle { display: inline-flex; border: none; background: transparent; padding: 4px; cursor: pointer; }
       .cookie-item { grid-template-columns: 1fr; }
       .cookie-actions { justify-content: flex-start; }
@@ -146,8 +148,6 @@
       </a>
     </nav>
   </aside>
-
-  <div id="sidebarOverlay" class="overlay" onclick="toggleSidebar()"></div>
 
   <div class="app-wrapper">
     <header class="top-header">
@@ -196,21 +196,42 @@
     </main>
   </div>
 
+  <div id="sidebarOverlay" class="overlay" onclick="toggleSidebar()"></div>
   <div id="toast-container" class="toast-container"></div>
 
   <script>
     const API_BASE = "/api/monitor";
     const SHANGHAI_TIME_ZONE = "Asia/Shanghai";
 
-    function navigateToPage(path) {
-      window.location.href = path;
-      return false;
+    function isMobileViewport() {
+      return window.innerWidth <= 900;
+    }
+
+    function closeSidebarMobile() {
+      document.getElementById("sidebar").classList.remove("show");
+      document.getElementById("sidebarOverlay").classList.remove("show");
     }
 
     function toggleSidebar() {
-      document.getElementById("sidebar").classList.toggle("open");
+      if (!isMobileViewport()) {
+        closeSidebarMobile();
+        return false;
+      }
+      document.getElementById("sidebar").classList.toggle("show");
       document.getElementById("sidebarOverlay").classList.toggle("show");
+      return false;
     }
+
+    function navigateToPage(path) {
+      closeSidebarMobile();
+      if (window.location.pathname === path) return false;
+      window.location.assign(path);
+      return false;
+    }
+
+    window.addEventListener("resize", () => {
+      if (!isMobileViewport()) closeSidebarMobile();
+    });
 
     function showToast(message, type = "success") {
       const el = document.createElement("div");

@@ -72,6 +72,11 @@ class DashboardUiTests(unittest.TestCase):
         self.assertIn('function activateCookie(', html)
         self.assertIn('Cookie 池', html)
         self.assertIn('const API_BASE = "/api/monitor";', html)
+        # 遮罩不得盖住侧栏，否则菜单无法点击
+        self.assertIn('pointer-events: none', html)
+        self.assertIn('.sidebar.show', html)
+        self.assertIn('z-index: 39', html)
+        self.assertNotIn('.sidebar.open', html)
 
     def test_statistics_dashboard_uses_shanghai_timezone_formatter(self):
         response = self.client.get('/api/monitor/statistics/dashboard')
