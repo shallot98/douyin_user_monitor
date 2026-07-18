@@ -31,11 +31,22 @@ class OriginalPlayHelpersTests(unittest.TestCase):
         detail = {
             "video": {
                 "bit_rate": [
-                    {"play_addr": {"uri": "v_from_bitrate", "url_list": ["https://cdn/a.mp4"]}},
+                    {"play_addr": {"uri": "v1e00frombitrateabc12345", "url_list": ["https://cdn/a.mp4"]}},
                 ]
             }
         }
-        self.assertEqual(extract_video_id(detail), "v_from_bitrate")
+        self.assertEqual(extract_video_id(detail), "v1e00frombitrateabc12345")
+
+    def test_extract_video_id_rejects_music_url(self):
+        detail = {
+            "video": {
+                "play_addr": {
+                    "uri": "https://sf6-cdn-tos.douyinstatic.com/obj/ies-music/7570574461940337418.mp3",
+                    "url_list": ["https://cdn/cover.jpg"],
+                }
+            }
+        }
+        self.assertIsNone(extract_video_id(detail))
 
     def test_build_original_play_url_uses_default_ratio(self):
         url = build_original_play_url("v2800abc")
@@ -54,20 +65,24 @@ class OriginalPlayHelpersTests(unittest.TestCase):
 
 class ResolveOriginalPlayTests(unittest.IsolatedAsyncioTestCase):
     async def test_resolve_follows_redirect_to_cdn(self):
-        play_url = build_original_play_url("v_test_id")
+        play_url = build_original_play_url("v1e00testid0000000001")
         cdn_url = "https://v3-dy-o.zjcdn.com/tos-cn-v-0015/source.mp4"
 
         def handler(request: httpx.Request) -> httpx.Response:
             if "aweme/v1/play" in str(request.url):
                 return httpx.Response(302, headers={"Location": cdn_url})
-            if str(request.url).startswith(cdn_url):
-                return httpx.Response(200, content=b"video-bytes")
+            if str(request.url).startswith("https://v3-dy-o.zjcdn.com/"):
+                return httpx.Response(
+                    200,
+                    headers={"content-type": "video/mp4", "content-length": "11"},
+                    content=b"video-bytes",
+                )
             return httpx.Response(404)
 
         transport = httpx.MockTransport(handler)
         async with httpx.AsyncClient(transport=transport, follow_redirects=True) as client:
             result = await resolve_original_play_url(
-                "v_test_id",
+                "v1e00testid0000000001",
                 {"User-Agent": "test"},
                 client=client,
             )
@@ -80,7 +95,31 @@ class ResolveOriginalPlayTests(unittest.IsolatedAsyncioTestCase):
 
         transport = httpx.MockTransport(handler)
         async with httpx.AsyncClient(transport=transport, follow_redirects=True) as client:
-            result = await resolve_original_play_url("v_bad", {}, client=client)
+            result = await resolve_original_play_url("v1e00badid0000000001", {}, client=client)
+        self.assertIsNone(result)
+
+    async def test_resolve_returns_none_for_transcode_cdn(self):
+        cdn_url = "https://v5-dy.zjcdn.com/tos-cn-ve-15c000-ce/transcode.mp4"
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            if "aweme/v1/play" in str(request.url):
+                return httpx.Response(302, headers={"Location": cdn_url})
+            return httpx.Response(
+                200,
+                headers={"content-type": "video/mp4", "content-length": "100"},
+                content=b"x" * 100,
+            )
+
+        transport = httpx.MockTransport(handler)
+        async with httpx.AsyncClient(transport=transport, follow_redirects=True) as client:
+            result = await resolve_original_play_url("v1e00transcode0000001", {}, client=client)
+        self.assertIsNone(result)
+
+    async def test_resolve_returns_none_for_invalid_video_id(self):
+        result = await resolve_original_play_url(
+            "https://sf6-cdn-tos.douyinstatic.com/obj/ies-music/x.mp3",
+            {},
+        )
         self.assertIsNone(result)
 
 
@@ -95,9 +134,10 @@ class DownloaderOriginalPreferenceTests(unittest.IsolatedAsyncioTestCase):
             "aweme_id": "123",
             "desc": "demo",
             "create_time": 1_700_000_000,
+            "aweme_type": 0,
             "video": {
                 "play_addr": {
-                    "uri": "v_original_id",
+                    "uri": "v1e00originalid000001",
                     "url_list": ["https://cdn/default.mp4"],
                     "width": 720,
                     "height": 1280,
@@ -115,6 +155,47 @@ class DownloaderOriginalPreferenceTests(unittest.IsolatedAsyncioTestCase):
                 ],
             },
         }
+
+    async def test_image_post_skips_original_play(self):
+        detail = {
+            "aweme_id": "img1",
+            "desc": "note",
+            "create_time": 1_700_000_000,
+            "aweme_type": 68,
+            "images": [{"url_list": ["https://cdn/1.jpg"]}],
+            "video": {
+                "play_addr": {
+                    "uri": "https://sf6-cdn-tos.douyinstatic.com/obj/ies-music/x.mp3",
+                    "url_list": ["https://cdn/cover.jpg"],
+                    "width": 720,
+                    "height": 720,
+                }
+            },
+        }
+        with patch(
+            "douyin_user_monitor.monitor.downloader.resolve_original_play_url",
+            new=AsyncMock(return_value="https://should-not-call"),
+        ) as resolve_mock:
+            with patch.object(
+                self.downloader,
+                "_download_images",
+                new=AsyncMock(
+                    return_value={
+                        "files": [Path(self.temp_dir.name) / "1.jpg"],
+                        "downloaded_file_count": 1,
+                        "existing_file_count": 0,
+                    }
+                ),
+            ):
+                result = await self.downloader.download_aweme_assets(
+                    aweme_id="img1",
+                    sec_user_id="sec",
+                    user_nickname="user",
+                    aweme_detail=detail,
+                    headers={},
+                )
+        self.assertEqual(result["media_type"], "image")
+        resolve_mock.assert_not_called()
 
     async def test_prefers_original_play_url(self):
         original_url = "https://v3-dy-o.zjcdn.com/tos-cn-v-x/source.mp4"

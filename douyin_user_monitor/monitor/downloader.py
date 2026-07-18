@@ -6,7 +6,7 @@ from typing import Any, Dict, List, Optional
 import aiofiles
 import httpx
 
-from douyin_user_monitor.monitor.media_urls import extract_image_urls
+from douyin_user_monitor.monitor.media_urls import extract_image_urls, is_image_post
 from douyin_user_monitor.monitor.original_play import (
     extract_video_id,
     resolve_original_play_url,
@@ -53,9 +53,11 @@ class AwemeAssetDownloader:
     ) -> Dict[str, Any]:
         user_folder = self._resolve_user_folder(sec_user_id=sec_user_id, user_nickname=user_nickname)
         filename = self._build_aweme_filename(aweme_detail)
-        # 图文作品有时也会带 video 播放地址；按业务要求优先按图片作品处理。
+        # 图文作品有时也会带 video/音乐 uri；优先按图片处理，禁止走原画 play。
         image_urls = self._extract_image_urls(aweme_detail)
-        if image_urls:
+        if image_urls or is_image_post(aweme_detail):
+            if not image_urls:
+                raise ValueError(f"作品 {aweme_id} 判定为图文但未解析到图片链接")
             image_folder = user_folder / IMAGE_ROOT_FOLDER / filename
             image_result = await self._download_images(image_urls, headers, image_folder)
             return self._build_download_result(
