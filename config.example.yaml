@@ -38,12 +38,18 @@ cookie_liveness:
   enabled: true
   # 测活间隔（小时）
   interval_hours: 6
-  # 最新作品早于该天数视为过期信号
+  # 发布-下载间隔超过该天数视为陈旧；全陈旧且探针不可达才 expired
   stale_days: 7
-  # 抽样用户数
+  # 样本不足时回退探针（可达性）的抽样用户数
   sample_user_count: 5
-  # 最少成功样本数（不足则判定 unknown，不告警）
+  # 判定过期/探针结论所需最少成功样本（不足则 unknown 或回退探针）
   min_samples: 3
-  # 失效告警冷却（小时）
+  # 失效告警冷却（小时）；degraded 不告警
   alert_cooldown_hours: 12
+
+cookie_rotation:
+  # 多 Cookie 轮换，分散请求降低风控
+  enabled: true
+  # 跳过测活为 expired 的条目；若全部 expired 则仍轮换全部非空 Cookie
+  skip_expired: true
 

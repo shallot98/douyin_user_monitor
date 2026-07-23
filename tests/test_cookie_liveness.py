@@ -5,16 +5,24 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List
 
 from douyin_user_monitor.monitor.cookie_liveness import (
+    STATUS_DEGRADED,
     STATUS_EXPIRED,
     STATUS_HEALTHY,
     STATUS_UNKNOWN,
     CookieLivenessConfig,
     CookieLivenessService,
     evaluate_cookie_liveness,
+    evaluate_download_liveness,
     extract_latest_create_time,
     select_probe_users,
     should_send_cookie_alert,
 )
+from douyin_user_monitor.monitor.cookie_download_liveness import (
+    DOWNLOAD_SOURCE_HISTORY,
+    DOWNLOAD_SOURCE_INCREMENTAL,
+    collect_incremental_download_samples,
+)
+from douyin_user_monitor.monitor.cookie_liveness import parse_iso_datetime
 from douyin_user_monitor.monitor.hermes_weixin_sender import HermesWeixinConfig, HermesWeixinSender
 from douyin_user_monitor.monitor.profile_parser import ACCOUNT_STATUS_BANNED, ACCOUNT_STATUS_NORMAL
 
@@ -26,11 +34,11 @@ DAY = 86400
 
 
 class EvaluateCookieLivenessTests(unittest.TestCase):
-    def test_healthy_when_any_sample_is_fresh(self):
+    def test_healthy_when_probe_reachable_even_if_posts_old(self):
         samples = [
-            {"latest_create_time": NOW_TS - 10 * DAY, "error": None},
-            {"latest_create_time": NOW_TS - 1 * DAY, "error": None},
-            {"latest_create_time": NOW_TS - 8 * DAY, "error": None},
+            {"latest_create_time": NOW_TS - 30 * DAY, "reachable": True, "error": None},
+            {"latest_create_time": NOW_TS - 20 * DAY, "reachable": True, "error": None},
+            {"latest_create_time": NOW_TS - 15 * DAY, "reachable": True, "error": None},
         ]
         result = evaluate_cookie_liveness(
             samples,
@@ -39,12 +47,13 @@ class EvaluateCookieLivenessTests(unittest.TestCase):
             min_samples=3,
         )
         self.assertEqual(result.status, STATUS_HEALTHY)
+        self.assertIn("可达", result.reason)
 
-    def test_expired_when_all_samples_are_stale(self):
+    def test_expired_when_probe_all_failed(self):
         samples = [
-            {"latest_create_time": NOW_TS - 10 * DAY, "error": None},
-            {"latest_create_time": NOW_TS - 8 * DAY, "error": None},
-            {"latest_create_time": NOW_TS - 30 * DAY, "error": None},
+            {"latest_create_time": None, "reachable": False, "error": "login required"},
+            {"latest_create_time": None, "reachable": False, "error": "auth"},
+            {"latest_create_time": None, "reachable": False, "error": "forbidden"},
         ]
         result = evaluate_cookie_liveness(
             samples,
@@ -54,11 +63,40 @@ class EvaluateCookieLivenessTests(unittest.TestCase):
         )
         self.assertEqual(result.status, STATUS_EXPIRED)
 
-    def test_unknown_when_successful_samples_below_min(self):
+
+    def test_expired_when_all_probes_empty_list(self):
         samples = [
-            {"latest_create_time": NOW_TS - 10 * DAY, "error": None},
-            {"latest_create_time": None, "error": "timeout"},
-            {"latest_create_time": None, "error": "timeout"},
+            {"kind": "probe", "reachable": False, "error": "empty aweme_list"},
+            {"kind": "probe", "reachable": False, "error": "empty aweme_list"},
+            {"kind": "probe", "reachable": False, "error": "empty aweme_list"},
+        ]
+        result = evaluate_cookie_liveness(
+            samples,
+            now_ts=NOW_TS,
+            stale_seconds=7 * DAY,
+            min_samples=3,
+        )
+        self.assertEqual(result.status, STATUS_EXPIRED)
+
+    def test_expired_when_reachable_false_without_error(self):
+        samples = [
+            {"kind": "probe", "reachable": False, "error": None},
+            {"kind": "probe", "reachable": False, "error": None},
+            {"kind": "probe", "reachable": False, "error": None},
+        ]
+        result = evaluate_cookie_liveness(
+            samples,
+            now_ts=NOW_TS,
+            stale_seconds=7 * DAY,
+            min_samples=3,
+        )
+        self.assertEqual(result.status, STATUS_EXPIRED)
+
+    def test_unknown_when_reachable_below_min(self):
+        samples = [
+            {"latest_create_time": NOW_TS - 1 * DAY, "reachable": True, "error": None},
+            {"latest_create_time": None, "reachable": False, "error": "timeout"},
+            {"latest_create_time": None, "reachable": False, "error": "timeout"},
         ]
         result = evaluate_cookie_liveness(
             samples,
@@ -89,6 +127,15 @@ class SelectProbeUsersTests(unittest.TestCase):
         ]
         selected = select_probe_users(users, limit=5)
         self.assertEqual([item["id"] for item in selected], ["b", "d"])
+
+    def test_prefers_users_with_downloads(self):
+        users = [
+            {"id": "a", "enabled": True, "account_status": ACCOUNT_STATUS_NORMAL, "sec_user_id": "sec-a", "downloaded_count": 1},
+            {"id": "b", "enabled": True, "account_status": ACCOUNT_STATUS_NORMAL, "sec_user_id": "sec-b", "downloaded_count": 20},
+            {"id": "c", "enabled": True, "account_status": ACCOUNT_STATUS_NORMAL, "sec_user_id": "sec-c", "downloaded_count": 5},
+        ]
+        selected = select_probe_users(users, limit=2)
+        self.assertEqual([item["id"] for item in selected], ["b", "c"])
 
 
 class AlertCooldownTests(unittest.TestCase):
@@ -152,9 +199,9 @@ class CookieLivenessServiceTests(unittest.IsolatedAsyncioTestCase):
     async def test_maybe_run_marks_expired_and_alerts(self):
         crawler = FakeCrawler(
             {
-                "sec-1": {"aweme_list": [{"create_time": NOW_TS - 10 * DAY}]},
-                "sec-2": {"aweme_list": [{"create_time": NOW_TS - 9 * DAY}]},
-                "sec-3": {"aweme_list": [{"create_time": NOW_TS - 20 * DAY}]},
+                "sec-1": RuntimeError("login required"),
+                "sec-2": RuntimeError("auth expired"),
+                "sec-3": RuntimeError("forbidden"),
             }
         )
         alerter = RecordingAlerter()
@@ -208,6 +255,221 @@ class RecordingRunner:
         _ = timeout_seconds
         self.commands.append(list(command))
         return self.code, "ok", ""
+
+
+
+
+class EvaluateDownloadLivenessTests(unittest.TestCase):
+    def test_healthy_when_any_incremental_lag_within_stale(self):
+        samples = [
+            {"lag_seconds": 10 * DAY, "is_fresh": False, "publish_ts": NOW_TS - 11 * DAY},
+            {"lag_seconds": 2 * 3600, "is_fresh": True, "publish_ts": NOW_TS - DAY},
+            {"lag_seconds": 9 * DAY, "is_fresh": False, "publish_ts": NOW_TS - 10 * DAY},
+        ]
+        result = evaluate_download_liveness(samples, stale_seconds=7 * DAY, min_samples=3)
+        self.assertEqual(result.status, STATUS_HEALTHY)
+
+    def test_expired_when_all_incremental_lags_exceed_stale(self):
+        samples = [
+            {"lag_seconds": 10 * DAY, "is_fresh": False, "publish_ts": NOW_TS - 20 * DAY},
+            {"lag_seconds": 8 * DAY, "is_fresh": False, "publish_ts": NOW_TS - 15 * DAY},
+            {"lag_seconds": 30 * DAY, "is_fresh": False, "publish_ts": NOW_TS - 40 * DAY},
+        ]
+        result = evaluate_download_liveness(samples, stale_seconds=7 * DAY, min_samples=3)
+        self.assertEqual(result.status, STATUS_EXPIRED)
+
+    def test_unknown_when_stale_but_below_min_samples(self):
+        samples = [
+            {"lag_seconds": 10 * DAY, "is_fresh": False, "publish_ts": NOW_TS - 20 * DAY},
+        ]
+        result = evaluate_download_liveness(samples, stale_seconds=7 * DAY, min_samples=3)
+        self.assertEqual(result.status, STATUS_UNKNOWN)
+
+    def test_collect_skips_history_source(self):
+        users = [
+            {
+                "id": "u1",
+                "nickname": "n1",
+                "download_records": [
+                    {
+                        "aweme_id": "a1",
+                        "source": DOWNLOAD_SOURCE_HISTORY,
+                        "publish_time": (NOW - timedelta(days=20)).isoformat(timespec="seconds"),
+                        "downloaded_at": NOW.isoformat(timespec="seconds"),
+                    },
+                    {
+                        "aweme_id": "a2",
+                        "source": DOWNLOAD_SOURCE_INCREMENTAL,
+                        "publish_time": (NOW - timedelta(hours=3)).isoformat(timespec="seconds"),
+                        "downloaded_at": NOW.isoformat(timespec="seconds"),
+                    },
+                ],
+            }
+        ]
+        rows = collect_incremental_download_samples(
+            users,
+            now=NOW,
+            lookback_seconds=14 * DAY,
+            stale_seconds=7 * DAY,
+            parse_iso_datetime=parse_iso_datetime,
+        )
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["aweme_id"], "a2")
+        self.assertTrue(rows[0]["is_fresh"])
+
+
+class DownloadFirstRunCheckTests(unittest.IsolatedAsyncioTestCase):
+    async def test_run_check_prefers_fresh_download_over_stale_probe(self):
+        class StaleProbeCrawler:
+            async def fetch_user_post_videos(self, sec_user_id, max_cursor, count):
+                return {"aweme_list": [{"create_time": NOW_TS - 30 * DAY}]}
+
+        users = [
+            {
+                "id": f"u{i}",
+                "nickname": f"n{i}",
+                "enabled": True,
+                "account_status": ACCOUNT_STATUS_NORMAL,
+                "sec_user_id": f"sec-{i}",
+                "download_records": [
+                    {
+                        "aweme_id": f"aw{i}",
+                        "source": DOWNLOAD_SOURCE_INCREMENTAL,
+                        "publish_time": (NOW - timedelta(hours=2)).isoformat(timespec="seconds"),
+                        "downloaded_at": (NOW - timedelta(hours=1)).isoformat(timespec="seconds"),
+                    }
+                    for _ in range(1)
+                ],
+            }
+            for i in range(1, 4)
+        ]
+        # ensure min samples via three users each with one fresh download
+        service = CookieLivenessService(
+            crawler=StaleProbeCrawler(),
+            config=CookieLivenessConfig(
+                enabled=True,
+                interval_hours=6,
+                stale_days=7,
+                sample_user_count=5,
+                min_samples=3,
+                alert_cooldown_hours=12,
+            ),
+            now_provider=lambda: NOW,
+        )
+        result = await service.run_check(users)
+        self.assertEqual(result.status, STATUS_HEALTHY)
+        self.assertIn("发布-下载间隔", result.reason)
+
+
+class StaleDownloadProbeCombineTests(unittest.IsolatedAsyncioTestCase):
+    def _stale_users(self, n: int = 3):
+        return [
+            {
+                "id": f"u{i}",
+                "nickname": f"n{i}",
+                "enabled": True,
+                "account_status": ACCOUNT_STATUS_NORMAL,
+                "sec_user_id": f"sec-{i}",
+                "download_records": [
+                    {
+                        "aweme_id": f"aw{i}",
+                        "source": DOWNLOAD_SOURCE_INCREMENTAL,
+                        "publish_time": (NOW - timedelta(days=20)).isoformat(timespec="seconds"),
+                        "downloaded_at": (NOW - timedelta(days=1)).isoformat(timespec="seconds"),
+                    }
+                ],
+            }
+            for i in range(1, n + 1)
+        ]
+
+    async def test_stale_downloads_with_reachable_probe_is_degraded(self):
+        class ReachableCrawler:
+            async def fetch_user_post_videos(self, sec_user_id, max_cursor, count):
+                return {"aweme_list": [{"create_time": NOW_TS - 40 * DAY}]}
+
+        service = CookieLivenessService(
+            crawler=ReachableCrawler(),
+            config=CookieLivenessConfig(
+                enabled=True,
+                interval_hours=6,
+                stale_days=7,
+                sample_user_count=5,
+                min_samples=3,
+                alert_cooldown_hours=12,
+            ),
+            now_provider=lambda: NOW,
+        )
+        result = await service.run_check(self._stale_users())
+        self.assertEqual(result.status, STATUS_DEGRADED)
+        self.assertIn("探针可达", result.reason)
+
+
+    async def test_stale_downloads_with_unknown_probe_is_degraded(self):
+        class EmptyCrawler:
+            async def fetch_user_post_videos(self, sec_user_id, max_cursor, count):
+                return {"aweme_list": []}
+
+        # 3 stale downloads → expired signal; only 1 probe sample < min_samples → probe unknown
+        service = CookieLivenessService(
+            crawler=EmptyCrawler(),
+            config=CookieLivenessConfig(
+                enabled=True,
+                interval_hours=6,
+                stale_days=7,
+                sample_user_count=1,
+                min_samples=3,
+                alert_cooldown_hours=12,
+            ),
+            now_provider=lambda: NOW,
+        )
+        result = await service.run_check(self._stale_users(3))
+        self.assertEqual(result.status, STATUS_DEGRADED)
+
+    async def test_stale_downloads_with_failed_probe_is_expired(self):
+        class FailCrawler:
+            async def fetch_user_post_videos(self, sec_user_id, max_cursor, count):
+                raise RuntimeError("login required")
+
+        service = CookieLivenessService(
+            crawler=FailCrawler(),
+            config=CookieLivenessConfig(
+                enabled=True,
+                interval_hours=6,
+                stale_days=7,
+                sample_user_count=5,
+                min_samples=3,
+                alert_cooldown_hours=12,
+            ),
+            now_provider=lambda: NOW,
+        )
+        result = await service.run_check(self._stale_users())
+        self.assertEqual(result.status, STATUS_EXPIRED)
+
+    async def test_alert_message_includes_lag_stats(self):
+        class FailCrawler:
+            async def fetch_user_post_videos(self, sec_user_id, max_cursor, count):
+                raise RuntimeError("login required")
+
+        alerter = RecordingAlerter()
+        service = CookieLivenessService(
+            crawler=FailCrawler(),
+            config=CookieLivenessConfig(
+                enabled=True,
+                interval_hours=6,
+                stale_days=7,
+                sample_user_count=5,
+                min_samples=3,
+                alert_cooldown_hours=12,
+            ),
+            alerter=alerter,
+            now_provider=lambda: NOW,
+        )
+        state = {"users": self._stale_users(), "monitoring": {}}
+        payload = await service.maybe_run(state)
+        self.assertEqual(payload["status"], STATUS_EXPIRED)
+        self.assertTrue(payload["alerted"])
+        self.assertIn("增量lag", alerter.messages[0])
+        self.assertIn("信号:", alerter.messages[0])
 
 
 class HermesWeixinSenderTests(unittest.IsolatedAsyncioTestCase):

@@ -37,10 +37,12 @@ class UserSyncService:
         crawler: MonitorCrawlerProtocol,
         downloader: AwemeAssetDownloader,
         notifier: MonitorNotifierProtocol,
+        cookie_rotation_session=None,
     ):
         self._crawler = crawler
         self._downloader = downloader
         self._notifier = notifier
+        self._cookie_rotation_session = cookie_rotation_session
 
     async def resolve_profile_snapshot(self, sec_user_id: str) -> UserProfileSnapshot:
         profile_data = await self._crawler.handler_user_profile(sec_user_id)
@@ -65,7 +67,13 @@ class UserSyncService:
         return summary
 
     async def sync_one_user(self, user: Dict[str, Any], summary: Dict[str, Any]) -> None:
-        await self._sync_user_with_summary(user, summary)
+        await self.run_with_cookie_rotation(lambda: self._sync_user_with_summary(user, summary))
+
+    async def run_with_cookie_rotation(self, operation):
+        if self._cookie_rotation_session is None:
+            return await operation()
+        async with self._cookie_rotation_session() as _selected:
+            return await operation()
 
     async def _sync_user_with_summary(self, user: Dict[str, Any], summary: Dict[str, Any]) -> None:
         old_status = str(user.get("account_status") or ACCOUNT_STATUS_NORMAL).strip()
@@ -218,7 +226,11 @@ class UserSyncService:
                     aweme_detail=aweme_detail,
                     headers=headers,
                 )
-                record = self._build_download_record(aweme_detail, asset_result)
+                record = self._build_download_record(
+                    aweme_detail,
+                    asset_result,
+                    source="incremental" if notify else "history",
+                )
                 if notify:
                     await self._notifier.notify_download_completed(
                         user_nickname=user["nickname"],
@@ -311,7 +323,13 @@ class UserSyncService:
             now=utc_now(),
         )
 
-    def _build_download_record(self, aweme_detail: Dict[str, Any], asset_result: Dict[str, Any]) -> Dict[str, Any]:
+    def _build_download_record(
+        self,
+        aweme_detail: Dict[str, Any],
+        asset_result: Dict[str, Any],
+        *,
+        source: str,
+    ) -> Dict[str, Any]:
         aweme_id = str(aweme_detail.get("aweme_id", "")).strip()
         media_type = str(asset_result.get("media_type", "")).strip() or "unknown"
         files = asset_result.get("files", [])
@@ -323,6 +341,7 @@ class UserSyncService:
             "publish_time": format_publish_time(aweme_detail.get("create_time")),
             "downloaded_at": utc_now(),
             "media_type": media_type,
+            "source": source,
             "image_count": safe_int(asset_result.get("image_count")),
             "downloaded_file_count": safe_int(asset_result.get("downloaded_file_count")),
             "existing_file_count": safe_int(asset_result.get("existing_file_count")),

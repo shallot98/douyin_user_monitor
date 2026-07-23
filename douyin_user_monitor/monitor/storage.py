@@ -1,6 +1,8 @@
+import fcntl
 import json
+from contextlib import contextmanager
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any, Callable, Dict, Iterator
 
 from douyin_user_monitor.monitor.history_sync import normalize_history_sync_state
 from douyin_user_monitor.monitor.profile_parser import build_account_status_fields
@@ -32,7 +34,7 @@ def utc_now() -> str:
     from datetime import datetime, timedelta, timezone
 
     china_tz = timezone(timedelta(hours=8))
-    return datetime.now(china_tz).isoformat(timespec="seconds")
+    return datetime.now(china_tz).isoformat(timespec="milliseconds")
 
 
 def build_default_state() -> Dict[str, Any]:
@@ -99,10 +101,111 @@ class MonitorStorage:
         return state
 
     def save_state(self, state: Dict[str, Any]) -> None:
+        with self._state_file_lock():
+            self._save_state_unlocked(state)
+
+    def update_state(self, mutator: Callable[[Dict[str, Any]], None]) -> Dict[str, Any]:
+        """Load → mutate → save under an exclusive file lock (RMW)."""
+        with self._state_file_lock():
+            state = self._load_state_unlocked()
+            mutator(state)
+            self._save_state_unlocked(state)
+            return state
+
+    @contextmanager
+    def _state_file_lock(self) -> Iterator[None]:
+        lock_path = self.state_file.with_name(self.state_file.name + ".lock")
+        lock_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(lock_path, "a+", encoding="utf-8") as lock_file:
+            fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
+            try:
+                yield
+            finally:
+                fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
+
+    def _load_state_unlocked(self) -> Dict[str, Any]:
+        try:
+            raw = self.state_file.read_text(encoding="utf-8")
+            state = json.loads(raw)
+        except (json.JSONDecodeError, OSError):
+            state = build_default_state()
+            self._write_json_atomic(state)
+        self._normalize_state(state)
+        return state
+
+    def _save_state_unlocked(self, state: Dict[str, Any]) -> None:
+        self._merge_concurrent_monitoring_fields(state)
+        self._write_json_atomic(state)
+
+    def _write_json_atomic(self, state: Dict[str, Any]) -> None:
         temp_file = self.state_file.with_suffix(".tmp")
         content = json.dumps(state, ensure_ascii=False, indent=2)
         temp_file.write_text(content, encoding="utf-8")
         temp_file.replace(self.state_file)
+
+    def _merge_concurrent_monitoring_fields(self, state: Dict[str, Any]) -> None:
+        """Preserve newer cookie_pool written by concurrent API writers.
+
+        Coverage checkpoints keep a long-lived in-memory state; a full save
+        would otherwise wipe pool items added after that snapshot was loaded.
+        """
+        if not self.state_file.exists():
+            return
+        try:
+            disk_state = json.loads(self.state_file.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError):
+            return
+        if not isinstance(disk_state, dict):
+            return
+        disk_mon = disk_state.get("monitoring")
+        mem_mon = state.setdefault("monitoring", {})
+        if not isinstance(disk_mon, dict) or not isinstance(mem_mon, dict):
+            return
+        self._prefer_newer_dict_field(mem_mon, disk_mon, "cookie_pool")
+
+    @staticmethod
+    def _cookie_pool_activity_score(pool: Dict[str, Any]) -> int:
+        items = pool.get("items")
+        if not isinstance(items, list):
+            return 0
+        total = 0
+        for row in items:
+            if isinstance(row, dict):
+                total += int(row.get("use_count") or 0)
+        total += int(pool.get("rotation_cursor") or 0)
+        return total
+
+    @staticmethod
+    def _prefer_newer_dict_field(
+        mem_mon: Dict[str, Any],
+        disk_mon: Dict[str, Any],
+        key: str,
+    ) -> None:
+        disk_val = disk_mon.get(key)
+        if not isinstance(disk_val, dict):
+            return
+        mem_val = mem_mon.get(key)
+        if not isinstance(mem_val, dict):
+            mem_mon[key] = disk_val
+            return
+
+        disk_items = disk_val.get("items")
+        mem_items = mem_val.get("items")
+        disk_has_items = isinstance(disk_items, list) and bool(disk_items)
+        mem_has_items = isinstance(mem_items, list) and bool(mem_items)
+        if disk_has_items and not mem_has_items:
+            mem_mon[key] = disk_val
+            return
+
+        disk_ts = str(disk_val.get("updated_at") or "")
+        mem_ts = str(mem_val.get("updated_at") or "")
+        if disk_ts and (not mem_ts or disk_ts > mem_ts):
+            mem_mon[key] = disk_val
+            return
+        # Same timestamp (or missing): prefer the side with more rotation activity.
+        if key == "cookie_pool" and disk_ts and disk_ts == mem_ts:
+            if MonitorStorage._cookie_pool_activity_score(disk_val) > MonitorStorage._cookie_pool_activity_score(mem_val):
+                mem_mon[key] = disk_val
 
     def _normalize_state(self, state: Dict[str, Any]) -> None:
         normalize_root_state(state)

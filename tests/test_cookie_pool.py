@@ -33,6 +33,10 @@ class MemStorage:
     def save_state(self, state: Dict[str, Any]) -> None:
         self.state = state
 
+    def update_state(self, mutator):
+        mutator(self.state)
+        return self.state
+
 
 class FakeRuntime:
     def __init__(self, cookie: str = ""):

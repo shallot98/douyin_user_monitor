@@ -84,10 +84,13 @@ COOKIE_LIVENESS_SERVICE = CookieLivenessService(
     alerter=HERMES_SENDER,
 )
 
+COOKIE_ROTATION = SETTINGS.cookie_rotation
 COOKIE_POOL_SERVICE = CookiePoolService(
     storage=MONITOR_STORAGE,
     crawler=CRAWLER_CLIENT,
     liveness_service=COOKIE_LIVENESS_SERVICE,
+    rotation_enabled=COOKIE_ROTATION.enabled,
+    rotation_skip_expired=COOKIE_ROTATION.skip_expired,
 )
 
 monitor_service = MonitorService(
@@ -96,6 +99,7 @@ monitor_service = MonitorService(
     download_root=SETTINGS.monitor.download_root,
     notifier=MONITOR_NOTIFIER,
     cookie_liveness_service=COOKIE_LIVENESS_SERVICE,
+    cookie_pool_service=COOKIE_POOL_SERVICE,
 )
 
 

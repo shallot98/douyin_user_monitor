@@ -60,6 +60,7 @@ class InProcessDouyinClient:
 
     @asynccontextmanager
     async def temporary_cookie(self, cookie: str) -> AsyncIterator[None]:
+        """Swap Cookie for the caller's work without holding the lock during IO."""
         text = (cookie or "").strip()
         if not text:
             raise ValueError("Cookie 不能为空")
@@ -67,9 +68,11 @@ class InProcessDouyinClient:
             headers = self._headers_bucket()
             previous = headers.get("Cookie")
             headers["Cookie"] = text
-            try:
-                yield
-            finally:
+        try:
+            yield
+        finally:
+            async with self._cookie_lock:
+                headers = self._headers_bucket()
                 headers["Cookie"] = previous
 
     async def get_douyin_headers(self) -> Dict[str, Dict[str, str]]:

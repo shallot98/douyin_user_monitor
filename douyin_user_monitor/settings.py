@@ -75,12 +75,19 @@ class CookieLivenessSettings:
 
 
 @dataclass(frozen=True)
+class CookieRotationSettings:
+    enabled: bool
+    skip_expired: bool
+
+
+@dataclass(frozen=True)
 class Settings:
     project_root: Path
     crawler: CrawlerSettings
     monitor: MonitorSettings
     notifications: NotificationSettings
     cookie_liveness: CookieLivenessSettings
+    cookie_rotation: CookieRotationSettings
 
 
 DEFAULT_COOKIE_LIVENESS_ENABLED = True
@@ -89,6 +96,8 @@ DEFAULT_COOKIE_LIVENESS_STALE_DAYS = 7.0
 DEFAULT_COOKIE_LIVENESS_SAMPLE_USER_COUNT = 5
 DEFAULT_COOKIE_LIVENESS_MIN_SAMPLES = 3
 DEFAULT_COOKIE_LIVENESS_ALERT_COOLDOWN_HOURS = 12.0
+DEFAULT_COOKIE_ROTATION_ENABLED = True
+DEFAULT_COOKIE_ROTATION_SKIP_EXPIRED = True
 DEFAULT_HERMES_WEIXIN_ENABLED = False
 DEFAULT_HERMES_WEIXIN_SSH_HOST = ""
 DEFAULT_HERMES_WEIXIN_SSH_USER = "root"

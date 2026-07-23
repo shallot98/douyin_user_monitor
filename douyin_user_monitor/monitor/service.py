@@ -85,16 +85,22 @@ class MonitorService:
         download_root: Path,
         notifier: Optional[MonitorNotifierProtocol] = None,
         cookie_liveness_service: Optional[CookieLivenessService] = None,
+        cookie_pool_service: Optional[Any] = None,
     ):
         self._crawler = crawler
         self._storage = storage
         self._downloader = AwemeAssetDownloader(download_root)
         self._notifier = notifier or NoopMonitorNotifier()
         self._cookie_liveness_service = cookie_liveness_service
+        self._cookie_pool_service = cookie_pool_service
+        rotation_session = None
+        if cookie_pool_service is not None and hasattr(cookie_pool_service, "rotation_session"):
+            rotation_session = cookie_pool_service.rotation_session
         self._sync_service = UserSyncService(
             crawler=self._crawler,
             downloader=self._downloader,
             notifier=self._notifier,
+            cookie_rotation_session=rotation_session,
         )
 
         self._run_lock = asyncio.Lock()
@@ -460,7 +466,9 @@ class MonitorService:
             self._activate_history_sync(user, reset_completed=False)
             summary = {"checked_users": 0, "downloaded_items": 0, "errors": []}
             try:
-                summary["downloaded_items"] = await self._sync_service.sync_history_backfill_step(user)
+                summary["downloaded_items"] = await self._sync_service.run_with_cookie_rotation(
+                    lambda: self._sync_service.sync_history_backfill_step(user)
+                )
                 user["last_error"] = None
             except Exception as exc:
                 user["last_error"] = str(exc)
@@ -511,37 +519,67 @@ class MonitorService:
         self._clear_coverage_progress()
 
     async def _run_coverage_cycle(self) -> float:
+        """Run one coverage pass; release run_lock between users so manual runs can enter."""
         async with self._run_lock:
             state = self._storage.load_state()
             self._active_coverage_state = state
-            try:
-                return await self._run_coverage_cycle_locked(state)
-            finally:
-                self._active_coverage_state = None
+            progress = self._prepare_coverage_cycle_progress(state)
+            processed_user_ids = set(progress["processed_user_ids"])
+            pending_users = [
+                user
+                for user in self._enabled_users(state)
+                if str(user.get("id") or "") not in processed_user_ids
+            ]
+            summary = {
+                "checked_users": int(progress.get("checked_users") or 0),
+                "downloaded_items": int(progress.get("downloaded_items") or 0),
+                "errors": list(progress.get("errors") or []),
+            }
+            cycle_seconds = self._coverage_hours * 3600.0
+            cycle_started_at = str(progress["cycle_started_at"])
 
-    async def _run_coverage_cycle_locked(self, state: Dict[str, Any]) -> float:
-        progress = self._prepare_coverage_cycle_progress(state)
-        processed_user_ids = set(progress["processed_user_ids"])
-        pending_users = [
-            user
-            for user in self._enabled_users(state)
-            if str(user.get("id") or "") not in processed_user_ids
-        ]
-        summary = {
-            "checked_users": int(progress.get("checked_users") or 0),
-            "downloaded_items": int(progress.get("downloaded_items") or 0),
-            "errors": list(progress.get("errors") or []),
-        }
-        cycle_seconds = self._coverage_hours * 3600.0
-        cycle_started_at = str(progress["cycle_started_at"])
+        try:
+            while True:
+                delay = await self._coverage_process_next_user(
+                    state,
+                    pending_users=pending_users,
+                    processed_user_ids=processed_user_ids,
+                    summary=summary,
+                    cycle_seconds=cycle_seconds,
+                    cycle_started_at=cycle_started_at,
+                )
+                if delay is None:
+                    break
+                if delay > 0:
+                    await self._sleep_interruptible(delay)
 
-        while pending_users:
+            async with self._run_lock:
+                self._save_summary(state, summary)
+                await self._maybe_run_cookie_liveness(state)
+                remaining = max(0.0, cycle_seconds - _elapsed_since(cycle_started_at))
+                self._checkpoint_coverage_idle(state, remaining)
+                return remaining
+        finally:
+            self._active_coverage_state = None
+
+    async def _coverage_process_next_user(
+        self,
+        state: Dict[str, Any],
+        *,
+        pending_users: List[Dict[str, Any]],
+        processed_user_ids: Set[str],
+        summary: Dict[str, Any],
+        cycle_seconds: float,
+        cycle_started_at: str,
+    ) -> Optional[float]:
+        """Sync one pending user under run_lock. Return delay seconds, or None if done."""
+        async with self._run_lock:
             self._insert_priority_users_into_pending(state, pending_users, processed_user_ids)
-            user = pending_users.pop(0)
-            user_id = str(user.get("id") or "")
-            if not user.get("enabled", True) or user_id in processed_user_ids:
-                continue
+            user = self._pop_next_coverage_user(pending_users, processed_user_ids)
+            if user is None:
+                return None
 
+            user_id = str(user.get("id") or "")
             summary["checked_users"] += 1
             await self._sync_service.sync_one_user(user, summary)
             processed_user_ids.add(user_id)
@@ -551,21 +589,25 @@ class MonitorService:
                 processed_user_ids=processed_user_ids,
                 summary=summary,
             )
-
             self._insert_priority_users_into_pending(state, pending_users, processed_user_ids)
-            delay = self._calculate_coverage_delay_wall(
+            return self._calculate_coverage_delay_wall(
                 cycle_seconds=cycle_seconds,
                 cycle_started_at=cycle_started_at,
                 pending_count=len(pending_users),
             )
-            if delay > 0:
-                await self._sleep_interruptible(delay)
 
-        self._save_summary(state, summary)
-        await self._maybe_run_cookie_liveness(state)
-        remaining = max(0.0, cycle_seconds - _elapsed_since(cycle_started_at))
-        self._checkpoint_coverage_idle(state, remaining)
-        return remaining
+    @staticmethod
+    def _pop_next_coverage_user(
+        pending_users: List[Dict[str, Any]],
+        processed_user_ids: Set[str],
+    ) -> Optional[Dict[str, Any]]:
+        while pending_users:
+            user = pending_users.pop(0)
+            user_id = str(user.get("id") or "")
+            if not user.get("enabled", True) or user_id in processed_user_ids:
+                continue
+            return user
+        return None
 
     async def _wait_coverage_idle(self, delay: float) -> None:
         """覆盖周期结束后的等待；新用户插队可打断并立即同步。"""

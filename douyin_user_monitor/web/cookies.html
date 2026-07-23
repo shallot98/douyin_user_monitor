@@ -96,6 +96,7 @@
     .badge-active { background: var(--primary-light); color: var(--primary); }
     .badge-healthy { background: var(--success-light); color: #047857; }
     .badge-expired { background: var(--danger-light); color: #b91c1c; }
+    .badge-degraded { background: #fef3c7; color: #b45309; }
     .badge-unknown { background: var(--warning-light); color: #b45309; }
     .badge-none { background: #f1f5f9; color: var(--text-muted); }
     .empty { padding: 40px; text-align: center; color: var(--text-muted); }
@@ -161,7 +162,7 @@
       <div class="content-container">
         <div>
           <h1 class="page-title">Cookie 池</h1>
-          <p class="page-sub">维护多条抖音 Web Cookie，测活并手动指定当前启用项（写回爬虫配置）。</p>
+          <p class="page-sub">维护多条抖音 Web Cookie；监控同步时按轮换分散使用。手动「设为启用」写入默认爬虫 Cookie。</p>
         </div>
 
         <section class="card">
@@ -273,6 +274,7 @@
       const s = String(status || "").trim();
       if (s === "healthy") return '<span class="badge badge-healthy">healthy</span>';
       if (s === "expired") return '<span class="badge badge-expired">expired</span>';
+      if (s === "degraded") return '<span class="badge badge-degraded">degraded</span>';
       if (s === "unknown") return '<span class="badge badge-unknown">unknown</span>';
       return '<span class="badge badge-none">未检测</span>';
     }
@@ -306,6 +308,7 @@
               </div>
               <div class="cookie-meta">预览：${escapeHtml(item.cookie_preview || "")}</div>
               <div class="cookie-meta">测活时间：${escapeHtml(formatTime(item.last_check_at))} · 样本 ${Number(item.samples_used || 0)}</div>
+              <div class="cookie-meta">轮换使用：${Number(item.use_count || 0)} 次 · 鉴权失败连击 ${Number(item.auth_fail_streak || 0)} · 最近 ${escapeHtml(formatTime(item.last_used_at))}</div>
               <div class="cookie-reason">${escapeHtml(item.reason || item.last_error || "尚无测活结果")}</div>
             </div>
             <div class="cookie-actions">

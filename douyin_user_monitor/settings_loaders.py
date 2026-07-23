@@ -7,9 +7,12 @@ from typing import Any, Dict
 from douyin_user_monitor.settings import (
     CRAWLER_CONFIG_ENV,
     CookieLivenessSettings,
+    CookieRotationSettings,
     CrawlerSettings,
     DEFAULT_AVATAR_TIMEOUT_SECONDS,
     DEFAULT_COOKIE_LIVENESS_ALERT_COOLDOWN_HOURS,
+    DEFAULT_COOKIE_ROTATION_ENABLED,
+    DEFAULT_COOKIE_ROTATION_SKIP_EXPIRED,
     DEFAULT_COOKIE_LIVENESS_ENABLED,
     DEFAULT_COOKIE_LIVENESS_INTERVAL_HOURS,
     DEFAULT_COOKIE_LIVENESS_MIN_SAMPLES,
@@ -58,6 +61,7 @@ def load_settings() -> Settings:
     telegram_raw = _ensure_dict(notification_raw.get("telegram", {}), "notifications.telegram")
     hermes_raw = _ensure_dict(notification_raw.get("hermes_weixin", {}), "notifications.hermes_weixin")
     cookie_raw = _ensure_dict(raw.get("cookie_liveness", {}), "cookie_liveness")
+    rotation_raw = _ensure_dict(raw.get("cookie_rotation", {}), "cookie_rotation")
     return Settings(
         project_root=project_root,
         crawler=_load_crawler_settings(project_root, crawler_raw),
@@ -67,6 +71,7 @@ def load_settings() -> Settings:
             hermes_weixin=_load_hermes_settings(hermes_raw),
         ),
         cookie_liveness=_load_cookie_liveness_settings(cookie_raw),
+        cookie_rotation=_load_cookie_rotation_settings(rotation_raw),
     )
 
 
@@ -189,6 +194,13 @@ def _load_hermes_settings(hermes_raw: Dict[str, Any]) -> HermesWeixinSettings:
         hermes_bin=hermes_bin,
         target=hermes_target,
         timeout_seconds=hermes_timeout_seconds,
+    )
+
+
+def _load_cookie_rotation_settings(raw: Dict[str, Any]) -> CookieRotationSettings:
+    return CookieRotationSettings(
+        enabled=_parse_bool(raw.get("enabled", DEFAULT_COOKIE_ROTATION_ENABLED)),
+        skip_expired=_parse_bool(raw.get("skip_expired", DEFAULT_COOKIE_ROTATION_SKIP_EXPIRED)),
     )
 
 
