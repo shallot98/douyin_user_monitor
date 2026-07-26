@@ -12,7 +12,6 @@ from douyin_user_monitor.monitor.service import MonitorService
 from douyin_user_monitor.monitor.storage import MonitorStorage, build_default_state
 from douyin_user_monitor.monitor.user_sync import UserSyncService
 
-
 SAMPLE_PROFILE = {
     "user": {
         "nickname": "测试用户",

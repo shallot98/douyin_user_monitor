@@ -8,13 +8,13 @@ from typing import Any, Dict, List, Optional
 from douyin_user_monitor.monitor.cookie_liveness import (
     STATUS_HEALTHY,
     CookieLivenessConfig,
-    CookieLivenessService,
 )
+from douyin_user_monitor.monitor.cookie_liveness_service import CookieLivenessService
 from douyin_user_monitor.monitor.cookie_pool import (
     CookiePoolService,
-    mask_cookie,
     to_public_item,
 )
+from douyin_user_monitor.monitor.cookie_pool_items import mask_cookie
 from douyin_user_monitor.monitor.profile_parser import ACCOUNT_STATUS_NORMAL
 
 CHINA_TZ = timezone(timedelta(hours=8))

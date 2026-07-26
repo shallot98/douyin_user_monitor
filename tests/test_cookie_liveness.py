@@ -4,28 +4,27 @@ import unittest
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List
 
+from douyin_user_monitor.monitor.cookie_download_liveness import (
+    DOWNLOAD_SOURCE_HISTORY,
+    DOWNLOAD_SOURCE_INCREMENTAL,
+    collect_incremental_download_samples,
+)
 from douyin_user_monitor.monitor.cookie_liveness import (
     STATUS_DEGRADED,
     STATUS_EXPIRED,
     STATUS_HEALTHY,
     STATUS_UNKNOWN,
     CookieLivenessConfig,
-    CookieLivenessService,
     evaluate_cookie_liveness,
     evaluate_download_liveness,
     extract_latest_create_time,
+    parse_iso_datetime,
     select_probe_users,
     should_send_cookie_alert,
 )
-from douyin_user_monitor.monitor.cookie_download_liveness import (
-    DOWNLOAD_SOURCE_HISTORY,
-    DOWNLOAD_SOURCE_INCREMENTAL,
-    collect_incremental_download_samples,
-)
-from douyin_user_monitor.monitor.cookie_liveness import parse_iso_datetime
+from douyin_user_monitor.monitor.cookie_liveness_service import CookieLivenessService
 from douyin_user_monitor.monitor.hermes_weixin_sender import HermesWeixinConfig, HermesWeixinSender
 from douyin_user_monitor.monitor.profile_parser import ACCOUNT_STATUS_BANNED, ACCOUNT_STATUS_NORMAL
-
 
 CHINA_TZ = timezone(timedelta(hours=8))
 NOW = datetime(2026, 7, 16, 12, 0, 0, tzinfo=CHINA_TZ)

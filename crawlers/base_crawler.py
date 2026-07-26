@@ -41,7 +41,6 @@ from httpx import Response
 
 from crawlers.utils.logger import logger
 from crawlers.utils.api_exceptions import (
-    APIError,
     APIConnectionError,
     APIResponseError,
     APITimeoutError,
@@ -203,16 +202,19 @@ class BaseCrawler:
                 response.raise_for_status()
                 return response
 
-            except httpx.RequestError:
-                raise APIConnectionError("连接端点失败，检查网络环境或代理：{0} 代理：{1} 类名：{2}"
-                                         .format(url, self.proxies, self.__class__.__name__)
-                                         )
+            except httpx.RequestError as request_error:
+                if attempt == self._max_retries - 1:
+                    raise APIConnectionError("连接端点失败，检查网络环境或代理：{0} 代理：{1} 类名：{2}"
+                                             .format(url, self.proxies, self.__class__.__name__)
+                                             )
+
+                logger.warning("第 {0} 次连接失败: {1}, URL:{2}".format(attempt + 1, request_error, url))
+                await asyncio.sleep(self._timeout)
 
             except httpx.HTTPStatusError as http_error:
                 self.handle_http_status_error(http_error, url, attempt + 1)
 
-            except APIError as e:
-                e.display_error()
+        raise APIRetryExhaustedError("获取端点数据失败, 次数达到上限")
 
     async def post_fetch_data(self, url: str, params: dict = {}, data=None):
         """
@@ -252,17 +254,20 @@ class BaseCrawler:
                 response.raise_for_status()
                 return response
 
-            except httpx.RequestError:
-                raise APIConnectionError(
-                    "连接端点失败，检查网络环境或代理：{0} 代理：{1} 类名：{2}".format(url, self.proxies,
-                                                                                   self.__class__.__name__)
-                )
+            except httpx.RequestError as request_error:
+                if attempt == self._max_retries - 1:
+                    raise APIConnectionError(
+                        "连接端点失败，检查网络环境或代理：{0} 代理：{1} 类名：{2}".format(url, self.proxies,
+                                                                                       self.__class__.__name__)
+                    )
+
+                logger.warning("第 {0} 次连接失败: {1}, URL:{2}".format(attempt + 1, request_error, url))
+                await asyncio.sleep(self._timeout)
 
             except httpx.HTTPStatusError as http_error:
                 self.handle_http_status_error(http_error, url, attempt + 1)
 
-            except APIError as e:
-                e.display_error()
+        raise APIRetryExhaustedError("获取端点数据失败, 次数达到上限")
 
     async def head_fetch_data(self, url: str):
         """
@@ -288,9 +293,6 @@ class BaseCrawler:
 
         except httpx.HTTPStatusError as http_error:
             self.handle_http_status_error(http_error, url, 1)
-
-        except APIError as e:
-            e.display_error()
 
     def handle_http_status_error(self, http_error, url: str, attempt):
         """
@@ -329,6 +331,9 @@ class BaseCrawler:
         elif status_code == 408:
             raise APITimeoutError(f"HTTP Status Code {status_code}")
         elif status_code == 401:
+            raise APIUnauthorizedError(f"HTTP Status Code {status_code}")
+        elif status_code == 403:
+            # 抖音风控/失效 Cookie 常返回 403，与 401 同视为鉴权失败信号
             raise APIUnauthorizedError(f"HTTP Status Code {status_code}")
         elif status_code == 429:
             raise APIRateLimitError(f"HTTP Status Code {status_code}")

@@ -4,7 +4,7 @@ import uvicorn
 
 
 def main() -> None:
-    host = os.getenv("DYMON_HOST", "0.0.0.0")
+    host = os.getenv("DYMON_HOST", "127.0.0.1")
     port = int(os.getenv("DYMON_PORT", "8900"))
     uvicorn.run("douyin_user_monitor.main:app", host=host, port=port, reload=False)
 

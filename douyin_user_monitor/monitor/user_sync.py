@@ -1,7 +1,9 @@
 import asyncio
 from typing import Any, Dict, List, Set
 
+from douyin_user_monitor.monitor.crawler_protocol import MonitorCrawlerProtocol
 from douyin_user_monitor.monitor.downloader import AwemeAssetDownloader
+from douyin_user_monitor.monitor.errors import sanitize_public_error
 from douyin_user_monitor.monitor.history_sync import (
     ACTIVE_HISTORY_SYNC_STATUSES,
     complete_history_sync,
@@ -19,14 +21,12 @@ from douyin_user_monitor.monitor.profile_parser import (
     extract_avatar_url,
     extract_nickname,
 )
-from douyin_user_monitor.monitor.storage import utc_now
-from douyin_user_monitor.monitor.crawler_protocol import MonitorCrawlerProtocol
 from douyin_user_monitor.monitor.sync_utils import (
     format_publish_time,
     merge_download_records,
     merge_downloaded_ids,
-    safe_int,
 )
+from douyin_user_monitor.monitor.timeutils import cn_now, safe_int
 
 INCREMENTAL_FETCH_POSTS = 20
 
@@ -83,7 +83,7 @@ class UserSyncService:
             user.update(
                 build_profile_snapshot_fields(
                     snapshot,
-                    updated_at=utc_now(),
+                    updated_at=cn_now(),
                 )
             )
             # Preserve existing nickname when API returns empty (deleted/banned users)
@@ -95,18 +95,19 @@ class UserSyncService:
             # Auto-pause monitoring when account is deleted or banned
             if old_status == ACCOUNT_STATUS_NORMAL and new_status in (ACCOUNT_STATUS_DELETED, ACCOUNT_STATUS_BANNED):
                 user["enabled"] = False
-            count = await self._sync_user_latest(user)
+            count = await self._sync_user_latest(user, summary)
             count += await self.sync_history_backfill_step(user)
             summary["downloaded_items"] += count
             user["last_error"] = None
         except Exception as exc:
-            user["last_error"] = str(exc)
+            safe_error = sanitize_public_error(exc)
+            user["last_error"] = safe_error
             summary["errors"].append(
-                {"user_id": user["id"], "nickname": user["nickname"], "error": str(exc)}
+                {"user_id": user["id"], "nickname": user["nickname"], "error": safe_error}
             )
         finally:
-            user["last_checked_at"] = utc_now()
-            user["updated_at"] = utc_now()
+            user["last_checked_at"] = cn_now()
+            user["updated_at"] = cn_now()
 
     async def _notify_if_status_changed(
         self,
@@ -126,7 +127,7 @@ class UserSyncService:
             except Exception:
                 pass
 
-    async def _sync_user_latest(self, user: Dict[str, Any]) -> int:
+    async def _sync_user_latest(self, user: Dict[str, Any], summary: Dict[str, Any]) -> int:
         account_status = str(user.get("account_status") or ACCOUNT_STATUS_NORMAL).strip()
         if account_status in (ACCOUNT_STATUS_DELETED, ACCOUNT_STATUS_BANNED):
             return 0
@@ -144,13 +145,19 @@ class UserSyncService:
             return 0
 
         headers = (await self._crawler.get_douyin_headers())["headers"]
-        downloaded_records, _ = await self._download_posts(
+        # 单个作品失败不丢弃本批已完成的下载：已落盘的作品记入 downloaded_aweme_ids，
+        # 否则下一轮会重新选中并重复推送通知。失败作品记入 summary，下轮自然重试。
+        downloaded_records, errors = await self._download_posts(
             user=user,
             posts=new_posts,
             headers=headers,
             notify=True,
-            continue_on_error=False,
+            continue_on_error=True,
         )
+        for error in errors:
+            summary["errors"].append(
+                {"user_id": user["id"], "nickname": user["nickname"], "error": error}
+            )
         return self._apply_download_results(
             user,
             downloaded_records,
@@ -169,7 +176,7 @@ class UserSyncService:
         )
         aweme_list = page["aweme_list"]
         if not aweme_list:
-            complete_history_sync(history_sync, now=utc_now())
+            complete_history_sync(history_sync, now=cn_now())
             return 0
 
         downloaded_ids = set(user.get("downloaded_aweme_ids", []))
@@ -240,7 +247,7 @@ class UserSyncService:
             except Exception as exc:
                 if not continue_on_error:
                     raise
-                errors.append(f"{aweme_id or '-'}: {exc}")
+                errors.append(f"{aweme_id or '-'}: {sanitize_public_error(exc)}")
         return downloaded_records, errors
 
     async def _fetch_posts_page(
@@ -293,7 +300,7 @@ class UserSyncService:
         if not downloaded_post_ids:
             return 0
 
-        user["last_download_at"] = utc_now()
+        user["last_download_at"] = cn_now()
         user["downloaded_count"] = int(user.get("downloaded_count", 0)) + len(downloaded_post_ids)
         user["downloaded_aweme_ids"] = merge_downloaded_ids(
             user.get("downloaded_aweme_ids", []),
@@ -320,7 +327,7 @@ class UserSyncService:
             scanned_count=scanned_count,
             downloaded_count=downloaded_count,
             errors=errors,
-            now=utc_now(),
+            now=cn_now(),
         )
 
     def _build_download_record(
@@ -339,7 +346,7 @@ class UserSyncService:
             "aweme_id": aweme_id,
             "desc": str(aweme_detail.get("desc", "")).strip(),
             "publish_time": format_publish_time(aweme_detail.get("create_time")),
-            "downloaded_at": utc_now(),
+            "downloaded_at": cn_now(),
             "media_type": media_type,
             "source": source,
             "image_count": safe_int(asset_result.get("image_count")),

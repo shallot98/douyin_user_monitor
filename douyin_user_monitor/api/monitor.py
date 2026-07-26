@@ -1,31 +1,30 @@
 from __future__ import annotations
 
+from typing import Any
 from urllib.parse import urlparse
 
 import httpx
-from typing import Any
-
 from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, Response
 from pydantic import BaseModel, Field
 
 from douyin_user_monitor.api.models import ErrorResponseModel, ResponseModel
-from douyin_user_monitor.monitor.cookie_liveness import CookieLivenessConfig, CookieLivenessService
+from douyin_user_monitor.crawler.inprocess_client import DEFAULT_HEADERS, InProcessDouyinClient
+from douyin_user_monitor.monitor.cookie_liveness import CookieLivenessConfig
+from douyin_user_monitor.monitor.cookie_liveness_service import CookieLivenessService
 from douyin_user_monitor.monitor.cookie_pool import CookiePoolService
 from douyin_user_monitor.monitor.hermes_weixin_sender import HermesWeixinConfig, HermesWeixinSender
 from douyin_user_monitor.monitor.notifier import NoopMonitorNotifier
+from douyin_user_monitor.monitor.schedule import MODE_COVERAGE, MODE_INTERVAL
 from douyin_user_monitor.monitor.service import (
     MIN_INTERVAL_HOURS,
-    MODE_COVERAGE,
-    MODE_INTERVAL,
     MonitorService,
 )
+from douyin_user_monitor.monitor.statistics import build_user_statistics
+from douyin_user_monitor.monitor.storage import MonitorStorage
 from douyin_user_monitor.monitor.telegram_notifier import TelegramNotifier
 from douyin_user_monitor.monitor.user_lookup import find_user_by_id
-from douyin_user_monitor.monitor.storage import MonitorStorage
-from douyin_user_monitor.monitor.statistics import build_user_statistics
-from douyin_user_monitor.settings import load_settings
-from douyin_user_monitor.crawler.inprocess_client import DEFAULT_HEADERS, InProcessDouyinClient
+from douyin_user_monitor.settings_loaders import load_settings
 
 router = APIRouter()
 AVATAR_CACHE_SECONDS = 3600
@@ -321,6 +320,7 @@ async def add_user_by_url(
     request: Request,
     profile_url: str = Query(min_length=1, description="抖音用户主页链接"),
 ) -> ResponseModel:
+    """添加监控用户；GET 方式已 deprecated（状态变更应使用 POST），仅为兼容旧链接保留。"""
     try:
         result = await monitor_service.add_user_with_status(profile_url)
     except Exception as exc:  # noqa: BLE001

@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 from contextlib import asynccontextmanager
-from typing import Any, AsyncIterator, Dict, List, Optional
+from typing import Any, AsyncIterator, Callable, Dict, List, Optional
 
-from douyin_user_monitor.monitor.cookie_liveness import CookieLivenessService
+from douyin_user_monitor.monitor.cookie_liveness_service import CookieLivenessService
 from douyin_user_monitor.monitor.cookie_pool_items import (
     DEFAULT_COOKIE_NAME,
     CookiePoolStorage,
@@ -14,20 +14,20 @@ from douyin_user_monitor.monitor.cookie_pool_items import (
     ensure_cookie_pool,
     find_item,
     liveness_payload_from_result,
-    mask_cookie,
-    sanitize_public_error,
     to_public_item,
     touch_pool_timestamps,
-)
-from douyin_user_monitor.monitor.cookie_rotation import (
-    pick_round_robin,
-    select_rotation_candidates,
 )
 from douyin_user_monitor.monitor.cookie_pool_rotation_write import (
     begin_rotation_use,
     write_rotation_outcome,
 )
-from douyin_user_monitor.monitor.storage import utc_now
+from douyin_user_monitor.monitor.cookie_rotation import (
+    pick_round_robin,
+    select_rotation_candidates,
+)
+from douyin_user_monitor.monitor.errors import sanitize_public_error
+from douyin_user_monitor.monitor.timeutils import cn_now
+
 
 class CookiePoolService:
     def __init__(
@@ -55,20 +55,22 @@ class CookiePoolService:
         if not cookie_text:
             raise ValueError("Cookie 不能为空")
 
-        state = await self._load_bootstrapped()
-        pool = ensure_cookie_pool(state["monitoring"])
-        items: List[Dict[str, Any]] = pool["items"]
-        auto_name = (name or "").strip() or f"cookie-{len(items) + 1}"
-        is_first = len(items) == 0
-        item = build_cookie_item(cookie=cookie_text, name=auto_name, is_active=is_first)
-        items.append(item)
-        touch_pool_timestamps(state, pool, item)
+        await self._ensure_bootstrapped()
+        public: Dict[str, Any] = {}
 
-        if is_first:
+        def _add(state: Dict[str, Any]) -> None:
+            pool = ensure_cookie_pool(state["monitoring"])
+            items: List[Dict[str, Any]] = pool["items"]
+            auto_name = (name or "").strip() or f"cookie-{len(items) + 1}"
+            item = build_cookie_item(cookie=cookie_text, name=auto_name, is_active=len(items) == 0)
+            items.append(item)
+            touch_pool_timestamps(state, pool, item)
+            public.update(to_public_item(item))
+
+        self._storage.update_state(_add)
+        if public.get("is_active"):
             await self._crawler.update_cookie(cookie_text)
-
-        self._storage.save_state(state)
-        return to_public_item(item)
+        return public
 
     async def update_item(
         self,
@@ -77,53 +79,45 @@ class CookiePoolService:
         name: Optional[str] = None,
         cookie: Optional[str] = None,
     ) -> Dict[str, Any]:
-        state = await self._load_bootstrapped()
-        pool = ensure_cookie_pool(state["monitoring"])
-        item = find_item(pool["items"], item_id)
-        if item is None:
-            raise KeyError("Cookie 不存在")
+        await self._ensure_bootstrapped()
+        active_cookie_changed: List[str] = []
 
-        if name is not None:
-            text = name.strip()
-            if not text:
-                raise ValueError("名称不能为空")
-            item["name"] = text
+        def _update(state: Dict[str, Any], pool: Dict[str, Any], item: Dict[str, Any]) -> None:
+            if name is not None:
+                text = name.strip()
+                if not text:
+                    raise ValueError("名称不能为空")
+                item["name"] = text
+            if cookie is not None:
+                cookie_text = cookie.strip()
+                if not cookie_text:
+                    raise ValueError("Cookie 不能为空")
+                item["cookie"] = cookie_text
+                clear_cookie_check_fields(item)
+                if item.get("is_active"):
+                    active_cookie_changed.append(cookie_text)
+            touch_pool_timestamps(state, pool, item)
 
-        cookie_changed = False
-        if cookie is not None:
-            cookie_text = cookie.strip()
-            if not cookie_text:
-                raise ValueError("Cookie 不能为空")
-            item["cookie"] = cookie_text
-            clear_cookie_check_fields(item)
-            cookie_changed = True
-
-        touch_pool_timestamps(state, pool, item)
-        if cookie_changed and item.get("is_active"):
-            await self._crawler.update_cookie(str(item["cookie"]))
-        self._storage.save_state(state)
-        return to_public_item(item)
+        public = self._update_pool_item(item_id, _update)
+        if active_cookie_changed:
+            await self._crawler.update_cookie(active_cookie_changed[0])
+        return public
 
     async def delete_item(self, item_id: str) -> Dict[str, Any]:
-        state = await self._load_bootstrapped()
-        pool = ensure_cookie_pool(state["monitoring"])
-        item = find_item(pool["items"], item_id)
-        if item is None:
-            raise KeyError("Cookie 不存在")
-        if item.get("is_active"):
-            raise ValueError("不能删除当前启用的 Cookie，请先启用其他条目")
+        await self._ensure_bootstrapped()
 
-        public = to_public_item(item)
-        pool["items"] = [row for row in pool["items"] if str(row.get("id") or "") != item_id]
-        pool["updated_at"] = utc_now()
-        state["monitoring"]["updated_at"] = pool["updated_at"]
-        self._storage.save_state(state)
-        return public
+        def _delete(state: Dict[str, Any], pool: Dict[str, Any], item: Dict[str, Any]) -> None:
+            if item.get("is_active"):
+                raise ValueError("不能删除当前启用的 Cookie，请先启用其他条目")
+            pool["items"] = [row for row in pool["items"] if str(row.get("id") or "") != item_id]
+            pool["updated_at"] = cn_now()
+            state["monitoring"]["updated_at"] = pool["updated_at"]
+
+        return self._update_pool_item(item_id, _delete)
 
     async def activate(self, item_id: str) -> Dict[str, Any]:
         state = await self._load_bootstrapped()
-        pool = ensure_cookie_pool(state["monitoring"])
-        item = find_item(pool["items"], item_id)
+        item = find_item(ensure_cookie_pool(state["monitoring"])["items"], item_id)
         if item is None:
             raise KeyError("Cookie 不存在")
 
@@ -132,23 +126,24 @@ class CookiePoolService:
             raise ValueError("Cookie 内容为空，无法启用")
 
         await self._crawler.update_cookie(cookie_text)
-        now = utc_now()
-        for row in pool["items"]:
-            if not isinstance(row, dict):
-                continue
-            active = str(row.get("id") or "") == item_id
-            row["is_active"] = active
-            if active:
-                row["updated_at"] = now
-        pool["updated_at"] = now
-        state["monitoring"]["updated_at"] = now
-        self._storage.save_state(state)
-        return to_public_item(item)
+
+        def _activate(state: Dict[str, Any], pool: Dict[str, Any], item: Dict[str, Any]) -> None:
+            now = cn_now()
+            for row in pool["items"]:
+                if not isinstance(row, dict):
+                    continue
+                active = str(row.get("id") or "") == item_id
+                row["is_active"] = active
+                if active:
+                    row["updated_at"] = now
+            pool["updated_at"] = now
+            state["monitoring"]["updated_at"] = now
+
+        return self._update_pool_item(item_id, _activate)
 
     async def check_item(self, item_id: str) -> Dict[str, Any]:
         state = await self._load_bootstrapped()
-        pool = ensure_cookie_pool(state["monitoring"])
-        item = find_item(pool["items"], item_id)
+        item = find_item(ensure_cookie_pool(state["monitoring"])["items"], item_id)
         if item is None:
             raise KeyError("Cookie 不存在")
 
@@ -160,8 +155,12 @@ class CookiePoolService:
             async with self._crawler.temporary_cookie(cookie_text):
                 result = await self._liveness.run_check(state["users"], force_probe=True)
         except Exception as exc:  # noqa: BLE001
-            now = utc_now()
-            safe_err = sanitize_public_error(exc)
+            return self._commit_check_failure(item_id, sanitize_public_error(exc))
+        return self._commit_check_result(item_id, result)
+
+    def _commit_check_failure(self, item_id: str, safe_err: str) -> Dict[str, Any]:
+        def _fail(state: Dict[str, Any], pool: Dict[str, Any], item: Dict[str, Any]) -> None:
+            now = cn_now()
             item["last_error"] = safe_err
             item["status"] = "unknown"
             item["reason"] = f"测活失败: {safe_err}"
@@ -169,20 +168,41 @@ class CookiePoolService:
             item["updated_at"] = now
             pool["updated_at"] = now
             state["monitoring"]["updated_at"] = now
-            self._storage.save_state(state)
-            return to_public_item(item)
 
-        apply_liveness_to_item(item, result)
-        if item.get("is_active"):
-            prev = state["monitoring"].get("cookie_liveness")
-            state["monitoring"]["cookie_liveness"] = liveness_payload_from_result(
-                result,
-                previous=prev if isinstance(prev, dict) else None,
-            )
-        pool["updated_at"] = item["updated_at"]
-        state["monitoring"]["updated_at"] = item["updated_at"]
-        self._storage.save_state(state)
-        return to_public_item(item)
+        return self._update_pool_item(item_id, _fail)
+
+    def _commit_check_result(self, item_id: str, result: Any) -> Dict[str, Any]:
+        def _apply(state: Dict[str, Any], pool: Dict[str, Any], item: Dict[str, Any]) -> None:
+            apply_liveness_to_item(item, result)
+            if item.get("is_active"):
+                prev = state["monitoring"].get("cookie_liveness")
+                state["monitoring"]["cookie_liveness"] = liveness_payload_from_result(
+                    result,
+                    previous=prev if isinstance(prev, dict) else None,
+                )
+            pool["updated_at"] = item["updated_at"]
+            state["monitoring"]["updated_at"] = item["updated_at"]
+
+        return self._update_pool_item(item_id, _apply)
+
+    def _update_pool_item(
+        self,
+        item_id: str,
+        mutate: Callable[[Dict[str, Any], Dict[str, Any], Dict[str, Any]], None],
+    ) -> Dict[str, Any]:
+        """锁内定位条目并提交纯状态变更；条目不存在时不写盘直接抛错。"""
+        public: Dict[str, Any] = {}
+
+        def _apply(state: Dict[str, Any]) -> None:
+            pool = ensure_cookie_pool(state["monitoring"])
+            item = find_item(pool["items"], item_id)
+            if item is None:
+                raise KeyError("Cookie 不存在")
+            mutate(state, pool, item)
+            public.update(to_public_item(item))
+
+        self._storage.update_state(_apply)
+        return public
 
     def rotation_enabled(self) -> bool:
         return self._rotation_enabled
@@ -247,20 +267,27 @@ class CookiePoolService:
 
 
     async def _load_bootstrapped(self) -> Dict[str, Any]:
+        await self._ensure_bootstrapped()
+        return self._storage.load_state()
 
+    async def _ensure_bootstrapped(self) -> None:
+        """池为空时用 crawler 当前 Cookie 播种；提交走锁内 RMW 防重复播种。"""
         state = self._storage.load_state()
-        monitoring = state.setdefault("monitoring", {})
-        pool = ensure_cookie_pool(monitoring)
-        if pool["items"]:
-            return state
+        if ensure_cookie_pool(state.setdefault("monitoring", {}))["items"]:
+            return
 
         raw = (await self._crawler.get_cookie()).strip()
         if not raw:
-            return state
+            return
 
-        pool["items"] = [build_cookie_item(cookie=raw, name=DEFAULT_COOKIE_NAME, is_active=True)]
-        pool["updated_at"] = utc_now()
-        monitoring["updated_at"] = pool["updated_at"]
-        self._storage.save_state(state)
-        return state
+        def _seed(locked: Dict[str, Any]) -> None:
+            monitoring = locked.setdefault("monitoring", {})
+            pool = ensure_cookie_pool(monitoring)
+            if pool["items"]:
+                return
+            pool["items"] = [build_cookie_item(cookie=raw, name=DEFAULT_COOKIE_NAME, is_active=True)]
+            pool["updated_at"] = cn_now()
+            monitoring["updated_at"] = pool["updated_at"]
+
+        self._storage.update_state(_seed)
 

@@ -1,10 +1,9 @@
 from __future__ import annotations
 
 import unittest
-from pathlib import Path
 
-from douyin_user_monitor.settings import load_settings
 from douyin_user_monitor.crawler.inprocess_client import InProcessDouyinClient
+from douyin_user_monitor.settings_loaders import load_settings
 
 
 class InProcessCrawlerConfigTests(unittest.TestCase):

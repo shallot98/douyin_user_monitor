@@ -106,15 +106,14 @@ class PriorityEnqueueTests(unittest.IsolatedAsyncioTestCase):
     async def test_insert_priority_user_to_front_of_pending(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             service = _build_service(Path(temp_dir))
-            existing = _seed_user(service, "user-old", "旧用户")
-            new_user = _seed_user(service, "user-new", "新用户")
-            state = service._storage.load_state()
-            pending = [existing, new_user]
+            _seed_user(service, "user-old", "旧用户")
+            _seed_user(service, "user-new", "新用户")
+            pending_ids = ["user-old", "user-new"]
             service._coverage_priority_user_ids = ["user-new"]
 
-            service._insert_priority_users_into_pending(state, pending, processed_user_ids=set())
+            service._insert_priority_user_ids_into_pending(pending_ids, processed_user_ids=set())
 
-            self.assertEqual([user["id"] for user in pending], ["user-new", "user-old"])
+            self.assertEqual(pending_ids, ["user-new", "user-old"])
             self.assertEqual(service._coverage_priority_user_ids, [])
 
     async def test_drain_priority_users_runs_sync_one_user(self):
@@ -122,7 +121,7 @@ class PriorityEnqueueTests(unittest.IsolatedAsyncioTestCase):
             service = _build_service(Path(temp_dir))
             _seed_user(service, "user-new", "新用户")
             service._coverage_priority_user_ids = ["user-new"]
-            service._active_coverage_state = None
+            service._coverage_cycle_active = False
 
             with patch.object(
                 service._sync_service,
@@ -141,7 +140,7 @@ class PriorityEnqueueTests(unittest.IsolatedAsyncioTestCase):
             service = _build_service(Path(temp_dir))
             _seed_user(service, "user-new", "新用户")
             service._coverage_priority_user_ids = ["user-new"]
-            service._active_coverage_state = {"users": []}
+            service._coverage_cycle_active = True
 
             with patch.object(
                 service._sync_service,

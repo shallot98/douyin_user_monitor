@@ -1,13 +1,12 @@
-import unittest
 import tempfile
+import unittest
 from pathlib import Path
 
 from douyin_user_monitor.monitor.notifier import NoopMonitorNotifier
+from douyin_user_monitor.monitor.profile_parser import extract_account_status
 from douyin_user_monitor.monitor.service import MonitorService
 from douyin_user_monitor.monitor.storage import MonitorStorage, build_default_state
-from douyin_user_monitor.monitor.profile_parser import extract_account_status
 from douyin_user_monitor.monitor.user_sync import UserSyncService
-
 
 DELETED_PROFILE = {
     "status_code": 0,

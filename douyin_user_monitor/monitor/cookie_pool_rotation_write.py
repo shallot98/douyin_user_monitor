@@ -8,17 +8,12 @@ from douyin_user_monitor.monitor.cookie_pool_items import (
     to_public_item,
 )
 from douyin_user_monitor.monitor.cookie_rotation import apply_rotation_outcome
-from douyin_user_monitor.monitor.storage import utc_now
+from douyin_user_monitor.monitor.timeutils import cn_now
 
 
 def mutate_pool_state(storage: Any, mutator: Callable[[Dict[str, Any]], None]) -> None:
-    update = getattr(storage, "update_state", None)
-    if callable(update):
-        update(mutator)
-        return
-    state = storage.load_state()
-    mutator(state)
-    storage.save_state(state)
+    # storage 协议保证提供 update_state（锁内原子 RMW）；不做静默降级到无锁 load→save。
+    storage.update_state(mutator)
 
 
 def begin_rotation_use(
@@ -34,7 +29,7 @@ def begin_rotation_use(
         item = find_item(pool["items"], item_id)
         if item is None:
             return
-        now = utc_now()
+        now = cn_now()
         item["use_count"] = int(item.get("use_count") or 0) + 1
         item["last_used_at"] = now
         item["updated_at"] = now
@@ -67,7 +62,7 @@ def write_rotation_outcome(
             item,
             success=success,
             error_text=error_text,
-            now=utc_now(),
+            now=cn_now(),
         )
         pool["updated_at"] = item["updated_at"]
         state["monitoring"]["updated_at"] = item["updated_at"]

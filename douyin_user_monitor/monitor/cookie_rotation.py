@@ -53,9 +53,11 @@ def pick_round_robin(
 DEFAULT_AUTH_FAIL_LIMIT = 3
 # Strong phrases only — avoid bare "cookie"/"session"/"expired"/"auth"/"login"
 # which match network/timeout/TLS noise and false-expire healthy cookies.
+# Bare "401"/"403" are excluded on purpose: numeric IDs/timestamps (e.g.
+# aweme_id=7401234567) would otherwise be misread as auth failures. The real
+# typed errors surface as "HTTP Status Code 401"/"403" (see base_crawler),
+# matched by the anchored status-code markers below.
 _AUTH_MARKERS = (
-    "401",
-    "403",
     "passport",
     "未登录",
     "鉴权",
@@ -67,10 +69,14 @@ _AUTH_MARKERS = (
     "authentication",
     "unauthorized",
     "permission denied",
+    "status code 401",
+    "status code 403",
     "status_code=401",
     "status_code=403",
     "http 401",
     "http 403",
+    "401 unauthorized",
+    "403 forbidden",
     "session invalid",
     "session expired",
 )

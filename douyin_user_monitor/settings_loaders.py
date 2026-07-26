@@ -6,18 +6,15 @@ from typing import Any, Dict
 
 from douyin_user_monitor.settings import (
     CRAWLER_CONFIG_ENV,
-    CookieLivenessSettings,
-    CookieRotationSettings,
-    CrawlerSettings,
     DEFAULT_AVATAR_TIMEOUT_SECONDS,
     DEFAULT_COOKIE_LIVENESS_ALERT_COOLDOWN_HOURS,
-    DEFAULT_COOKIE_ROTATION_ENABLED,
-    DEFAULT_COOKIE_ROTATION_SKIP_EXPIRED,
     DEFAULT_COOKIE_LIVENESS_ENABLED,
     DEFAULT_COOKIE_LIVENESS_INTERVAL_HOURS,
     DEFAULT_COOKIE_LIVENESS_MIN_SAMPLES,
     DEFAULT_COOKIE_LIVENESS_SAMPLE_USER_COUNT,
     DEFAULT_COOKIE_LIVENESS_STALE_DAYS,
+    DEFAULT_COOKIE_ROTATION_ENABLED,
+    DEFAULT_COOKIE_ROTATION_SKIP_EXPIRED,
     DEFAULT_CRAWLER_CONFIG_PATH,
     DEFAULT_DOWNLOAD_ROOT,
     DEFAULT_HERMES_WEIXIN_BIN,
@@ -32,16 +29,19 @@ from douyin_user_monitor.settings import (
     DEFAULT_TG_ENABLED,
     DEFAULT_TG_TIMEOUT_SECONDS,
     DOWNLOAD_ROOT_ENV,
-    HermesWeixinSettings,
-    MonitorSettings,
-    NotificationSettings,
     STATE_PATH_ENV,
-    Settings,
     TG_API_BASE_ENV,
     TG_BOT_TOKEN_ENV,
     TG_CHAT_ID_ENV,
     TG_ENABLED_ENV,
     TG_TIMEOUT_ENV,
+    CookieLivenessSettings,
+    CookieRotationSettings,
+    CrawlerSettings,
+    HermesWeixinSettings,
+    MonitorSettings,
+    NotificationSettings,
+    Settings,
     TelegramSettings,
     _ensure_dict,
     _load_yaml,
@@ -51,6 +51,7 @@ from douyin_user_monitor.settings import (
     _resolve_config_path,
     _resolve_path,
 )
+
 
 def load_settings() -> Settings:
     project_root = Path(__file__).resolve().parents[1]

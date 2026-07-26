@@ -1,12 +1,12 @@
 from __future__ import annotations
 
 from collections.abc import Iterable
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 from typing import Any, Dict, List
 
 from douyin_user_monitor.monitor.profile_parser import ACCOUNT_STATUS_NORMAL
+from douyin_user_monitor.monitor.timeutils import CHINA_TZ, safe_int
 
-CHINA_TZ = timezone(timedelta(hours=8))
 SILENT_7D_DAYS = 7
 SILENT_30D_DAYS = 30
 TOP_DOWNLOADED_USERS_LIMIT = 12
@@ -128,7 +128,7 @@ def _build_user_identity(user: Dict[str, Any]) -> Dict[str, Any]:
 
 def _build_user_content_metrics(user: Dict[str, Any], records: List[Dict[str, Any]]) -> Dict[str, Any]:
     total_downloaded_works = max(
-        _safe_int(user.get("downloaded_count")),
+        safe_int(user.get("downloaded_count")),
         _unique_non_empty_count(user.get("downloaded_aweme_ids")),
         len(records),
     )
@@ -137,8 +137,8 @@ def _build_user_content_metrics(user: Dict[str, Any], records: List[Dict[str, An
         "structured_work_count": len(records),
         "known_video_posts": sum(1 for record in records if record.get("media_type") == "video"),
         "known_image_posts": sum(1 for record in records if record.get("media_type") == "image"),
-        "known_image_assets": sum(_safe_int(record.get("image_count")) for record in records),
-        "structured_total_size_bytes": sum(_safe_int(record.get("total_size_bytes")) for record in records),
+        "known_image_assets": sum(safe_int(record.get("image_count")) for record in records),
+        "structured_total_size_bytes": sum(safe_int(record.get("total_size_bytes")) for record in records),
     }
 
 
@@ -265,13 +265,6 @@ def _ratio(numerator: int, denominator: int) -> float:
     if denominator <= 0:
         return 0.0
     return numerator / denominator
-
-
-def _safe_int(value: Any) -> int:
-    try:
-        return int(value)
-    except (TypeError, ValueError):
-        return 0
 
 
 def _unique_non_empty_count(values: Any) -> int:

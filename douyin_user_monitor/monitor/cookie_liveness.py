@@ -4,13 +4,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional, Protocol, Sequence
 
-from douyin_user_monitor.monitor.cookie_download_liveness import (
-    MIN_DOWNLOAD_LOOKBACK_DAYS,
-    MAX_DOWNLOAD_SAMPLES,
-    collect_incremental_download_samples,
-)
 from douyin_user_monitor.monitor.profile_parser import ACCOUNT_STATUS_NORMAL
-from douyin_user_monitor.monitor.storage import utc_now
 
 STATUS_HEALTHY = "healthy"
 STATUS_EXPIRED = "expired"
@@ -292,4 +286,3 @@ def parse_iso_datetime(value: str) -> Optional[datetime]:
 def default_now() -> datetime:
     return datetime.now(timezone(timedelta(hours=8)))
 
-from douyin_user_monitor.monitor.cookie_liveness_service import CookieLivenessService  # noqa: E402

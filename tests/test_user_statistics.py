@@ -8,7 +8,6 @@ from douyin_user_monitor.api import monitor as monitor_api
 from douyin_user_monitor.main import app
 from douyin_user_monitor.monitor.statistics import build_user_statistics
 
-
 CHINA_TZ = timezone(timedelta(hours=8))
 
 

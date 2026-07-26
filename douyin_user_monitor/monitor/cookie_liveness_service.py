@@ -13,8 +13,6 @@ from douyin_user_monitor.monitor.cookie_liveness import (
     SAMPLE_POST_COUNT,
     SECONDS_PER_DAY,
     SIGNAL_COMBINED,
-    SIGNAL_DOWNLOAD,
-    SIGNAL_PROBE,
     STATUS_DEGRADED,
     STATUS_EXPIRED,
     STATUS_HEALTHY,
@@ -32,7 +30,7 @@ from douyin_user_monitor.monitor.cookie_liveness import (
     select_probe_users,
     should_send_cookie_alert,
 )
-from douyin_user_monitor.monitor.storage import utc_now
+from douyin_user_monitor.monitor.timeutils import cn_now
 
 
 class CookieLivenessService:
@@ -82,12 +80,12 @@ class CookieLivenessService:
                 try:
                     await self._alerter.send(self._build_alert_message(result))
                     alerted = True
-                    last_alert_at = utc_now()
+                    last_alert_at = cn_now()
                 except Exception as exc:  # noqa: BLE001
                     alert_error = str(exc)
 
         payload = {
-            "last_check_at": utc_now(),
+            "last_check_at": cn_now(),
             "status": result.status,
             "reason": result.reason,
             "signal": result.signal,
@@ -98,10 +96,10 @@ class CookieLivenessService:
             "last_alert_at": last_alert_at,
             "last_error": alert_error,
             "alerted": alerted,
-            "updated_at": utc_now(),
+            "updated_at": cn_now(),
         }
         monitoring["cookie_liveness"] = payload
-        monitoring["updated_at"] = utc_now()
+        monitoring["updated_at"] = cn_now()
         return payload
 
     async def run_check(

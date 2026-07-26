@@ -1,17 +1,11 @@
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import datetime
 from typing import Any, Dict, List, Set
 
-CHINA_TZ = timezone(timedelta(hours=8))
+from douyin_user_monitor.monitor.timeutils import CHINA_TZ, safe_int
+
 MAX_DOWNLOAD_RECORDS_PER_USER = 300
-
-
-def safe_int(value: Any) -> int:
-    try:
-        return int(value)
-    except (TypeError, ValueError):
-        return 0
 
 
 def format_publish_time(create_time: Any) -> str | None:

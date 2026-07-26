@@ -16,8 +16,6 @@ logs/
 
 # Runtime state and local-only helpers
 runtime/
-=4.10
-ig_login.py
 
 # Local Douyin crawler secrets
 config/douyin_web.yaml

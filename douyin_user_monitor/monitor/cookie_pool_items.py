@@ -2,10 +2,10 @@ from __future__ import annotations
 
 import uuid
 from contextlib import AbstractAsyncContextManager
-from typing import Any, Dict, List, Optional, Protocol, Sequence
+from typing import Any, Callable, Dict, Optional, Protocol, Sequence
 
 from douyin_user_monitor.monitor.cookie_liveness import CookieLivenessResult
-from douyin_user_monitor.monitor.storage import utc_now
+from douyin_user_monitor.monitor.timeutils import cn_now
 
 
 class CookieRuntime(Protocol):
@@ -26,13 +26,8 @@ class CookiePoolStorage(Protocol):
     def save_state(self, state: Dict[str, Any]) -> None:
         ...
 
-
-def sanitize_public_error(exc: BaseException, *, limit: int = 200) -> str:
-    """Strip newlines and cap length so cookie/token fragments are less likely to leak."""
-    text = " ".join(str(exc).split())
-    if len(text) > limit:
-        return text[:limit] + "..."
-    return text
+    def update_state(self, mutator: Callable[[Dict[str, Any]], None]) -> Dict[str, Any]:
+        ...
 
 
 PREVIEW_HEAD = 24
@@ -82,7 +77,7 @@ def ensure_cookie_pool(monitoring: Dict[str, Any]) -> Dict[str, Any]:
         pool["items"] = []
     if not isinstance(pool.get("rotation_cursor"), int):
         pool["rotation_cursor"] = 0
-    pool.setdefault("updated_at", utc_now())
+    pool.setdefault("updated_at", cn_now())
     return pool
 
 
@@ -93,7 +88,7 @@ def build_cookie_item(
     is_active: bool = False,
     item_id: Optional[str] = None,
 ) -> Dict[str, Any]:
-    now = utc_now()
+    now = cn_now()
     return {
         "id": item_id or str(uuid.uuid4()),
         "name": name.strip() or DEFAULT_COOKIE_NAME,
@@ -121,7 +116,7 @@ def find_item(items: Sequence[Dict[str, Any]], item_id: str) -> Optional[Dict[st
 
 
 def apply_liveness_to_item(item: Dict[str, Any], result: CookieLivenessResult) -> None:
-    now = utc_now()
+    now = cn_now()
     item["last_check_at"] = now
     item["status"] = result.status
     item["reason"] = result.reason
@@ -139,7 +134,7 @@ def liveness_payload_from_result(
     previous: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     prev = previous if isinstance(previous, dict) else {}
-    now = utc_now()
+    now = cn_now()
     return {
         "last_check_at": now,
         "status": result.status,
@@ -157,7 +152,7 @@ def liveness_payload_from_result(
 
 
 def touch_pool_timestamps(state: Dict[str, Any], pool: Dict[str, Any], item: Dict[str, Any]) -> None:
-    now = utc_now()
+    now = cn_now()
     item["updated_at"] = now
     pool["updated_at"] = now
     state["monitoring"]["updated_at"] = now

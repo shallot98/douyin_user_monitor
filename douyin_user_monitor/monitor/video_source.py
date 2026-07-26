@@ -3,6 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 
+from douyin_user_monitor.monitor.timeutils import safe_int
+
 QUALITY_ORIGINAL = "original"
 QUALITY_BIT_RATE = "bit_rate"
 QUALITY_FALLBACK = "fallback"
@@ -143,10 +145,3 @@ def first_url(play_addr_data: Dict[str, Any]) -> Optional[str]:
     if not isinstance(first, str):
         return None
     return first.strip() or None
-
-
-def safe_int(value: Any) -> int:
-    try:
-        return int(value or 0)
-    except (TypeError, ValueError):
-        return 0

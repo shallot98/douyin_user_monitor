@@ -4,15 +4,16 @@ import unittest
 from contextlib import asynccontextmanager
 from typing import Any, Dict, List, Optional
 
-from douyin_user_monitor.monitor.cookie_pool import CookiePoolService, ensure_cookie_pool, sanitize_public_error
+from douyin_user_monitor.monitor.cookie_liveness import CookieLivenessConfig
+from douyin_user_monitor.monitor.cookie_liveness_service import CookieLivenessService
+from douyin_user_monitor.monitor.cookie_pool import CookiePoolService
 from douyin_user_monitor.monitor.cookie_rotation import (
     apply_rotation_outcome,
     is_auth_like_error,
     pick_round_robin,
     select_rotation_candidates,
 )
-from douyin_user_monitor.monitor.cookie_liveness import CookieLivenessConfig, CookieLivenessService
-from douyin_user_monitor.monitor.profile_parser import ACCOUNT_STATUS_NORMAL
+from douyin_user_monitor.monitor.errors import sanitize_public_error
 
 
 class SelectCandidatesTests(unittest.TestCase):
@@ -106,6 +107,19 @@ class RotationOutcomeTests(unittest.TestCase):
         self.assertFalse(is_auth_like_error("session read timeout"))
         self.assertFalse(is_auth_like_error("cert expired"))
         self.assertFalse(is_auth_like_error("failed to parse cookie jar"))
+
+    def test_numeric_id_not_treated_as_auth(self):
+        # Bare 401/403 inside IDs or timestamps must not trigger auth failure.
+        self.assertFalse(
+            is_auth_like_error("获取作品详情失败: aweme_id=7401234567 请求超时")
+        )
+        self.assertFalse(is_auth_like_error("获取作品详情失败: aweme_id=7403987654"))
+        self.assertFalse(is_auth_like_error("create_time=1734014013 解析失败"))
+
+    def test_real_typed_auth_errors_detected(self):
+        # Text produced by base_crawler for 401/403 typed errors.
+        self.assertTrue(is_auth_like_error("HTTP Status Code 401"))
+        self.assertTrue(is_auth_like_error("HTTP Status Code 403"))
 
     def test_success_resets_streak_and_marks_healthy(self):
         item = {"status": "expired", "auth_fail_streak": 2, "last_error": "x"}

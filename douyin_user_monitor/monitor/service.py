@@ -1,11 +1,14 @@
 import asyncio
 import uuid
-from datetime import datetime, timedelta, timezone
+from copy import deepcopy
+from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Set
+from typing import Any, Callable, Dict, List, Optional, Set, Tuple
 
+from douyin_user_monitor.monitor.cookie_liveness_service import CookieLivenessService
 from douyin_user_monitor.monitor.crawler_protocol import MonitorCrawlerProtocol
 from douyin_user_monitor.monitor.downloader import AwemeAssetDownloader
+from douyin_user_monitor.monitor.errors import sanitize_public_error
 from douyin_user_monitor.monitor.history_sync import (
     HISTORY_SYNC_PAGE_SIZE,
     HISTORY_SYNC_STATUS_COMPLETED,
@@ -15,30 +18,33 @@ from douyin_user_monitor.monitor.history_sync import (
     build_history_sync_state,
     normalize_history_sync_state,
 )
-from douyin_user_monitor.monitor.cookie_liveness import CookieLivenessService
 from douyin_user_monitor.monitor.notifier import MonitorNotifierProtocol, NoopMonitorNotifier
-from douyin_user_monitor.monitor.profile_parser import ACCOUNT_STATUS_NORMAL
+from douyin_user_monitor.monitor.profile_parser import (
+    ACCOUNT_STATUS_BANNED,
+    ACCOUNT_STATUS_DELETED,
+    ACCOUNT_STATUS_NORMAL,
+)
 from douyin_user_monitor.monitor.schedule import (
     LOOP_ERROR_RETRY_SECONDS,
-    MIN_INTERVAL_HOURS as SCHEDULE_MIN_INTERVAL_HOURS,
-    MODE_COVERAGE,
     MODE_INTERVAL,
     build_interval_gaps,
     choose_coverage_delay,
     validate_options,
+)
+from douyin_user_monitor.monitor.schedule import (
+    MIN_INTERVAL_HOURS as SCHEDULE_MIN_INTERVAL_HOURS,
 )
 from douyin_user_monitor.monitor.storage import (
     DEFAULT_COVERAGE_HOURS,
     DEFAULT_INTERVAL_HOURS,
     DEFAULT_MODE,
     MonitorStorage,
-    utc_now,
 )
+from douyin_user_monitor.monitor.timeutils import CHINA_TZ, cn_now
 from douyin_user_monitor.monitor.user_lookup import find_user_by_id, find_user_by_sec_uid
 from douyin_user_monitor.monitor.user_sync import UserSyncService
 
 MIN_INTERVAL_HOURS = SCHEDULE_MIN_INTERVAL_HOURS
-CHINA_TZ = timezone(timedelta(hours=8))
 COVERAGE_PHASE_RUNNING = "running"
 COVERAGE_PHASE_IDLE = "idle"
 LEGACY_COOKIE_KEYS = (
@@ -47,6 +53,37 @@ LEGACY_COOKIE_KEYS = (
     "cookie_last_preview",
     "cookie_last_length",
     "cookie_last_upstream_result",
+)
+# 资料补全（含失败标记）只会改动这些字段；锁内提交时仅回写它们
+PROFILE_HYDRATION_FIELDS = (
+    "nickname",
+    "avatar_url",
+    "account_status",
+    "account_status_label",
+    "account_status_reason",
+    "account_status_updated_at",
+    "last_error",
+    "updated_at",
+)
+# sync 锁外网络阶段（sync_one_user / sync_users）实际写入的字段；锁内合并回盘时仅覆盖这些。
+# 排除 enabled：它由 API 侧手动启停拥有；封号自动停用改由 _merge_user_sync_fields 按状态转变派生落盘。
+# 纳入 nickname：昵称仅由抖音 profile 决定、无手动改端点，抖音端改名须随 sync 落盘。
+USER_SYNC_MERGE_FIELDS = (
+    "nickname",
+    "avatar_url",
+    "account_status",
+    "account_status_label",
+    "account_status_reason",
+    "account_status_updated_at",
+    "last_error",
+    "last_checked_at",
+    "last_aweme_id",
+    "last_download_at",
+    "downloaded_count",
+    "downloaded_aweme_ids",
+    "download_records",
+    "history_sync",
+    "updated_at",
 )
 
 
@@ -111,7 +148,7 @@ class MonitorService:
         self._coverage_hours = DEFAULT_COVERAGE_HOURS
 
         self._coverage_priority_user_ids: List[str] = []
-        self._active_coverage_state: Optional[Dict[str, Any]] = None
+        self._coverage_cycle_active = False
         self._wake_event = asyncio.Event()
         self._reset_runtime_state()
 
@@ -126,7 +163,7 @@ class MonitorService:
             monitoring["desired_running"] = self._was_running
         monitoring["is_running"] = False
         self._apply_runtime_from_monitoring(monitoring)
-        monitoring["updated_at"] = utc_now()
+        monitoring["updated_at"] = cn_now()
         monitoring.pop("interval_seconds", None)
         monitoring.pop("random_min_seconds", None)
         monitoring.pop("random_max_seconds", None)
@@ -157,11 +194,11 @@ class MonitorService:
         return self._storage.load_state()["users"]
 
     async def list_users_with_profile(self) -> List[Dict[str, Any]]:
-        state = self._storage.load_state()
-        changed = await self._hydrate_missing_user_profiles(state)
-        if changed:
-            self._storage.save_state(state)
-        return state["users"]
+        snapshot = self._storage.load_state()
+        hydrated = await self._hydrate_missing_user_profiles(snapshot)
+        if not hydrated:
+            return snapshot["users"]
+        return self._commit_profile_hydration(hydrated)["users"]
 
     async def add_user(self, profile_url: str) -> Dict[str, Any]:
         result = await self.add_user_with_status(profile_url)
@@ -176,13 +213,9 @@ class MonitorService:
             raise ValueError("用户主页链接不能为空")
 
         sec_user_id = await self._crawler.get_sec_user_id(raw_profile_text)
-        state = self._storage.load_state()
-        existed = find_user_by_sec_uid(state["users"], sec_user_id)
+        existed = find_user_by_sec_uid(self._storage.load_state()["users"], sec_user_id)
         if existed is not None:
-            changed = await self._hydrate_missing_user_profile(existed)
-            if changed:
-                self._storage.save_state(state)
-            return {"status": "exists", "user": existed}
+            return {"status": "exists", "user": await self._refresh_existing_user(existed)}
 
         try:
             profile = await self._sync_service.resolve_profile_snapshot(sec_user_id)
@@ -190,10 +223,34 @@ class MonitorService:
             raise ValueError(
                 f"用户主页可解析 sec_user_id={sec_user_id}，但获取用户资料失败: {exc}"
             ) from exc
-        now = utc_now()
-        user = {
+        user = self._build_new_user(
+            profile_url=raw_profile_text,
+            sec_user_id=sec_user_id,
+            profile=profile,
+        )
+        result: Dict[str, Any] = {"status": "created", "user": user}
+
+        def _commit(state: Dict[str, Any]) -> None:
+            # 网络解析期间另一请求可能已添加同一用户：锁内重新检查，避免重复条目
+            concurrent = find_user_by_sec_uid(state["users"], sec_user_id)
+            if concurrent is not None:
+                result["status"] = "exists"
+                result["user"] = concurrent
+                return
+            state["users"].append(user)
+
+        self._storage.update_state(_commit)
+        if result["status"] == "created":
+            # 覆盖周期已改为按 id 从磁盘态取用户，新增用户经优先队列在下一轮被 claim 捞回
+            self._enqueue_coverage_priority_user(user["id"])
+        return result
+
+    @staticmethod
+    def _build_new_user(*, profile_url: str, sec_user_id: str, profile: Any) -> Dict[str, Any]:
+        now = cn_now()
+        return {
             "id": str(uuid.uuid4()),
-            "profile_url": raw_profile_text,
+            "profile_url": profile_url,
             "sec_user_id": sec_user_id,
             "nickname": profile.nickname,
             "avatar_url": profile.avatar_url,
@@ -216,21 +273,40 @@ class MonitorService:
             ),
             "last_error": None,
         }
-        state["users"].append(user)
-        self._storage.save_state(state)
 
-        self._attach_user_to_active_coverage_state(user)
-        self._enqueue_coverage_priority_user(user["id"])
-        return {"status": "created", "user": user}
+    async def _refresh_existing_user(self, existed: Dict[str, Any]) -> Dict[str, Any]:
+        changed = await self._hydrate_missing_user_profile(existed)
+        if not changed:
+            return existed
+        state = self._commit_profile_hydration([existed])
+        return find_user_by_id(state["users"], str(existed.get("id") or "")) or existed
 
-    async def _hydrate_missing_user_profiles(self, state: Dict[str, Any]) -> bool:
-        changed = False
+    async def _hydrate_missing_user_profiles(self, state: Dict[str, Any]) -> List[Dict[str, Any]]:
+        """在快照上完成网络补全，返回发生变更的用户（供锁内提交）。"""
+        hydrated: List[Dict[str, Any]] = []
         for user in state["users"]:
             try:
-                changed = await self._hydrate_missing_user_profile(user) or changed
+                changed = await self._hydrate_missing_user_profile(user)
             except Exception as exc:  # noqa: BLE001
-                changed = self._record_profile_hydration_error(user, exc) or changed
-        return changed
+                changed = self._record_profile_hydration_error(user, exc)
+            if changed:
+                hydrated.append(user)
+        return hydrated
+
+    def _commit_profile_hydration(self, hydrated_users: List[Dict[str, Any]]) -> Dict[str, Any]:
+        """网络补全已在快照上完成；锁内仅按 id 回写补全字段。"""
+        updates = {
+            str(user.get("id") or ""): {key: user.get(key) for key in PROFILE_HYDRATION_FIELDS}
+            for user in hydrated_users
+        }
+
+        def _apply(state: Dict[str, Any]) -> None:
+            for user in state["users"]:
+                fields = updates.get(str(user.get("id") or ""))
+                if fields is not None:
+                    user.update(fields)
+
+        return self._storage.update_state(_apply)
 
     async def _hydrate_missing_user_profile(self, user: Dict[str, Any]) -> bool:
         nickname = str(user.get("nickname") or "").strip()
@@ -253,15 +329,15 @@ class MonitorService:
         return self._merge_profile_snapshot(user, profile)
 
     def _record_profile_hydration_error(self, user: Dict[str, Any], exc: Exception) -> bool:
-        error_message = f"资料补全失败: {exc}"
+        error_message = f"资料补全失败: {sanitize_public_error(exc)}"
         changed = user.get("last_error") != error_message
         user["last_error"] = error_message
         if changed:
-            user["updated_at"] = utc_now()
+            user["updated_at"] = cn_now()
         return changed
 
     def _merge_profile_snapshot(self, user: Dict[str, Any], profile: Any) -> bool:
-        now = utc_now()
+        now = cn_now()
         changed = False
         # Preserve existing nickname when profile returns sec_user_id[:12] fallback
         # (happens for deleted/banned users whose API returns empty nickname)
@@ -288,62 +364,63 @@ class MonitorService:
             user["updated_at"] = now
         return changed
 
-    def remove_user(self, user_id: str) -> Dict[str, Any]:
-        state = self._storage.load_state()
-        matched = find_user_by_id(state["users"], user_id)
-        if matched is None:
-            raise ValueError("用户不存在")
+    def _update_user(self, user_id: str, mutate: Callable[[Dict[str, Any]], None]) -> Dict[str, Any]:
+        """锁内按 id 定位用户并提交变更；用户不存在时不写盘直接抛错。"""
+        found: Dict[str, Any] = {}
 
-        state["users"] = [item for item in state["users"] if item["id"] != user_id]
+        def _apply(state: Dict[str, Any]) -> None:
+            user = find_user_by_id(state["users"], user_id)
+            if user is None:
+                raise ValueError("用户不存在")
+            mutate(user)
+            found["user"] = user
+
+        self._storage.update_state(_apply)
+        return found["user"]
+
+    def remove_user(self, user_id: str) -> Dict[str, Any]:
+        found: Dict[str, Any] = {}
+
+        def _remove(state: Dict[str, Any]) -> None:
+            matched = find_user_by_id(state["users"], user_id)
+            if matched is None:
+                raise ValueError("用户不存在")
+            found["user"] = matched
+            state["users"] = [item for item in state["users"] if item["id"] != user_id]
+
+        self._storage.update_state(_remove)
         self._coverage_priority_user_ids = [uid for uid in self._coverage_priority_user_ids if uid != user_id]
-        self._storage.save_state(state)
-        return matched
+        return found["user"]
 
     def set_user_enabled(self, user_id: str, enabled: bool) -> Dict[str, Any]:
-        state = self._storage.load_state()
-        matched = find_user_by_id(state["users"], user_id)
-        if matched is None:
-            raise ValueError("用户不存在")
+        def _set(user: Dict[str, Any]) -> None:
+            user["enabled"] = enabled
+            user["updated_at"] = cn_now()
 
-        matched["enabled"] = enabled
-        matched["updated_at"] = utc_now()
+        matched = self._update_user(user_id, _set)
         if not enabled:
             self._coverage_priority_user_ids = [uid for uid in self._coverage_priority_user_ids if uid != user_id]
-        self._storage.save_state(state)
         return matched
 
     def start_user_history_backfill(self, user_id: str) -> Dict[str, Any]:
-        state = self._storage.load_state()
-        user = find_user_by_id(state["users"], user_id)
-        if user is None:
-            raise ValueError("用户不存在")
-
-        self._activate_history_sync(user)
-        self._storage.save_state(state)
+        user = self._update_user(user_id, self._activate_history_sync)
         self._enqueue_coverage_priority_user(user_id)
         return user
 
     def pause_user_history_backfill(self, user_id: str) -> Dict[str, Any]:
-        state = self._storage.load_state()
-        user = find_user_by_id(state["users"], user_id)
-        if user is None:
-            raise ValueError("用户不存在")
+        def _pause(user: Dict[str, Any]) -> None:
+            history_sync = normalize_history_sync_state(user)
+            history_sync["status"] = HISTORY_SYNC_STATUS_PAUSED
+            history_sync["updated_at"] = cn_now()
+            user["updated_at"] = cn_now()
 
-        history_sync = normalize_history_sync_state(user)
-        history_sync["status"] = HISTORY_SYNC_STATUS_PAUSED
-        history_sync["updated_at"] = utc_now()
-        user["updated_at"] = utc_now()
-        self._storage.save_state(state)
-        return user
+        return self._update_user(user_id, _pause)
 
     def resume_user_history_backfill(self, user_id: str) -> Dict[str, Any]:
-        state = self._storage.load_state()
-        user = find_user_by_id(state["users"], user_id)
-        if user is None:
-            raise ValueError("用户不存在")
-
-        self._activate_history_sync(user, reset_completed=False)
-        self._storage.save_state(state)
+        user = self._update_user(
+            user_id,
+            lambda user: self._activate_history_sync(user, reset_completed=False),
+        )
         self._enqueue_coverage_priority_user(user_id)
         return user
 
@@ -395,6 +472,7 @@ class MonitorService:
         return self.get_status()
 
     def get_status(self) -> Dict[str, Any]:
+        """纯读接口：仅在内存态上做展示层修正，不写盘（前端轮询高频调用）。"""
         state = self._storage.load_state()
         running = bool(self._loop_task and not self._loop_task.done())
 
@@ -408,8 +486,6 @@ class MonitorService:
         monitoring.pop("random_min_seconds", None)
         monitoring.pop("random_max_seconds", None)
         self._drop_legacy_scan_keys(monitoring)
-
-        self._storage.save_state(state)
         return monitoring
 
     async def shutdown(self) -> None:
@@ -438,31 +514,31 @@ class MonitorService:
 
     async def run_once(self) -> Dict[str, Any]:
         async with self._run_lock:
-            state = self._storage.load_state()
-            users = self._enabled_users(state)
+            # 锁外网络阶段改副本，不触碰磁盘态；提交时按 id 字段级合并回盘
+            users = deepcopy(self._enabled_users(self._storage.load_state()))
             summary = await self._sync_service.sync_users(users, gaps=[])
-            self._save_summary(state, summary)
+            self._commit_user_sync_results(users, summary)
             return summary
 
     async def run_user_once(self, user_id: str) -> Dict[str, Any]:
         async with self._run_lock:
-            state = self._storage.load_state()
-            user = find_user_by_id(state["users"], user_id)
+            user = find_user_by_id(self._storage.load_state()["users"], user_id)
             if user is None:
                 raise ValueError("用户不存在")
 
+            user = deepcopy(user)
             summary = {"checked_users": 1, "downloaded_items": 0, "errors": []}
             await self._sync_service.sync_one_user(user, summary)
-            self._save_summary(state, summary)
+            self._commit_user_sync_results([user], summary)
             return summary
 
     async def run_user_history_backfill_once(self, user_id: str) -> Dict[str, Any]:
         async with self._run_lock:
-            state = self._storage.load_state()
-            user = find_user_by_id(state["users"], user_id)
+            user = find_user_by_id(self._storage.load_state()["users"], user_id)
             if user is None:
                 raise ValueError("用户不存在")
 
+            user = deepcopy(user)
             self._activate_history_sync(user, reset_completed=False)
             summary = {"checked_users": 0, "downloaded_items": 0, "errors": []}
             try:
@@ -471,14 +547,14 @@ class MonitorService:
                 )
                 user["last_error"] = None
             except Exception as exc:
-                user["last_error"] = str(exc)
+                user["last_error"] = sanitize_public_error(exc)
                 summary["errors"].append(
-                    {"user_id": user["id"], "nickname": user["nickname"], "error": str(exc)}
+                    {"user_id": user["id"], "nickname": user["nickname"], "error": sanitize_public_error(exc)}
                 )
             finally:
-                user["last_checked_at"] = utc_now()
-                user["updated_at"] = utc_now()
-            self._save_summary(state, summary)
+                user["last_checked_at"] = cn_now()
+                user["updated_at"] = cn_now()
+            self._commit_user_sync_results([user], summary)
             return summary
 
     async def _monitor_loop(self) -> None:
@@ -497,16 +573,15 @@ class MonitorService:
                 self._persist_runtime_checkpoint()
                 raise
             except Exception as exc:
-                self._save_loop_error(str(exc))
+                self._save_loop_error(sanitize_public_error(exc))
                 await asyncio.sleep(LOOP_ERROR_RETRY_SECONDS)
 
     async def _run_interval_cycle(self) -> None:
         async with self._run_lock:
-            state = self._storage.load_state()
-            users = self._enabled_users(state)
+            users = deepcopy(self._enabled_users(self._storage.load_state()))
             summary = await self._sync_service.sync_users(users, build_interval_gaps(len(users)))
-            self._save_summary(state, summary)
-            await self._maybe_run_cookie_liveness(state)
+            self._commit_user_sync_results(users, summary)
+            await self._maybe_run_cookie_liveness(self._storage.load_state())
 
     async def _resume_coverage_idle_if_needed(self) -> None:
         """若上次停在覆盖周期结束后的空闲等待，重启后补完剩余等待。"""
@@ -519,14 +594,18 @@ class MonitorService:
         self._clear_coverage_progress()
 
     async def _run_coverage_cycle(self) -> float:
-        """Run one coverage pass; release run_lock between users so manual runs can enter."""
+        """Run one coverage pass.
+
+        循环只持有 pending/processed 的 user_id，不再持整份 state 或 user dict 引用：
+        每个用户分「锁内取快照 → 锁外同步 → 锁内按 id 合并回盘」三段，
+        期间被 API 删除/禁用的用户不会被陈旧快照整体回写复活。
+        """
         async with self._run_lock:
+            progress = self._prepare_coverage_cycle_progress()
+            processed_user_ids: Set[str] = {str(x) for x in progress["processed_user_ids"]}
             state = self._storage.load_state()
-            self._active_coverage_state = state
-            progress = self._prepare_coverage_cycle_progress(state)
-            processed_user_ids = set(progress["processed_user_ids"])
-            pending_users = [
-                user
+            pending_user_ids: List[str] = [
+                str(user.get("id") or "")
                 for user in self._enabled_users(state)
                 if str(user.get("id") or "") not in processed_user_ids
             ]
@@ -538,11 +617,11 @@ class MonitorService:
             cycle_seconds = self._coverage_hours * 3600.0
             cycle_started_at = str(progress["cycle_started_at"])
 
+        self._coverage_cycle_active = True
         try:
             while True:
                 delay = await self._coverage_process_next_user(
-                    state,
-                    pending_users=pending_users,
+                    pending_user_ids=pending_user_ids,
                     processed_user_ids=processed_user_ids,
                     summary=summary,
                     cycle_seconds=cycle_seconds,
@@ -553,20 +632,18 @@ class MonitorService:
                 if delay > 0:
                     await self._sleep_interruptible(delay)
 
+            remaining = max(0.0, cycle_seconds - _elapsed_since(cycle_started_at))
             async with self._run_lock:
-                self._save_summary(state, summary)
-                await self._maybe_run_cookie_liveness(state)
-                remaining = max(0.0, cycle_seconds - _elapsed_since(cycle_started_at))
-                self._checkpoint_coverage_idle(state, remaining)
-                return remaining
+                self._commit_coverage_idle(summary, remaining)
+                await self._maybe_run_cookie_liveness(self._storage.load_state())
+            return remaining
         finally:
-            self._active_coverage_state = None
+            self._coverage_cycle_active = False
 
     async def _coverage_process_next_user(
         self,
-        state: Dict[str, Any],
         *,
-        pending_users: List[Dict[str, Any]],
+        pending_user_ids: List[str],
         processed_user_ids: Set[str],
         summary: Dict[str, Any],
         cycle_seconds: float,
@@ -574,40 +651,131 @@ class MonitorService:
     ) -> Optional[float]:
         """Sync one pending user under run_lock. Return delay seconds, or None if done."""
         async with self._run_lock:
-            self._insert_priority_users_into_pending(state, pending_users, processed_user_ids)
-            user = self._pop_next_coverage_user(pending_users, processed_user_ids)
-            if user is None:
+            self._insert_priority_user_ids_into_pending(pending_user_ids, processed_user_ids)
+            claimed = self._claim_next_coverage_user(pending_user_ids, processed_user_ids)
+            if claimed is None:
                 return None
 
-            user_id = str(user.get("id") or "")
+            user_id, user_snapshot = claimed
             summary["checked_users"] += 1
-            await self._sync_service.sync_one_user(user, summary)
+            # 锁外网络 + 下载：sync_one_user 原地改快照副本，不触碰磁盘态
+            await self._sync_service.sync_one_user(user_snapshot, summary)
             processed_user_ids.add(user_id)
-            self._checkpoint_coverage_running(
-                state,
-                cycle_started_at=cycle_started_at,
+            self._commit_coverage_user_sync(
+                user_id=user_id,
+                user_snapshot=user_snapshot,
                 processed_user_ids=processed_user_ids,
                 summary=summary,
+                cycle_started_at=cycle_started_at,
             )
-            self._insert_priority_users_into_pending(state, pending_users, processed_user_ids)
+            self._insert_priority_user_ids_into_pending(pending_user_ids, processed_user_ids)
             return self._calculate_coverage_delay_wall(
                 cycle_seconds=cycle_seconds,
                 cycle_started_at=cycle_started_at,
-                pending_count=len(pending_users),
+                pending_count=len(pending_user_ids),
             )
 
-    @staticmethod
-    def _pop_next_coverage_user(
-        pending_users: List[Dict[str, Any]],
+    def _claim_next_coverage_user(
+        self,
+        pending_user_ids: List[str],
         processed_user_ids: Set[str],
-    ) -> Optional[Dict[str, Any]]:
-        while pending_users:
-            user = pending_users.pop(0)
-            user_id = str(user.get("id") or "")
-            if not user.get("enabled", True) or user_id in processed_user_ids:
+    ) -> Optional[Tuple[str, Dict[str, Any]]]:
+        """按 id 从磁盘态取下一个待处理用户的快照副本；已删除/禁用者跳过。"""
+        users = self._storage.load_state()["users"]
+        while pending_user_ids:
+            user_id = pending_user_ids.pop(0)
+            if user_id in processed_user_ids:
                 continue
-            return user
+            user = find_user_by_id(users, user_id)
+            if user is None or not user.get("enabled", True):
+                continue
+            return user_id, deepcopy(user)
         return None
+
+    @staticmethod
+    def _merge_user_sync_fields(disk_user: Dict[str, Any], synced_snapshot: Dict[str, Any]) -> None:
+        prev_status = str(disk_user.get("account_status") or ACCOUNT_STATUS_NORMAL)
+        for key in USER_SYNC_MERGE_FIELDS:
+            if key in synced_snapshot:
+                disk_user[key] = synced_snapshot[key]
+        # enabled 归 API 侧、刻意不入合并白名单；仅在账号从正常转为封禁/删除时于此派生自动停用落盘，
+        # 这样既不覆盖用户手动启停，又不丢失封号自动暂停（该字段在锁外快照上的变更会被字段级合并丢弃）。
+        new_status = str(disk_user.get("account_status") or ACCOUNT_STATUS_NORMAL)
+        if prev_status == ACCOUNT_STATUS_NORMAL and new_status in (ACCOUNT_STATUS_BANNED, ACCOUNT_STATUS_DELETED):
+            disk_user["enabled"] = False
+
+    def _commit_user_sync_results(
+        self,
+        synced_users: List[Dict[str, Any]],
+        summary: Dict[str, Any],
+    ) -> None:
+        """一次 update_state：按 id 字段级合并本轮 sync 增量并写 monitoring 汇总。
+
+        已被并发删除的用户跳过（不复活）；未处理的用户与 cookie_pool 保持磁盘态不变。
+        """
+
+        def _apply(state: Dict[str, Any]) -> None:
+            for synced in synced_users:
+                disk_user = find_user_by_id(state["users"], str(synced.get("id") or ""))
+                if disk_user is not None:
+                    self._merge_user_sync_fields(disk_user, synced)
+            monitoring = state["monitoring"]
+            monitoring["last_run_at"] = cn_now()
+            monitoring["last_run_result"] = summary
+            monitoring["updated_at"] = cn_now()
+
+        self._storage.update_state(_apply)
+
+    def _commit_coverage_user_sync(
+        self,
+        *,
+        user_id: str,
+        user_snapshot: Dict[str, Any],
+        processed_user_ids: Set[str],
+        summary: Dict[str, Any],
+        cycle_started_at: str,
+    ) -> None:
+        """锁内按 id 重新定位磁盘态用户，字段级合并同步增量，并推进覆盖进度。"""
+        progress = self._build_running_progress(cycle_started_at, processed_user_ids, summary)
+        last_run_result = {
+            "checked_users": progress["checked_users"],
+            "downloaded_items": progress["downloaded_items"],
+            "errors": progress["errors"],
+            "coverage_progress": {
+                "processed_count": len(progress["processed_user_ids"]),
+                "phase": COVERAGE_PHASE_RUNNING,
+            },
+        }
+
+        def _apply(state: Dict[str, Any]) -> None:
+            disk_user = find_user_by_id(state["users"], user_id)
+            # 用户已被并发删除：丢弃本次增量，绝不复活
+            if disk_user is not None:
+                self._merge_user_sync_fields(disk_user, user_snapshot)
+            monitoring = state["monitoring"]
+            monitoring["coverage_progress"] = progress
+            monitoring["last_run_at"] = cn_now()
+            monitoring["last_run_result"] = last_run_result
+            monitoring["updated_at"] = cn_now()
+
+        self._storage.update_state(_apply)
+
+    def _build_running_progress(
+        self,
+        cycle_started_at: str,
+        processed_user_ids: Set[str],
+        summary: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        return {
+            "phase": COVERAGE_PHASE_RUNNING,
+            "cycle_started_at": cycle_started_at,
+            "idle_until": None,
+            "processed_user_ids": list(processed_user_ids),
+            "checked_users": int(summary.get("checked_users") or 0),
+            "downloaded_items": int(summary.get("downloaded_items") or 0),
+            "errors": list(summary.get("errors") or [])[-20:],
+            "priority_user_ids": list(self._coverage_priority_user_ids),
+        }
 
     async def _wait_coverage_idle(self, delay: float) -> None:
         """覆盖周期结束后的等待；新用户插队可打断并立即同步。"""
@@ -643,8 +811,8 @@ class MonitorService:
         """在轮次间隙处理优先用户（增量 + 一页历史回填）。"""
         if not self._coverage_priority_user_ids:
             return
-        if self._active_coverage_state is not None:
-            # 覆盖周期进行中：由 _insert_priority_users_into_pending 插队处理
+        if self._coverage_cycle_active:
+            # 覆盖周期进行中：由 _insert_priority_user_ids_into_pending 插队处理
             return
 
         async with self._run_lock:
@@ -653,14 +821,17 @@ class MonitorService:
             state = self._storage.load_state()
             priority_ids = self._pop_priority_user_ids()
             summary = {"checked_users": 0, "downloaded_items": 0, "errors": []}
+            synced_users: List[Dict[str, Any]] = []
             for user_id in priority_ids:
                 user = find_user_by_id(state["users"], user_id)
                 if user is None or not user.get("enabled", True):
                     continue
+                user = deepcopy(user)
                 summary["checked_users"] += 1
                 await self._sync_service.sync_one_user(user, summary)
-            if summary["checked_users"] > 0:
-                self._save_summary(state, summary)
+                synced_users.append(user)
+            if synced_users:
+                self._commit_user_sync_results(synced_users, summary)
 
     def _pop_priority_user_ids(self) -> List[str]:
         priority_ids = list(self._coverage_priority_user_ids)
@@ -735,20 +906,22 @@ class MonitorService:
         return base
 
     def _write_coverage_progress(self, progress: Dict[str, Any]) -> None:
-        state = self._storage.load_state()
-        state["monitoring"]["coverage_progress"] = progress
-        state["monitoring"]["updated_at"] = utc_now()
-        self._storage.save_state(state)
+        def _apply(state: Dict[str, Any]) -> None:
+            state["monitoring"]["coverage_progress"] = progress
+            state["monitoring"]["updated_at"] = cn_now()
+
+        self._storage.update_state(_apply)
 
     def _clear_coverage_progress(self) -> None:
-        state = self._storage.load_state()
-        if state["monitoring"].get("coverage_progress") is None:
-            return
-        state["monitoring"]["coverage_progress"] = None
-        state["monitoring"]["updated_at"] = utc_now()
-        self._storage.save_state(state)
+        def _apply(state: Dict[str, Any]) -> None:
+            if state["monitoring"].get("coverage_progress") is None:
+                return
+            state["monitoring"]["coverage_progress"] = None
+            state["monitoring"]["updated_at"] = cn_now()
 
-    def _prepare_coverage_cycle_progress(self, state: Dict[str, Any]) -> Dict[str, Any]:
+        self._storage.update_state(_apply)
+
+    def _prepare_coverage_cycle_progress(self) -> Dict[str, Any]:
         progress = self._read_coverage_progress()
         cycle_seconds = self._coverage_hours * 3600.0
         reusable = (
@@ -759,51 +932,21 @@ class MonitorService:
         if reusable:
             return progress
 
-        started_at = utc_now()
         fresh = self._empty_coverage_progress()
-        fresh["cycle_started_at"] = started_at
-        state["monitoring"]["coverage_progress"] = fresh
-        state["monitoring"]["updated_at"] = utc_now()
-        self._storage.save_state(state)
+        fresh["cycle_started_at"] = cn_now()
+
+        def _apply(state: Dict[str, Any]) -> None:
+            state["monitoring"]["coverage_progress"] = fresh
+            state["monitoring"]["updated_at"] = cn_now()
+
+        self._storage.update_state(_apply)
         return fresh
 
-    def _checkpoint_coverage_running(
-        self,
-        state: Dict[str, Any],
-        *,
-        cycle_started_at: str,
-        processed_user_ids: Set[str],
-        summary: Dict[str, Any],
-    ) -> None:
-        progress = {
-            "phase": COVERAGE_PHASE_RUNNING,
-            "cycle_started_at": cycle_started_at,
-            "idle_until": None,
-            "processed_user_ids": list(processed_user_ids),
-            "checked_users": int(summary.get("checked_users") or 0),
-            "downloaded_items": int(summary.get("downloaded_items") or 0),
-            "errors": list(summary.get("errors") or [])[-20:],
-            "priority_user_ids": list(self._coverage_priority_user_ids),
-        }
-        state["monitoring"]["coverage_progress"] = progress
-        state["monitoring"]["last_run_at"] = utc_now()
-        state["monitoring"]["last_run_result"] = {
-            "checked_users": progress["checked_users"],
-            "downloaded_items": progress["downloaded_items"],
-            "errors": progress["errors"],
-            "coverage_progress": {
-                "processed_count": len(progress["processed_user_ids"]),
-                "phase": COVERAGE_PHASE_RUNNING,
-            },
-        }
-        state["monitoring"]["updated_at"] = utc_now()
-        self._storage.save_state(state)
-
-    def _checkpoint_coverage_idle(self, state: Dict[str, Any], remaining: float) -> None:
-        idle_until = None
-        if remaining > 0:
-            idle_until = (datetime.now(CHINA_TZ) + timedelta(seconds=remaining)).isoformat(timespec="seconds")
-        progress = {
+    def _build_idle_progress(self, remaining: float) -> Optional[Dict[str, Any]]:
+        if remaining <= 0:
+            return None
+        idle_until = (datetime.now(CHINA_TZ) + timedelta(seconds=remaining)).isoformat(timespec="seconds")
+        return {
             "phase": COVERAGE_PHASE_IDLE,
             "cycle_started_at": None,
             "idle_until": idle_until,
@@ -813,37 +956,42 @@ class MonitorService:
             "errors": [],
             "priority_user_ids": list(self._coverage_priority_user_ids),
         }
-        state["monitoring"]["coverage_progress"] = progress if remaining > 0 else None
-        state["monitoring"]["updated_at"] = utc_now()
-        self._storage.save_state(state)
+
+    def _commit_coverage_idle(self, summary: Dict[str, Any], remaining: float) -> None:
+        """周期收尾：一次 update_state 写回汇总与 idle 进度，不整体覆盖磁盘态。"""
+        idle_progress = self._build_idle_progress(remaining)
+
+        def _apply(state: Dict[str, Any]) -> None:
+            monitoring = state["monitoring"]
+            monitoring["last_run_at"] = cn_now()
+            monitoring["last_run_result"] = summary
+            monitoring["coverage_progress"] = idle_progress
+            monitoring["updated_at"] = cn_now()
+
+        self._storage.update_state(_apply)
 
     def _persist_runtime_checkpoint(self) -> None:
         """进程退出前把优先队列写回 coverage_progress，便于续跑。"""
-        state = self._storage.load_state()
-        monitoring = state["monitoring"]
-        progress = monitoring.get("coverage_progress")
-        if not isinstance(progress, dict):
-            if not self._coverage_priority_user_ids:
-                return
-            progress = self._empty_coverage_progress()
-            progress["phase"] = COVERAGE_PHASE_IDLE
-        progress["priority_user_ids"] = list(self._coverage_priority_user_ids)
-        monitoring["coverage_progress"] = progress
-        monitoring["updated_at"] = utc_now()
-        self._storage.save_state(state)
+        priority_ids = list(self._coverage_priority_user_ids)
+
+        def _apply(state: Dict[str, Any]) -> None:
+            monitoring = state["monitoring"]
+            progress = monitoring.get("coverage_progress")
+            if not isinstance(progress, dict):
+                if not priority_ids:
+                    return
+                progress = self._empty_coverage_progress()
+                progress["phase"] = COVERAGE_PHASE_IDLE
+            progress["priority_user_ids"] = priority_ids
+            monitoring["coverage_progress"] = progress
+            monitoring["updated_at"] = cn_now()
+
+        self._storage.update_state(_apply)
 
     def _restore_priority_from_progress(self) -> None:
         progress = self._read_coverage_progress()
         priority_ids = progress.get("priority_user_ids") or []
         self._coverage_priority_user_ids = [str(x) for x in priority_ids if str(x).strip()]
-
-    def _attach_user_to_active_coverage_state(self, user: Dict[str, Any]) -> None:
-        state = self._active_coverage_state
-        if state is None:
-            return
-        if find_user_by_id(state["users"], str(user.get("id") or "")) is not None:
-            return
-        state["users"].append(user)
 
     def _enqueue_coverage_priority_user(self, user_id: str) -> None:
         """将用户加入优先检查队列并唤醒监控循环（插队到下一个）。"""
@@ -853,66 +1001,74 @@ class MonitorService:
             self._coverage_priority_user_ids.append(user_id)
         self._wake_event.set()
 
-    def _insert_priority_users_into_pending(
+    def _insert_priority_user_ids_into_pending(
         self,
-        state: Dict[str, Any],
-        pending_users: List[Dict[str, Any]],
+        pending_user_ids: List[str],
         processed_user_ids: Set[str],
     ) -> None:
+        """把优先队列的 user_id 插到 pending 前部（去重、跳过已处理）。
+
+        存在性与 enabled 校验交由 _claim_next_coverage_user 在取用时按磁盘态判定。
+        """
         if not self._coverage_priority_user_ids:
             return
 
         queued_ids = self._pop_priority_user_ids()
-        users = state["users"]
-        priority_users: List[Dict[str, Any]] = []
-        priority_ids: Set[str] = set()
+        front: List[str] = []
+        promoted: Set[str] = set()
         for user_id in queued_ids:
-            if user_id in processed_user_ids or user_id in priority_ids:
+            if user_id in processed_user_ids or user_id in promoted:
                 continue
+            front.append(user_id)
+            promoted.add(user_id)
 
-            user = find_user_by_id(users, user_id)
-            if user is None or not user.get("enabled", True):
-                continue
-
-            priority_users.append(user)
-            priority_ids.add(user_id)
-
-        if not priority_users:
+        if not front:
             return
 
-        pending_users[:] = [
-            *priority_users,
-            *[user for user in pending_users if user.get("id") not in priority_ids],
+        pending_user_ids[:] = [
+            *front,
+            *[uid for uid in pending_user_ids if uid not in promoted],
         ]
 
     async def _maybe_run_cookie_liveness(self, state: Dict[str, Any]) -> None:
         service = self._cookie_liveness_service
         if service is None:
             return
+        # 探测网络在锁外的 state 快照上完成；仅把 cookie_liveness 字段合并回最新磁盘态，
+        # 不整体回写快照，避免探测期间并发写入的 users/cookie_pool 被陈旧快照覆盖。
         try:
-            await service.maybe_run(state)
-            self._storage.save_state(state)
+            payload = await service.maybe_run(state)
         except Exception as exc:  # noqa: BLE001
-            monitoring = state.setdefault("monitoring", {})
-            record = monitoring.setdefault("cookie_liveness", {})
-            record["last_error"] = str(exc)
-            record["updated_at"] = utc_now()
-            monitoring["updated_at"] = utc_now()
-            self._storage.save_state(state)
+            self._merge_cookie_liveness_error(sanitize_public_error(exc))
+            return
+        if payload is None:
+            return
+        self._merge_cookie_liveness_payload(payload)
 
-    def _save_summary(self, state: Dict[str, Any], summary: Dict[str, Any]) -> None:
-        monitoring = state["monitoring"]
-        monitoring["last_run_at"] = utc_now()
-        monitoring["last_run_result"] = summary
-        monitoring["updated_at"] = utc_now()
-        self._storage.save_state(state)
+    def _merge_cookie_liveness_payload(self, payload: Dict[str, Any]) -> None:
+        def _apply(state: Dict[str, Any]) -> None:
+            monitoring = state["monitoring"]
+            monitoring["cookie_liveness"] = payload
+            monitoring["updated_at"] = cn_now()
+
+        self._storage.update_state(_apply)
+
+    def _merge_cookie_liveness_error(self, message: str) -> None:
+        def _apply(state: Dict[str, Any]) -> None:
+            monitoring = state["monitoring"]
+            record = monitoring.setdefault("cookie_liveness", {})
+            record["last_error"] = message
+            record["updated_at"] = cn_now()
+            monitoring["updated_at"] = cn_now()
+
+        self._storage.update_state(_apply)
 
     def _save_loop_error(self, message: str) -> None:
         state = self._storage.load_state()
         monitoring = state["monitoring"]
-        monitoring["last_run_at"] = utc_now()
+        monitoring["last_run_at"] = cn_now()
         monitoring["last_run_result"] = {"loop_error": message}
-        monitoring["updated_at"] = utc_now()
+        monitoring["updated_at"] = cn_now()
         self._storage.save_state(state)
 
     async def _update_monitoring_state(
@@ -929,7 +1085,7 @@ class MonitorService:
         monitoring["mode"] = self._mode
         monitoring["interval_hours"] = self._interval_hours
         monitoring["coverage_hours"] = self._coverage_hours
-        monitoring["updated_at"] = utc_now()
+        monitoring["updated_at"] = cn_now()
         monitoring.pop("interval_seconds", None)
         monitoring.pop("random_min_seconds", None)
         monitoring.pop("random_max_seconds", None)
@@ -959,17 +1115,17 @@ class MonitorService:
             user["history_sync"] = build_history_sync_state(
                 status=HISTORY_SYNC_STATUS_PENDING,
                 page_size=int(history_sync["page_size"] or HISTORY_SYNC_PAGE_SIZE),
-                started_at=utc_now(),
-                updated_at=utc_now(),
+                started_at=cn_now(),
+                updated_at=cn_now(),
             )
         else:
             history_sync["status"] = HISTORY_SYNC_STATUS_PENDING
             history_sync["has_more"] = True
-            history_sync["started_at"] = history_sync.get("started_at") or utc_now()
-            history_sync["updated_at"] = utc_now()
+            history_sync["started_at"] = history_sync.get("started_at") or cn_now()
+            history_sync["updated_at"] = cn_now()
             history_sync["last_error"] = None
             history_sync["completed_at"] = None
-        user["updated_at"] = utc_now()
+        user["updated_at"] = cn_now()
 
     async def _close_resource(self, resource: Any) -> None:
         close_method = getattr(resource, "aclose", None)

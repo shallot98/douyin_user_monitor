@@ -166,4 +166,3 @@ def _parse_positive_int(value: Any, name: str) -> int:
         raise ValueError(f"{name} 必须大于 0")
     return number
 
-from douyin_user_monitor.settings_loaders import load_settings  # noqa: E402

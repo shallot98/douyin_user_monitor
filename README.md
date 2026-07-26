@@ -39,8 +39,12 @@ cp config/douyin_web.example.yaml config/douyin_web.yaml
 
 4. 启动
 ```bash
-uvicorn douyin_user_monitor.main:app --host 0.0.0.0 --port 8900
+python -m douyin_user_monitor
 ```
+
+- 默认仅监听 `127.0.0.1:8900`；需要对外暴露时显式设置 `DYMON_HOST=0.0.0.0`，并强烈建议同时设置 `DYMON_API_KEY` 启用 API Key 鉴权。
+- 启用 `DYMON_API_KEY` 后，所有 `/api/monitor` 接口需携带请求头 `X-API-Key` 或查询参数 `api_key`，否则返回 401。
+- 已知限制：启用 Key 后前端页面需通过 `?api_key=<key>` 访问，且面板内的 fetch 请求不会自动附带 Key。
 
 ## 历史回填
 

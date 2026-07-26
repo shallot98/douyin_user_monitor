@@ -9,6 +9,12 @@ class DashboardUiTests(unittest.TestCase):
     def setUp(self):
         self.client = TestClient(app)
 
+    def _common_js_text(self) -> str:
+        # 公共 JS（API_BASE / SHANGHAI 时间格式化 / jsAttr 等）已抽到 /static/common.js。
+        resp = self.client.get('/static/common.js')
+        self.assertEqual(resp.status_code, 200)
+        return resp.text
+
     def test_dashboard_replaces_add_user_ui_with_search_ui(self):
         response = self.client.get('/api/monitor/dashboard')
 
@@ -25,9 +31,10 @@ class DashboardUiTests(unittest.TestCase):
 
         self.assertEqual(response.status_code, 200)
         html = response.text
-        self.assertIn('const SHANGHAI_TIME_ZONE = "Asia/Shanghai";', html)
+        self.assertIn('src="/static/common.js"', html)
         self.assertIn("formatTime(user.last_checked_at, '未检查')", html)
         self.assertIn("parseTimeToMillis(b.downloaded_at)", html)
+        self.assertIn('const SHANGHAI_TIME_ZONE = "Asia/Shanghai";', self._common_js_text())
 
     def test_dashboard_has_no_platform_switcher(self):
         response = self.client.get('/api/monitor/dashboard')
@@ -37,7 +44,8 @@ class DashboardUiTests(unittest.TestCase):
         self.assertIn('id="sidebarTitle"', html)
         self.assertIn('let refreshSeq = 0;', html)
         self.assertIn('if (seq !== refreshSeq) return;', html)
-        self.assertIn('const API_BASE = "/api/monitor";', html)
+        self.assertIn('src="/static/common.js"', html)
+        self.assertIn('const API_BASE = "/api/monitor";', self._common_js_text())
         self.assertIn('Cookie 池', html)
         self.assertIn('/api/monitor/cookies/dashboard', html)
         self.assertNotIn("function switchPlatform(platform)", html)
@@ -53,7 +61,8 @@ class DashboardUiTests(unittest.TestCase):
         self.assertIn('id="sidebarTitle"', html)
         self.assertIn('let refreshSeq = 0;', html)
         self.assertIn('if (seq !== refreshSeq) return;', html)
-        self.assertIn('const API_BASE = "/api/monitor";', html)
+        self.assertIn('src="/static/common.js"', html)
+        self.assertIn('const API_BASE = "/api/monitor";', self._common_js_text())
         self.assertIn('Cookie 池', html)
         self.assertIn('/api/monitor/cookies/dashboard', html)
         self.assertNotIn("function switchPlatform(platform)", html)
@@ -71,7 +80,8 @@ class DashboardUiTests(unittest.TestCase):
         self.assertIn('function checkCookie(', html)
         self.assertIn('function activateCookie(', html)
         self.assertIn('Cookie 池', html)
-        self.assertIn('const API_BASE = "/api/monitor";', html)
+        self.assertIn('src="/static/common.js"', html)
+        self.assertIn('const API_BASE = "/api/monitor";', self._common_js_text())
         # 遮罩不得盖住侧栏，否则菜单无法点击
         self.assertIn('pointer-events: none', html)
         self.assertIn('.sidebar.show', html)
@@ -83,9 +93,11 @@ class DashboardUiTests(unittest.TestCase):
 
         self.assertEqual(response.status_code, 200)
         html = response.text
-        self.assertIn('const SHANGHAI_TIME_ZONE = "Asia/Shanghai";', html)
+        self.assertIn('src="/static/common.js"', html)
         self.assertIn("统计生成时间（上海）", html)
-        self.assertIn('hourCycle: "h23"', html)
+        common_js = self._common_js_text()
+        self.assertIn('const SHANGHAI_TIME_ZONE = "Asia/Shanghai";', common_js)
+        self.assertIn('hourCycle: "h23"', common_js)
         self.assertIn('id="deactivatedUsers"', html)
         self.assertIn("已注销 / 已封禁用户", html)
         self.assertIn("account_status_reason", html)

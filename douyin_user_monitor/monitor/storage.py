@@ -6,6 +6,7 @@ from typing import Any, Callable, Dict, Iterator
 
 from douyin_user_monitor.monitor.history_sync import normalize_history_sync_state
 from douyin_user_monitor.monitor.profile_parser import build_account_status_fields
+from douyin_user_monitor.monitor.timeutils import cn_now
 
 DEFAULT_INTERVAL_HOURS = 0.05
 DEFAULT_MODE = "interval"
@@ -30,16 +31,9 @@ MONITORING_DEFAULTS = {
 }
 
 
-def utc_now() -> str:
-    from datetime import datetime, timedelta, timezone
-
-    china_tz = timezone(timedelta(hours=8))
-    return datetime.now(china_tz).isoformat(timespec="milliseconds")
-
-
 def build_default_state() -> Dict[str, Any]:
     monitoring = dict(MONITORING_DEFAULTS)
-    monitoring["updated_at"] = utc_now()
+    monitoring["updated_at"] = cn_now()
     return {"users": [], "monitoring": monitoring}
 
 
@@ -134,7 +128,6 @@ class MonitorStorage:
         return state
 
     def _save_state_unlocked(self, state: Dict[str, Any]) -> None:
-        self._merge_concurrent_monitoring_fields(state)
         self._write_json_atomic(state)
 
     def _write_json_atomic(self, state: Dict[str, Any]) -> None:
@@ -142,70 +135,6 @@ class MonitorStorage:
         content = json.dumps(state, ensure_ascii=False, indent=2)
         temp_file.write_text(content, encoding="utf-8")
         temp_file.replace(self.state_file)
-
-    def _merge_concurrent_monitoring_fields(self, state: Dict[str, Any]) -> None:
-        """Preserve newer cookie_pool written by concurrent API writers.
-
-        Coverage checkpoints keep a long-lived in-memory state; a full save
-        would otherwise wipe pool items added after that snapshot was loaded.
-        """
-        if not self.state_file.exists():
-            return
-        try:
-            disk_state = json.loads(self.state_file.read_text(encoding="utf-8"))
-        except (json.JSONDecodeError, OSError):
-            return
-        if not isinstance(disk_state, dict):
-            return
-        disk_mon = disk_state.get("monitoring")
-        mem_mon = state.setdefault("monitoring", {})
-        if not isinstance(disk_mon, dict) or not isinstance(mem_mon, dict):
-            return
-        self._prefer_newer_dict_field(mem_mon, disk_mon, "cookie_pool")
-
-    @staticmethod
-    def _cookie_pool_activity_score(pool: Dict[str, Any]) -> int:
-        items = pool.get("items")
-        if not isinstance(items, list):
-            return 0
-        total = 0
-        for row in items:
-            if isinstance(row, dict):
-                total += int(row.get("use_count") or 0)
-        total += int(pool.get("rotation_cursor") or 0)
-        return total
-
-    @staticmethod
-    def _prefer_newer_dict_field(
-        mem_mon: Dict[str, Any],
-        disk_mon: Dict[str, Any],
-        key: str,
-    ) -> None:
-        disk_val = disk_mon.get(key)
-        if not isinstance(disk_val, dict):
-            return
-        mem_val = mem_mon.get(key)
-        if not isinstance(mem_val, dict):
-            mem_mon[key] = disk_val
-            return
-
-        disk_items = disk_val.get("items")
-        mem_items = mem_val.get("items")
-        disk_has_items = isinstance(disk_items, list) and bool(disk_items)
-        mem_has_items = isinstance(mem_items, list) and bool(mem_items)
-        if disk_has_items and not mem_has_items:
-            mem_mon[key] = disk_val
-            return
-
-        disk_ts = str(disk_val.get("updated_at") or "")
-        mem_ts = str(mem_val.get("updated_at") or "")
-        if disk_ts and (not mem_ts or disk_ts > mem_ts):
-            mem_mon[key] = disk_val
-            return
-        # Same timestamp (or missing): prefer the side with more rotation activity.
-        if key == "cookie_pool" and disk_ts and disk_ts == mem_ts:
-            if MonitorStorage._cookie_pool_activity_score(disk_val) > MonitorStorage._cookie_pool_activity_score(mem_val):
-                mem_mon[key] = disk_val
 
     def _normalize_state(self, state: Dict[str, Any]) -> None:
         normalize_root_state(state)
