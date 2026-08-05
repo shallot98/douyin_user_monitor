@@ -9,8 +9,8 @@ const API_BASE = "/api/monitor";
 
 // --- 侧栏（移动端抽屉）交互 ---
 function closeSidebarMobile() {
-  document.getElementById("sidebar").classList.remove("show");
-  document.getElementById("sidebarOverlay").classList.remove("show");
+  document.getElementById("sidebar")?.classList.remove("show");
+  document.getElementById("sidebarOverlay")?.classList.remove("show");
 }
 
 function toggleSidebar() {
