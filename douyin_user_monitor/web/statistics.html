@@ -10,13 +10,28 @@
 
     /* 共享变量（:root/*）见 common.css；此处仅保留 statistics 特有变量 */
     :root {
-      --warning: #f59e0b;
-      --warning-light: #fef3c7;
-      --cyan: #06b6d4;
-      --cyan-light: #cffafe;
-      --radius-lg: 12px;
-      --shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px -1px rgba(0, 0, 0, 0.1);
-      --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -2px rgba(0, 0, 0, 0.1);
+      /* statistics page defers to common.css tokens; keep aliases used by local CSS */
+      --bg-body: #0a120e;
+      --bg-surface: rgba(18, 28, 23, 0.86);
+      --bg-sidebar: rgba(12, 20, 16, 0.96);
+      --bg-sidebar-hover: rgba(143, 209, 159, 0.10);
+      --text-main: #e8f3eb;
+      --text-muted: #8aa394;
+      --text-lighter: #61786b;
+      --text-inverse: #e8f3eb;
+      --border-color: rgba(134, 201, 149, 0.12);
+      --primary: #6fbf82;
+      --primary-hover: #5aab6d;
+      --primary-light: rgba(143, 209, 159, 0.14);
+      --success: #8fd19f;
+      --success-light: rgba(143, 209, 159, 0.14);
+      --danger: #e89595;
+      --danger-light: rgba(232, 149, 149, 0.12);
+      --radius-sm: 8px;
+      --radius: 14px;
+      --shadow-sm: none;
+      --shadow-md: 0 12px 40px rgba(0,0,0,.28);
+      font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Noto Sans SC", "Segoe UI", sans-serif;
     }
 
     body {
@@ -194,7 +209,7 @@
     }
 
     .hero-panel {
-      background: linear-gradient(135deg, #312e81 0%, #4338ca 38%, #06b6d4 100%);
+      background: linear-gradient(135deg, #312e81 0%, var(--primary-hover) 38%, #06b6d4 100%);
       color: white;
       border-radius: 20px;
       padding: 28px;
@@ -316,7 +331,7 @@
     .card-header {
       padding: 20px 24px;
       border-bottom: 1px solid var(--border-color);
-      background: #f8fafc;
+      background: rgba(8,14,11,0.55);
       display: flex;
       justify-content: space-between;
       align-items: center;
@@ -423,7 +438,7 @@
       border: 1px solid var(--border-color);
       border-radius: 16px;
       padding: 16px;
-      background: linear-gradient(180deg, #fff 0%, #f8fafc 100%);
+      background: linear-gradient(180deg, var(--bg-surface) 0%, rgba(8,14,11,0.55) 100%);
     }
     .insight-card h4 {
       font-size: 13px;
@@ -455,9 +470,9 @@
       display: flex;
       margin-bottom: 16px;
     }
-    .stacked-segment.video { background: linear-gradient(90deg, #4f46e5 0%, #6366f1 100%); }
+    .stacked-segment.video { background: linear-gradient(90deg, var(--primary) 0%, var(--primary) 100%); }
     .stacked-segment.image { background: linear-gradient(90deg, #ec4899 0%, #f472b6 100%); }
-    .stacked-segment.empty { background: linear-gradient(90deg, #cbd5e1 0%, #94a3b8 100%); }
+    .stacked-segment.empty { background: linear-gradient(90deg, #cbd5e1 0%, var(--text-lighter) 100%); }
 
     .legend-list {
       display: flex;
@@ -501,7 +516,7 @@
       justify-content: space-between;
       gap: 16px;
       align-items: center;
-      background: #fff;
+      background: var(--bg-surface);
     }
     .user-list-main {
       display: flex;
@@ -553,13 +568,13 @@
     .pill.danger { background: var(--danger-light); color: #b91c1c; }
     .pill.primary { background: var(--primary-light); color: var(--primary); }
     .pill.success { background: var(--success-light); color: #047857; }
-    .pill.secondary { background: #e2e8f0; color: #475569; }
+    .pill.secondary { background: var(--border-color); color: #475569; }
 
     .note-box {
       margin-top: 18px;
       padding: 16px;
       border-radius: 14px;
-      background: #f8fafc;
+      background: rgba(8,14,11,0.55);
       border: 1px dashed #cbd5e1;
       color: var(--text-muted);
       font-size: 13px;
@@ -676,7 +691,7 @@
       font-size: 14px;
       border: 1px dashed var(--border-color);
       border-radius: 16px;
-      background: #f8fafc;
+      background: rgba(8,14,11,0.55);
     }
 
     @media (max-width: 1180px) {
@@ -703,37 +718,50 @@
         align-items: flex-start;
       }
     }
-  </style>
+  
+
+    /* green shell alignment overrides */
+    body { background: var(--bg-body) !important; color: var(--text-main); }
+    .sidebar { width: var(--rail-width, 76px); background: var(--bg-sidebar) !important; }
+    .top-header { background: rgba(12,20,16,0.72) !important; border-bottom: 1px solid var(--border-color) !important; }
+    .stat-card, .card, .hero-panel, .panel, .segment-card {
+      background: var(--bg-surface) !important;
+      border-color: var(--border-color) !important;
+      box-shadow: none !important;
+    }
+    .main-content { padding-bottom: calc(28px + env(safe-area-inset-bottom, 0px)); }
+    @media (max-width: 1024px) {
+      .main-content { padding-bottom: calc(68px + 18px + env(safe-area-inset-bottom, 0px)) !important; }
+    }
+    </style>
 </head>
 <body>
   <aside class="sidebar" id="sidebar">
     <div class="sidebar-header">
-      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
-        <path stroke-linecap="round" stroke-linejoin="round" d="M14.25 9.75 16.5 12l-2.25 2.25m-4.5 0L7.5 12l2.25-2.25M6 20.25h12A2.25 2.25 0 0 0 20.25 18V6A2.25 2.25 0 0 0 18 3.75H6A2.25 2.25 0 0 0 3.75 6v12A2.25 2.25 0 0 0 6 20.25Z" />
-      </svg>
+      <div class="sidebar-brand">抖</div>
       <span id="sidebarTitle">Douyin Monitor</span>
     </div>
     <nav class="sidebar-nav">
-      <div class="nav-label">Menu</div>
-      <a class="nav-item" href="/api/monitor/dashboard" onclick="return navigateToPage('/api/monitor/dashboard')">
+      <a class="nav-item" href="/api/monitor/dashboard" onclick="return navigateToPage('/api/monitor/dashboard')" title="数据大盘">
         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6A2.25 2.25 0 0 1 6 3.75h2.25A2.25 2.25 0 0 1 10.5 6v2.25a2.25 2.25 0 0 1-2.25 2.25H6a2.25 2.25 0 0 1-2.25-2.25V6ZM3.75 15.75A2.25 2.25 0 0 1 6 13.5h2.25a2.25 2.25 0 0 1 2.25 2.25V18a2.25 2.25 0 0 1-2.25 2.25H6A2.25 2.25 0 0 1 3.75 18v-2.25ZM13.5 6a2.25 2.25 0 0 1 2.25-2.25H18A2.25 2.25 0 0 1 20.25 6v2.25A2.25 2.25 0 0 1 18 10.5h-2.25a2.25 2.25 0 0 1-2.25-2.25V6ZM13.5 15.75a2.25 2.25 0 0 1 2.25-2.25H18a2.25 2.25 0 0 1 2.25 2.25V18A2.25 2.25 0 0 1 18 20.25h-2.25A2.25 2.25 0 0 1 13.5 18v-2.25Z" /></svg>
         数据大盘
       </a>
-      <a class="nav-item active" href="/api/monitor/statistics/dashboard" onclick="return navigateToPage('/api/monitor/statistics/dashboard')">
+      <a class="nav-item active" href="/api/monitor/statistics/dashboard" onclick="return navigateToPage('/api/monitor/statistics/dashboard')" title="用户统计">
         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M7.5 3.75h9A2.25 2.25 0 0 1 18.75 6v12A2.25 2.25 0 0 1 16.5 20.25h-9A2.25 2.25 0 0 1 5.25 18V6A2.25 2.25 0 0 1 7.5 3.75Zm1.5 4.5h6m-6 3h6m-6 3h3" /></svg>
         用户统计
       </a>
-      <a class="nav-item" href="/api/monitor/cookies/dashboard" onclick="return navigateToPage('/api/monitor/cookies/dashboard')">
+      <a class="nav-item" href="/api/monitor/cookies/dashboard" onclick="return navigateToPage('/api/monitor/cookies/dashboard')" title="Cookie 池">
         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 5.25a3 3 0 0 1 3 3m3 0a6 6 0 0 1-7.029 5.912c-.563-.097-1.159.026-1.563.43L10.5 17.25H8.25v2.25H6v2.25H2.25v-2.818c0-.597.237-1.17.659-1.591l6.499-6.499c.404-.404.527-1 .43-1.563A6 6 0 1 1 21.75 8.25Z" /></svg>
         Cookie 池
       </a>
-      <a class="nav-item" onclick="toggleSettings()">
+      <div class="nav-spacer"></div>
+      <a class="nav-item" onclick="toggleSettings()" title="调度配置">
         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M9.594 3.94c.09-.542.56-.94 1.11-.94h2.593c.55 0 1.02.398 1.11.94l.213 1.281c.063.374.313.686.645.87.074.04.147.083.22.127.325.196.72.257 1.075.124l1.217-.456a1.125 1.125 0 0 1 1.37.49l1.296 2.247a1.125 1.125 0 0 1-.26 1.431l-1.003.827c-.293.241-.438.613-.43.992a7.723 7.723 0 0 1 0 .255c-.008.378.137.75.43.991l1.004.827c.424.35.534.955.26 1.43l-1.298 2.247a1.125 1.125 0 0 1-1.369.491l-1.217-.456c-.355-.133-.75-.072-1.076.124a6.47 6.47 0 0 1-.22.128c-.331.183-.581.495-.644.869l-.213 1.281c-.09.543-.56.94-1.11.94h-2.594c-.55 0-1.019-.398-1.11-.94l-.213-1.281c-.062-.374-.312-.686-.644-.87a6.52 6.52 0 0 1-.22-.127c-.325-.196-.72-.257-1.076-.124l-1.217.456a1.125 1.125 0 0 1-1.369-.49l-1.297-2.247a1.125 1.125 0 0 1 .26-1.431l1.004-.827c.292-.24.437-.613.43-.991a6.932 6.932 0 0 1 0-.255c.007-.38-.138-.751-.43-.992l-1.004-.827a1.125 1.125 0 0 1-.26-1.43l1.297-2.247a1.125 1.125 0 0 1 1.37-.491l1.216.456c.356.133.751.072 1.076-.124.072-.044.146-.086.22-.128.332-.183.582-.495.644-.869l.214-1.28Z" /><path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" /></svg>
         调度配置
       </a>
-      <a class="nav-item" onclick="refreshAll()">
+      <a class="nav-item" onclick="refreshAll()" title="刷新">
         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0 3.181 3.183a8.25 8.25 0 0 0 13.803-3.7M4.031 9.865a8.25 8.25 0 0 1 13.803-3.7l3.181 3.182m0-4.991v4.99" /></svg>
-        刷新统计
+        刷新
       </a>
     </nav>
   </aside>
@@ -979,6 +1007,14 @@
     </main>
   </div>
 
+  
+  <nav class="bottom-tabbar" aria-label="Mobile tabs">
+    <a class="bottom-tab" href="/api/monitor/dashboard" onclick="return navigateToPage('/api/monitor/dashboard')"><span class="tab-ico">监</span>监控</a>
+    <a class="bottom-tab active" href="/api/monitor/statistics/dashboard" onclick="return navigateToPage('/api/monitor/statistics/dashboard')"><span class="tab-ico">统</span>统计</a>
+    <a class="bottom-tab" href="/api/monitor/cookies/dashboard" onclick="return navigateToPage('/api/monitor/cookies/dashboard')"><span class="tab-ico">C</span>Cookie</a>
+    <a class="bottom-tab" href="javascript:void(0)" onclick="return toggleSidebar()"><span class="tab-ico">≡</span>更多</a>
+  </nav>
+
   <div id="sidebarOverlay" class="overlay" onclick="toggleSidebar()"></div>
   <div id="settingsOverlay" class="overlay" onclick="toggleSettings()"></div>
   <div id="settingsDrawer" class="drawer">
@@ -1036,7 +1072,7 @@
     // toggleSidebar / closeSidebarMobile / navigateToPage 及 resize 监听见 common.js；
     // isMobileViewport 各页断点不同（本页 1024），保留在本页由 common.js 在调用时引用。
     function isMobileViewport() {
-      return window.innerWidth <= 1024;
+      return window.matchMedia("(max-width: 1024px)").matches;
     }
 
     function escapeHtml(value) {

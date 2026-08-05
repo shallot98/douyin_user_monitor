@@ -2,514 +2,192 @@
 <html lang="zh-CN">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
   <title>用户监控台 | Monitor</title>
   <link rel="stylesheet" href="/static/common.css" />
   <style>
-    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
-
-    /* 共享变量（:root/*）见 common.css；此处仅保留 dashboard 特有变量 */
-    :root {
-      --border-dark: #334155;  /* slate-700 */
-      --danger-hover: #dc2626;
-      --radius-lg: 12px;
-      --shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px -1px rgba(0, 0, 0, 0.1);
-      --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -2px rgba(0, 0, 0, 0.1);
-    }
-
-    body {
-      background-color: var(--bg-body);
-      color: var(--text-main);
-      -webkit-font-smoothing: antialiased;
-      line-height: 1.5;
-      display: flex;
-      height: 100vh;
-      overflow: hidden;
-    }
-
-    /* --- Sidebar (Mosaic Style) --- */
-    .sidebar {
-      width: 260px;
-      background-color: var(--bg-sidebar);
-      color: var(--text-inverse);
-      display: flex;
-      flex-direction: column;
-      flex-shrink: 0;
-      transition: all 0.3s ease;
-      z-index: 40;
-    }
-    .sidebar-header {
-      height: 64px;
-      display: flex;
-      align-items: center;
-      padding: 0 24px;
-      font-size: 18px;
-      font-weight: 700;
-      letter-spacing: -0.5px;
-      gap: 10px;
-      background-color: rgba(15, 23, 42, 0.2); /* Darker header */
-    }
-    .nav-label {
-      font-size: 12px;
-      text-transform: uppercase;
-      color: var(--text-muted);
-      font-weight: 600;
-      margin: 8px 0 4px 8px;
-      letter-spacing: 0.5px;
-    }
-    .nav-item {
-      display: flex;
-      align-items: center;
-      gap: 12px;
-      padding: 10px 12px;
-      border-radius: var(--radius);
-      color: var(--text-lighter);
-      text-decoration: none;
-      font-size: 14px;
-      font-weight: 500;
-      cursor: pointer;
-      transition: all 0.2s;
-    }
-    .nav-item:hover {
-      background-color: var(--bg-sidebar-hover);
-      color: var(--text-inverse);
-    }
-    .nav-item.active {
-      background-color: rgba(79, 70, 229, 0.15); /* Primary tinted */
-      color: #818cf8;
-    }
-
-    /* --- Header --- */
-    .top-header {
-      height: 64px;
-      background-color: var(--bg-surface);
-      border-bottom: 1px solid var(--border-color);
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      padding: 0 24px;
-      flex-shrink: 0;
-      z-index: 30;
-    }
-    
-    .header-right {
-      display: flex;
-      align-items: center;
-      gap: 16px;
-    }
-
-    /* Status Indicator */
-    .status-badge {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      padding: 6px 12px;
-      background: var(--bg-body);
-      border: 1px solid var(--border-color);
-      border-radius: 999px;
-      font-size: 13px;
-      font-weight: 600;
-    }
-    .status-dot {
-      width: 8px; height: 8px; border-radius: 50%; background: var(--text-lighter);
-    }
-    .status-dot.running {
-      background: var(--success);
-      box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.2);
-    }
-
-    /* --- Main Content Area --- */
-    .content-container {
-      max-width: 1200px;
-      margin: 0 auto;
-      display: flex;
-      flex-direction: column;
-      gap: 24px;
-    }
-
-    /* Page Header */
-    .page-header {
-      display: flex;
-      justify-content: space-between;
-      align-items: flex-end;
-      margin-bottom: 8px;
-    }
-    .page-title {
-      font-size: 28px;
-      font-weight: 700;
-      color: var(--text-main);
-      letter-spacing: -0.5px;
-    }
-    .page-actions {
-      display: flex;
-      gap: 12px;
-    }
-
-    /* Stats Grid */
-    .stats-grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
-      gap: 24px;
-    }
-    .stat-card {
-      background: var(--bg-surface);
-      border: 1px solid var(--border-color);
-      border-radius: var(--radius);
-      padding: 20px;
-      box-shadow: var(--shadow-sm);
-      display: flex;
-      flex-direction: column;
-    }
-    .stat-card-icon {
-      width: 40px; height: 40px; border-radius: 50%;
-      display: flex; align-items: center; justify-content: center;
-      margin-bottom: 16px;
-    }
-    .stat-card-icon svg { width: 20px; height: 20px; }
-    .stat-label { font-size: 13px; color: var(--text-muted); font-weight: 500; margin-bottom: 4px; text-transform: uppercase; letter-spacing: 0.5px;}
-    .stat-value { font-size: 24px; font-weight: 700; color: var(--text-main); line-height: 1; }
-    
-    /* Layout Grid for Main Content */
-    .dashboard-grid {
-      display: grid;
-      grid-template-columns: 2fr 1fr;
-      gap: 24px;
-      align-items: flex-start;
-    }
-
-    /* Cards */
-    .card {
-      background: var(--bg-surface);
-      border: 1px solid var(--border-color);
-      border-radius: var(--radius);
-      box-shadow: var(--shadow-sm);
-      display: flex;
-      flex-direction: column;
-      overflow: hidden;
-    }
-    .card-header {
-      padding: 20px 24px;
-      border-bottom: 1px solid var(--border-color);
-      background: #f8fafc; /* Very light gray for header */
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      flex-wrap: wrap;
-      gap: 12px;
-    }
-    .card-title {
-      font-size: 16px;
-      font-weight: 600;
-      color: var(--text-main);
-    }
-    .card-header-actions {
-      display: flex;
-      align-items: center;
-      gap: 12px;
-      margin-left: auto;
-      min-width: 0;
-    }
-    .card-body {
-      padding: 24px;
-    }
-
-    /* Forms & Inputs */
-    .input-group { display: flex; gap: 12px; }
-    .input {
-      flex: 1; padding: 10px 16px; border: 1px solid var(--border-color);
-      border-radius: var(--radius-sm); font-size: 14px; font-family: inherit;
-      color: var(--text-main); outline: none; transition: all 0.2s;
-    }
-    .input:focus { border-color: var(--primary); box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.2); }
-    .input-search { width: 280px; }
-    
-    /* Buttons */
-    .btn {
-      display: inline-flex; align-items: center; justify-content: center; gap: 8px;
-      padding: 10px 16px; border: 1px solid transparent; border-radius: var(--radius-sm);
-      font-size: 14px; font-weight: 500; font-family: inherit; cursor: pointer; transition: all 0.2s;
-    }
-    .btn svg { width: 18px; height: 18px; }
-    .btn-primary { background: var(--primary); color: white; box-shadow: 0 1px 2px rgba(0,0,0,0.05); }
-    .btn-primary:hover { background: var(--primary-hover); }
-    .btn-danger { background: var(--danger); color: white; }
-    .btn-danger:hover { background: var(--danger-hover); }
-    .btn-secondary { background: var(--bg-surface); color: var(--text-main); border-color: var(--border-color); box-shadow: 0 1px 2px rgba(0,0,0,0.05); }
-    .btn-secondary:hover { background: var(--bg-body); border-color: #cbd5e1; }
-    .btn-sm { padding: 6px 12px; font-size: 13px; }
-    
-    .btn-text {
-      background: transparent; border: none; padding: 6px 10px; color: var(--primary);
-      font-size: 13px; font-weight: 500; cursor: pointer; border-radius: var(--radius-sm);
-      display: inline-flex; align-items: center; gap: 4px; transition: all 0.2s;
-    }
-    .btn-text:hover { background: var(--primary-light); }
-    
-    /* Users List */
-    .users-list { display: flex; flex-direction: column; }
-    .user-row {
-      display: flex; align-items: center; justify-content: space-between;
-      padding: 16px 24px; border-bottom: 1px solid var(--border-color);
-      transition: background 0.2s;
-    }
-    .user-row:last-child { border-bottom: none; }
-    .user-row:hover { background-color: #f8fafc; }
-    
-    .user-info { display: flex; align-items: center; gap: 16px; flex: 1; min-width: 0; }
-    .user-avatar {
-      width: 40px; height: 40px; border-radius: 50%; background: var(--primary-light);
-      color: var(--primary); display: flex; align-items: center; justify-content: center;
-      font-weight: 600; font-size: 16px; flex-shrink: 0; overflow: hidden;
-    }
-    .user-avatar img { width: 100%; height: 100%; object-fit: cover; display: block; }
-    .user-details { display: flex; flex-direction: column; min-width: 0; }
-    .user-name { font-weight: 600; font-size: 15px; color: var(--text-main); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: flex; align-items: center; gap: 8px;}
-    .user-meta { font-size: 13px; color: var(--text-muted); display: flex; gap: 16px; margin-top: 4px; }
-    .user-meta-item { display: flex; align-items: center; gap: 4px; }
-    .user-actions { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
-
-    /* Activity Feed */
-    .activity-feed { padding: 0 24px; max-height: 500px; overflow-y: auto; }
-    .feed-item { display: flex; gap: 16px; padding: 20px 0; border-bottom: 1px solid var(--border-color); }
-    .feed-item:last-child { border-bottom: none; }
-    .feed-icon {
-      width: 32px; height: 32px; border-radius: 50%; display: flex; align-items: center; justify-content: center;
-      flex-shrink: 0; margin-top: 2px;
-    }
-    .feed-icon.video { background: #ede9fe; color: #6366f1; }
-    .feed-icon.photo { background: #fce7f3; color: #ec4899; }
-    .feed-icon svg { width: 16px; height: 16px; }
-    .feed-content { flex: 1; font-size: 14px; }
-    .feed-header { display: flex; justify-content: space-between; margin-bottom: 4px; }
-    .feed-user { font-weight: 600; color: var(--text-main); }
-    .feed-time { color: var(--text-lighter); font-size: 12px; }
-    .feed-desc { color: var(--text-muted); }
-
-    /* Modals / Drawers */
-    .overlay {
-      position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(15, 23, 42, 0.5);
-      z-index: 1000; opacity: 0; pointer-events: none; transition: opacity 0.3s; backdrop-filter: blur(2px);
-    }
-    .overlay.show { opacity: 1; pointer-events: auto; }
-    #sidebarOverlay {
-      z-index: 39;
-      background: rgba(15, 23, 42, 0.28);
-      backdrop-filter: none;
-    }
-    #settingsOverlay { z-index: 1000; }
-    
-    .drawer {
-      position: fixed; top: 0; right: -400px; width: 100%; max-width: 400px; height: 100vh;
-      background: var(--bg-surface); box-shadow: -4px 0 24px rgba(0,0,0,0.1); z-index: 1001;
-      transition: right 0.3s cubic-bezier(0.16, 1, 0.3, 1); display: flex; flex-direction: column;
-    }
-    .drawer.show { right: 0; }
-    .drawer-header { padding: 24px; border-bottom: 1px solid var(--border-color); display: flex; justify-content: space-between; align-items: center; }
-    .drawer-body { padding: 24px; overflow-y: auto; flex: 1; display: flex; flex-direction: column; gap: 24px; }
-
-    /* Toast */
-    .toast-container { position: fixed; bottom: 24px; right: 24px; display: flex; flex-direction: column; gap: 12px; z-index: 9999; }
-    .toast { background: var(--text-main); color: white; padding: 16px 20px; border-radius: var(--radius); box-shadow: var(--shadow-md); display: flex; align-items: center; gap: 12px; width: 320px; transform: translateX(120%); opacity: 0; transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1); }
-    .toast.show { transform: translateX(0); opacity: 1; }
-    .toast-success { border-left: 4px solid var(--success); }
-    .toast-error { border-left: 4px solid var(--danger); }
-    .toast svg { width: 20px; height: 20px; flex-shrink: 0; }
-
-    @media (max-width: 1024px) {
-      .dashboard-grid { grid-template-columns: 1fr; }
-      .stats-grid { grid-template-columns: repeat(2, 1fr); }
-      .sidebar { position: fixed; left: -260px; height: 100vh; z-index: 40; }
-      .sidebar.show { left: 0; }
-      .btn.mobile-sidebar-toggle { display: inline-flex; }
-    }
-    @media (max-width: 640px) {
-      .stats-grid { grid-template-columns: 1fr; }
-      .card-header-actions { width: 100%; margin-left: 0; }
-      .input-search { width: 100%; min-width: 0; }
-      .user-row { flex-direction: column; align-items: flex-start; gap: 16px; }
-      .user-actions { width: 100%; display: flex; justify-content: flex-end; }
-    }
+    /* page-only: keep thin */
+    .header-actions-cluster { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+    .stat-card .stat-value { font-size: 24px; }
+    #metric-mode-name, #metric-health, #metric-cookie-status { font-size: 18px; }
+    .user-actions .btn { font-size: 12px; }
   </style>
 </head>
 <body>
-
-  <!-- Sidebar -->
   <aside class="sidebar" id="sidebar">
     <div class="sidebar-header">
-      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
-        <path stroke-linecap="round" stroke-linejoin="round" d="M14.25 9.75 16.5 12l-2.25 2.25m-4.5 0L7.5 12l2.25-2.25M6 20.25h12A2.25 2.25 0 0 0 20.25 18V6A2.25 2.25 0 0 0 18 3.75H6A2.25 2.25 0 0 0 3.75 6v12A2.25 2.25 0 0 0 6 20.25Z" />
-      </svg>
+      <div class="sidebar-brand" aria-hidden="true">抖</div>
       <span id="sidebarTitle">用户监控台</span>
     </div>
     <nav class="sidebar-nav">
-      <div class="nav-label">Menu</div>
-      <a class="nav-item active" href="/api/monitor/dashboard" onclick="return navigateToPage('/api/monitor/dashboard')">
+      <a class="nav-item active" href="/api/monitor/dashboard" onclick="return navigateToPage('/api/monitor/dashboard')" title="数据大盘">
         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6A2.25 2.25 0 0 1 6 3.75h2.25A2.25 2.25 0 0 1 10.5 6v2.25a2.25 2.25 0 0 1-2.25 2.25H6a2.25 2.25 0 0 1-2.25-2.25V6ZM3.75 15.75A2.25 2.25 0 0 1 6 13.5h2.25a2.25 2.25 0 0 1 2.25 2.25V18a2.25 2.25 0 0 1-2.25 2.25H6A2.25 2.25 0 0 1 3.75 18v-2.25ZM13.5 6a2.25 2.25 0 0 1 2.25-2.25H18A2.25 2.25 0 0 1 20.25 6v2.25A2.25 2.25 0 0 1 18 10.5h-2.25a2.25 2.25 0 0 1-2.25-2.25V6ZM13.5 15.75a2.25 2.25 0 0 1 2.25-2.25H18a2.25 2.25 0 0 1 2.25 2.25V18A2.25 2.25 0 0 1 18 20.25h-2.25A2.25 2.25 0 0 1 13.5 18v-2.25Z" /></svg>
         数据大盘
       </a>
-      <a class="nav-item" href="/api/monitor/statistics/dashboard" onclick="return navigateToPage('/api/monitor/statistics/dashboard')">
+      <a class="nav-item" href="/api/monitor/statistics/dashboard" onclick="return navigateToPage('/api/monitor/statistics/dashboard')" title="用户统计">
         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M7.5 3.75h9A2.25 2.25 0 0 1 18.75 6v12A2.25 2.25 0 0 1 16.5 20.25h-9A2.25 2.25 0 0 1 5.25 18V6A2.25 2.25 0 0 1 7.5 3.75Zm1.5 4.5h6m-6 3h6m-6 3h3" /></svg>
         用户统计
       </a>
-      <a class="nav-item" href="/api/monitor/cookies/dashboard" onclick="return navigateToPage('/api/monitor/cookies/dashboard')">
+      <a class="nav-item" href="/api/monitor/cookies/dashboard" onclick="return navigateToPage('/api/monitor/cookies/dashboard')" title="Cookie 池">
         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 5.25a3 3 0 0 1 3 3m3 0a6 6 0 0 1-7.029 5.912c-.563-.097-1.159.026-1.563.43L10.5 17.25H8.25v2.25H6v2.25H2.25v-2.818c0-.597.237-1.17.659-1.591l6.499-6.499c.404-.404.527-1 .43-1.563A6 6 0 1 1 21.75 8.25Z" /></svg>
         Cookie 池
       </a>
-      <a class="nav-item" onclick="toggleSettings()">
+      <div class="nav-spacer"></div>
+      <a class="nav-item" onclick="toggleSettings()" title="调度配置">
         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M9.594 3.94c.09-.542.56-.94 1.11-.94h2.593c.55 0 1.02.398 1.11.94l.213 1.281c.063.374.313.686.645.87.074.04.147.083.22.127.325.196.72.257 1.075.124l1.217-.456a1.125 1.125 0 0 1 1.37.49l1.296 2.247a1.125 1.125 0 0 1-.26 1.431l-1.003.827c-.293.241-.438.613-.43.992a7.723 7.723 0 0 1 0 .255c-.008.378.137.75.43.991l1.004.827c.424.35.534.955.26 1.43l-1.298 2.247a1.125 1.125 0 0 1-1.369.491l-1.217-.456c-.355-.133-.75-.072-1.076.124a6.47 6.47 0 0 1-.22.128c-.331.183-.581.495-.644.869l-.213 1.281c-.09.543-.56.94-1.11.94h-2.594c-.55 0-1.019-.398-1.11-.94l-.213-1.281c-.062-.374-.312-.686-.644-.87a6.52 6.52 0 0 1-.22-.127c-.325-.196-.72-.257-1.076-.124l-1.217.456a1.125 1.125 0 0 1-1.369-.49l-1.297-2.247a1.125 1.125 0 0 1 .26-1.431l1.004-.827c.292-.24.437-.613.43-.991a6.932 6.932 0 0 1 0-.255c.007-.38-.138-.751-.43-.992l-1.004-.827a1.125 1.125 0 0 1-.26-1.43l1.297-2.247a1.125 1.125 0 0 1 1.37-.491l1.216.456c.356.133.751.072 1.076-.124.072-.044.146-.086.22-.128.332-.183.582-.495.644-.869l.214-1.28Z" /><path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" /></svg>
         调度配置
       </a>
-      <a class="nav-item" onclick="refreshAll()">
+      <a class="nav-item" onclick="refreshAll()" title="刷新数据">
         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0 3.181 3.183a8.25 8.25 0 0 0 13.803-3.7M4.031 9.865a8.25 8.25 0 0 1 13.803-3.7l3.181 3.182m0-4.991v4.99" /></svg>
         刷新数据
       </a>
     </nav>
   </aside>
 
-  <!-- Main Wrapper -->
   <div class="app-wrapper">
-    <!-- Top Header -->
     <header class="top-header">
-      <div style="display: flex; align-items: center; gap: 16px;">
-        <button class="btn btn-secondary btn-sm mobile-sidebar-toggle" onclick="toggleSidebar()" style="border: none; box-shadow: none; padding: 4px;">
-          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" style="width: 24px; height: 24px;"><path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5" /></svg>
+      <div style="display:flex;align-items:center;gap:12px;">
+        <button class="btn btn-secondary btn-sm mobile-sidebar-toggle" onclick="toggleSidebar()" aria-label="菜单">
+          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" style="width:22px;height:22px;"><path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5" /></svg>
         </button>
+        <div class="title-with-orb">
+          <div class="title-orb">◉</div>
+          <div>
+            <div style="font-size:15px;font-weight:750;">主页</div>
+            <div style="font-size:11px;color:var(--text-muted);">抖音用户监控</div>
+          </div>
+        </div>
       </div>
-      
       <div class="header-right">
-        <div class="status-badge" title="系统运行状态">
+        <div class="status-badge">
           <div id="runStateDot" class="status-dot"></div>
           <span id="runStateText">加载中...</span>
         </div>
       </div>
     </header>
 
-    <!-- Main Content -->
     <main class="main-content">
       <div class="content-container">
-        
-        <!-- Page Title & Global Actions -->
         <div class="page-header">
           <div>
             <h1 class="page-title">数据大盘</h1>
+            <p class="page-subtitle">监控状态 · 用户列表 · 下载动态</p>
           </div>
-          <div class="page-actions">
+          <div class="page-actions header-actions-cluster">
             <button id="btnStart" class="btn btn-primary" onclick="startMonitor()">
-              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M5.25 5.653c0-.856.917-1.398 1.667-.986l11.54 6.347a1.125 1.125 0 0 1 0 1.972l-11.54 6.347a1.125 1.125 0 0 1-1.667-.986V5.653Z" /></svg> 
+              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M5.25 5.653c0-.856.917-1.398 1.667-.986l11.54 6.347a1.125 1.125 0 0 1 0 1.972l-11.54 6.347a1.125 1.125 0 0 1-1.667-.986V5.653Z" /></svg>
               启动后台监控
             </button>
-            <button id="btnStop" class="btn btn-danger" onclick="stopMonitor()" style="display: none;">
+            <button id="btnStop" class="btn btn-danger" onclick="stopMonitor()" style="display:none;">
               <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M5.25 7.5A2.25 2.25 0 0 1 7.5 5.25h9a2.25 2.25 0 0 1 2.25 2.25v9a2.25 2.25 0 0 1-2.25 2.25h-9a2.25 2.25 0 0 1-2.25-2.25v-9Z" /></svg>
               停止后台监控
             </button>
             <button class="btn btn-secondary" onclick="runOnce()" title="立即触发一次全量轮询">
               <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m3.75 13.5 10.5-11.25L12 10.5h8.25L9.75 21.75 12 13.5H3.75Z" /></svg>
+              立即轮询
             </button>
           </div>
         </div>
 
-        <!-- 4-Column Stats Grid -->
         <div class="stats-grid">
           <div class="stat-card">
-            <div class="stat-card-icon" style="background: var(--primary-light); color: var(--primary);">
+            <div class="stat-label">监控用户数</div>
+            <div class="stat-card-icon">
               <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 6a3.75 3.75 0 1 1-7.5 0 3.75 3.75 0 0 1 7.5 0ZM4.501 20.118a7.5 7.5 0 0 1 14.998 0A17.933 17.933 0 0 1 12 21.75c-2.676 0-5.216-.584-7.499-1.632Z" /></svg>
             </div>
-            <div class="stat-label">监控用户数</div>
             <div class="stat-value" id="metric-users">-</div>
           </div>
-          
           <div class="stat-card">
-            <div class="stat-card-icon" style="background: #e0f2fe; color: #0ea5e9;">
+            <div class="stat-label">本轮下载作品数</div>
+            <div class="stat-card-icon">
               <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25m2.25 0H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9Z" /></svg>
             </div>
-            <div class="stat-label">本轮下载作品数</div>
             <div class="stat-value" id="metric-downloads">-</div>
-            <div style="font-size: 12px; color: var(--text-muted); margin-top: 4px;" id="metric-downloads-hint">累计下载见用户列表</div>
+            <div class="stat-help" id="metric-downloads-hint">累计下载见用户列表</div>
           </div>
-
           <div class="stat-card">
-            <div class="stat-card-icon" style="background: var(--success-light); color: var(--success);">
+            <div class="stat-label">调度模式</div>
+            <div class="stat-card-icon">
               <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" /></svg>
             </div>
-            <div class="stat-label">调度模式</div>
-            <div class="stat-value" id="metric-mode-name" style="font-size: 20px;">-</div>
-            <div style="font-size: 12px; color: var(--text-muted); margin-top: 4px;" id="metric-mode-desc"></div>
+            <div class="stat-value" id="metric-mode-name">-</div>
+            <div class="stat-help" id="metric-mode-desc"></div>
           </div>
-
           <div class="stat-card">
-            <div class="stat-card-icon" style="background: #fef08a; color: #0284c7;">
-              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M3.75 3v11.25A2.25 2.25 0 0 0 6 16.5h2.25M3.75 3h-1.5m1.5 0h16.5m0 0h1.5m-1.5 0v11.25A2.25 2.25 0 0 1 19.5 16.5h-2.25m-9 0h9l-4.5 5.25v-5.25Z" /></svg>
-            </div>
             <div class="stat-label">系统状态</div>
-            <div class="stat-value" id="metric-health" style="font-size: 20px; color: var(--success);">正常运行</div>
+            <div class="stat-card-icon">
+              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75 11.25 15 15 9.75M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" /></svg>
+            </div>
+            <div class="stat-value" id="metric-health" style="color: var(--success);">正常运行</div>
           </div>
-
           <div class="stat-card">
-            <div class="stat-card-icon" style="background: #fce7f3; color: #be185d;">
+            <div class="stat-label">Cookie 测活</div>
+            <div class="stat-card-icon">
               <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 5.25a3 3 0 0 1 3 3m3 0a6 6 0 0 1-7.029 5.912c-.563-.097-1.159.026-1.563.43L10.5 17.25H8.25v2.25H6v2.25H2.25v-2.818c0-.597.237-1.17.659-1.591l6.499-6.499c.404-.404.527-1 .43-1.563A6 6 0 1 1 21.75 8.25Z" /></svg>
             </div>
-            <div class="stat-label">Cookie 测活</div>
-            <div class="stat-value" id="metric-cookie-status" style="font-size: 20px;">-</div>
-            <div style="font-size: 12px; color: var(--text-muted); margin-top: 4px;" id="metric-cookie-detail"></div>
+            <div class="stat-value" id="metric-cookie-status">-</div>
+            <div class="stat-help" id="metric-cookie-detail"></div>
           </div>
         </div>
 
-        <!-- Main Content 2-Column Grid -->
         <div class="dashboard-grid">
-          
-          <!-- Left: Users Card -->
           <div class="card">
             <div class="card-header">
-              <h2 class="card-title">监控用户列表 <span id="userCountText" style="color:var(--text-muted); font-weight:normal;">(0)</span></h2>
+              <h2 class="card-title">监控用户列表 <span id="userCountText" style="color:var(--text-muted);font-weight:500;">(0)</span></h2>
               <div class="card-header-actions">
-                <input
-                  id="userSearchInput"
-                  type="search"
-                  class="input input-search"
-                  placeholder="搜索监控用户..."
-                  oninput="handleUserSearch()"
-                />
-                <button id="toggleAllUsersBtn" class="btn-text" style="display: none;" onclick="toggleGlobalUserList()"></button>
+                <input id="userSearchInput" type="search" class="input input-search" placeholder="搜索监控用户..." oninput="handleUserSearch()" />
+                <button id="toggleAllUsersBtn" class="btn-text" style="display:none;" onclick="toggleGlobalUserList()"></button>
               </div>
             </div>
-
             <div id="users" class="users-list">
-              <div style="padding: 40px; text-align: center; color: var(--text-muted);">正在加载用户数据...</div>
+              <div class="empty-state">正在加载用户数据...</div>
             </div>
           </div>
 
-          <!-- Right: Activity Feed Card -->
           <div class="card">
             <div class="card-header">
               <h2 class="card-title">下载动态</h2>
-              <span id="recordsTotal" style="font-size: 12px; color: var(--text-muted); background: var(--border-color); padding: 2px 8px; border-radius: 12px;">0 条</span>
+              <span id="recordsTotal" class="pill-count">0 条</span>
             </div>
-            <div class="card-body" style="padding: 0;">
+            <div class="card-body" style="padding:0;">
               <div id="globalRecords" class="activity-feed">
-                <div style="padding: 40px; text-align: center; color: var(--text-muted);">暂无下载记录</div>
+                <div class="empty-state">暂无下载记录</div>
               </div>
             </div>
           </div>
-
         </div>
       </div>
     </main>
   </div>
 
-  <!-- Mobile Sidebar Overlay -->
-  <div id="sidebarOverlay" class="overlay" onclick="toggleSidebar()"></div>
+  <nav class="bottom-tabbar" aria-label="Mobile tabs">
+    <a class="bottom-tab active" href="/api/monitor/dashboard" onclick="return navigateToPage('/api/monitor/dashboard')">
+      <span class="tab-ico"><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.8" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M3 10.5 12 4l9 6.5V20a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1v-9.5z"/></svg></span>
+      监控
+    </a>
+    <a class="bottom-tab" href="/api/monitor/statistics/dashboard" onclick="return navigateToPage('/api/monitor/statistics/dashboard')">
+      <span class="tab-ico"><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.8" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M4 19V5m5 14V9m5 10V7m5 12V11"/></svg></span>
+      统计
+    </a>
+    <a class="bottom-tab" href="/api/monitor/cookies/dashboard" onclick="return navigateToPage('/api/monitor/cookies/dashboard')">
+      <span class="tab-ico"><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.8" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 5.25a3 3 0 0 1 3 3m3 0a6 6 0 1 1-7.03 5.91c-.56-.1-1.16.03-1.56.43L10.5 17.25H8.25v2.25H6v2.25H2.25v-2.82c0-.6.24-1.17.66-1.59l6.5-6.5c.4-.4.53-1 .43-1.56A6 6 0 0 1 21.75 8.25Z"/></svg></span>
+      Cookie
+    </a>
+    <a class="bottom-tab" href="javascript:void(0)" onclick="return toggleSidebar()">
+      <span class="tab-ico"><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.8" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5"/></svg></span>
+      更多
+    </a>
+  </nav>
 
-  <!-- Settings Drawer -->
+  <div id="sidebarOverlay" class="overlay" onclick="toggleSidebar()"></div>
   <div id="settingsOverlay" class="overlay" onclick="toggleSettings()"></div>
   <div id="settingsDrawer" class="drawer">
     <div class="drawer-header">
-      <h2 style="margin:0; font-size: 18px; display:flex; align-items:center; gap:8px; font-weight: 600;">
-        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" style="width:20px;height:20px;color:var(--text-muted);"><path stroke-linecap="round" stroke-linejoin="round" d="M9.594 3.94c.09-.542.56-.94 1.11-.94h2.593c.55 0 1.02.398 1.11.94l.213 1.281c.063.374.313.686.645.87.074.04.147.083.22.127.325.196.72.257 1.075.124l1.217-.456a1.125 1.125 0 0 1 1.37.49l1.296 2.247a1.125 1.125 0 0 1-.26 1.431l-1.003.827c-.293.241-.438.613-.43.992a7.723 7.723 0 0 1 0 .255c-.008.378.137.75.43.991l1.004.827c.424.35.534.955.26 1.43l-1.298 2.247a1.125 1.125 0 0 1-1.369.491l-1.217-.456c-.355-.133-.75-.072-1.076.124a6.47 6.47 0 0 1-.22.128c-.331.183-.581.495-.644.869l-.213 1.281c-.09.543-.56.94-1.11.94h-2.594c-.55 0-1.019-.398-1.11-.94l-.213-1.281c-.062-.374-.312-.686-.644-.87a6.52 6.52 0 0 1-.22-.127c-.325-.196-.72-.257-1.076-.124l-1.217.456a1.125 1.125 0 0 1-1.369-.49l-1.297-2.247a1.125 1.125 0 0 1 .26-1.431l1.004-.827c.292-.24.437-.613.43-.991a6.932 6.932 0 0 1 0-.255c.007-.38-.138-.751-.43-.992l-1.004-.827a1.125 1.125 0 0 1-.26-1.43l1.297-2.247a1.125 1.125 0 0 1 1.37-.491l1.216.456c.356.133.751.072 1.076-.124.072-.044.146-.086.22-.128.332-.183.582-.495.644-.869l.214-1.28Z" /><path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" /></svg> 
-        调度与系统配置
-      </h2>
-      <button class="btn-icon" onclick="toggleSettings()"><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" /></svg></button>
+      <h2 style="margin:0;font-size:16px;font-weight:700;">调度与系统配置</h2>
+      <button class="btn-icon" onclick="toggleSettings()" aria-label="关闭">
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" /></svg>
+      </button>
     </div>
-    
     <div class="drawer-body">
       <section>
         <h3 class="section-title">任务调度策略</h3>
@@ -531,14 +209,14 @@
           </div>
         </div>
         <p class="help-text" id="modeHint"></p>
-        <button class="btn btn-primary w-full" onclick="applySettings()" style="margin-top: 12px;">保存配置并应用</button>
+        <button class="btn btn-primary w-full" onclick="applySettings()" style="margin-top:12px;">保存配置并应用</button>
       </section>
     </div>
   </div>
 
   <div id="toast-container" class="toast-container"></div>
 
-  <script src="/static/common.js"></script>
+<script src="/static/common.js"></script>
   <script>
     const Icons = {
       play: `<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M5.25 5.653c0-.856.917-1.398 1.667-.986l11.54 6.347a1.125 1.125 0 0 1 0 1.972l-11.54 6.347a1.125 1.125 0 0 1-1.667-.986V5.653Z" /></svg>`,
@@ -566,7 +244,7 @@
     // toggleSidebar / closeSidebarMobile / navigateToPage 及 resize 监听见 common.js；
     // isMobileViewport 各页断点不同（本页 1024），保留在本页由 common.js 在调用时引用。
     function isMobileViewport() {
-      return window.innerWidth <= 1024;
+      return window.matchMedia("(max-width: 1024px)").matches;
     }
 
     function toggleGlobalUserList() {
@@ -914,5 +592,6 @@
     refreshAll();
     setInterval(refreshAll, 15000);
   </script>
+
 </body>
 </html>

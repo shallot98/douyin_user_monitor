@@ -2,199 +2,122 @@
 <html lang="zh-CN">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
   <title>Cookie 池 | Monitor</title>
   <link rel="stylesheet" href="/static/common.css" />
-  <style>
-    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
-    /* 共享变量（:root/*）见 common.css；此处仅保留 cookies 特有变量 */
-    :root {
-      --danger-hover: #dc2626;
-      --warning: #f59e0b; --warning-light: #fef3c7;
-    }
-    body {
-      background: var(--bg-body); color: var(--text-main); display: flex; height: 100vh; overflow: hidden;
-      -webkit-font-smoothing: antialiased; line-height: 1.5;
-    }
-    .sidebar {
-      width: 260px; background: var(--bg-sidebar); color: var(--text-inverse);
-      display: flex; flex-direction: column; flex-shrink: 0; z-index: 40;
-    }
-    .sidebar-header {
-      height: 64px; display: flex; align-items: center; padding: 0 24px;
-      font-size: 18px; font-weight: 700; gap: 10px; background: rgba(15,23,42,.2);
-    }
-    .nav-label { font-size: 12px; text-transform: uppercase; color: var(--text-muted); font-weight: 600; margin: 8px 0 4px 8px; }
-    .nav-item {
-      display: flex; align-items: center; gap: 12px; padding: 10px 12px; border-radius: var(--radius);
-      color: var(--text-lighter); text-decoration: none; font-size: 14px; font-weight: 500; cursor: pointer;
-    }
-    .nav-item:hover { background: var(--bg-sidebar-hover); color: var(--text-inverse); }
-    .nav-item.active { background: rgba(79,70,229,.15); color: #818cf8; }
-    .top-header {
-      height: 64px; background: var(--bg-surface); border-bottom: 1px solid var(--border-color);
-      display: flex; align-items: center; justify-content: space-between; padding: 0 24px; flex-shrink: 0;
-    }
-    .content-container { max-width: 1100px; margin: 0 auto; display: flex; flex-direction: column; gap: 24px; }
-    .page-title { font-size: 28px; font-weight: 700; letter-spacing: -.5px; }
-    .page-sub { color: var(--text-muted); font-size: 14px; margin-top: 4px; }
-    .card {
-      background: var(--bg-surface); border: 1px solid var(--border-color); border-radius: var(--radius);
-      box-shadow: var(--shadow-sm); overflow: hidden;
-    }
-    .card-header {
-      padding: 16px 20px; border-bottom: 1px solid var(--border-color); background: #f8fafc;
-      display: flex; justify-content: space-between; align-items: center;
-    }
-    .card-title { font-size: 16px; font-weight: 600; }
-    .card-body { padding: 20px; }
-    .form-row { display: flex; flex-direction: column; gap: 8px; margin-bottom: 14px; }
-    .form-label { font-size: 13px; font-weight: 600; color: var(--text-muted); }
-    .input, .textarea {
-      width: 100%; border: 1px solid var(--border-color); border-radius: var(--radius); padding: 10px 12px;
-      font-size: 14px; font-family: inherit; background: #fff; color: var(--text-main);
-    }
-    .textarea { min-height: 110px; resize: vertical; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }
-    .input:focus, .textarea:focus { outline: none; border-color: var(--primary); box-shadow: 0 0 0 3px rgba(79,70,229,.15); }
-    .btn {
-      display: inline-flex; align-items: center; justify-content: center; gap: 6px;
-      border: none; border-radius: var(--radius); padding: 8px 14px; font-size: 13px; font-weight: 600; cursor: pointer;
-    }
-    .btn-primary { background: var(--primary); color: #fff; }
-    .btn-primary:hover { background: var(--primary-hover); }
-    .btn-secondary { background: #fff; color: var(--text-main); border: 1px solid var(--border-color); }
-    .btn-secondary:hover { background: #f8fafc; }
-    .btn-danger { background: var(--danger-light); color: var(--danger); }
-    .btn-danger:hover { background: #fecaca; }
-    .btn-sm { padding: 6px 10px; font-size: 12px; }
-    .btn:disabled { opacity: .55; cursor: not-allowed; }
-    .cookie-list { display: flex; flex-direction: column; gap: 12px; }
-    .cookie-item {
-      border: 1px solid var(--border-color); border-radius: var(--radius); padding: 16px;
-      display: grid; grid-template-columns: 1fr auto; gap: 12px; align-items: start;
-    }
-    .cookie-item.active-row { border-color: #a5b4fc; background: #f5f3ff; }
-    .cookie-name { font-size: 15px; font-weight: 600; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-    .cookie-meta { font-size: 12px; color: var(--text-muted); margin-top: 6px; word-break: break-all; }
-    .cookie-reason { font-size: 13px; margin-top: 8px; color: var(--text-main); }
-    .cookie-actions { display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; }
-    .badge {
-      display: inline-flex; align-items: center; padding: 2px 8px; border-radius: 999px;
-      font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .3px;
-    }
-    .badge-active { background: var(--primary-light); color: var(--primary); }
-    .badge-healthy { background: var(--success-light); color: #047857; }
-    .badge-expired { background: var(--danger-light); color: #b91c1c; }
-    .badge-degraded { background: #fef3c7; color: #b45309; }
-    .badge-unknown { background: var(--warning-light); color: #b45309; }
-    .badge-none { background: #f1f5f9; color: var(--text-muted); }
-    .empty { padding: 40px; text-align: center; color: var(--text-muted); }
-    .toast-container { position: fixed; top: 20px; right: 20px; z-index: 100; display: flex; flex-direction: column; gap: 8px; }
-    .toast {
-      background: #0f172a; color: #fff; padding: 12px 16px; border-radius: var(--radius);
-      font-size: 13px; box-shadow: 0 10px 15px -3px rgba(0,0,0,.2); max-width: 360px;
-    }
-    .toast.error { background: #991b1b; }
-    /* 与 dashboard 一致：默认不拦截点击；打开时 z-index 低于侧栏，避免挡导航 */
-    .overlay {
-      position: fixed; inset: 0; background: rgba(15, 23, 42, 0.28);
-      z-index: 39; opacity: 0; pointer-events: none; transition: opacity 0.2s;
-    }
-    .overlay.show { opacity: 1; pointer-events: auto; }
-    @media (max-width: 900px) {
-      .sidebar { position: fixed; left: -280px; height: 100vh; z-index: 40; }
-      .sidebar.show { left: 0; }
-      .btn.mobile-sidebar-toggle { display: inline-flex; border: none; background: transparent; padding: 4px; cursor: pointer; }
-      .cookie-item { grid-template-columns: 1fr; }
-      .cookie-actions { justify-content: flex-start; }
-    }
-  </style>
 </head>
 <body>
   <aside class="sidebar" id="sidebar">
     <div class="sidebar-header">
-      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
-        <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 5.25a3 3 0 0 1 3 3m3 0a6 6 0 0 1-7.029 5.912c-.563-.097-1.159.026-1.563.43L10.5 17.25H8.25v2.25H6v2.25H2.25v-2.818c0-.597.237-1.17.659-1.591l6.499-6.499c.404-.404.527-1 .43-1.563A6 6 0 1 1 21.75 8.25Z" />
-      </svg>
+      <div class="sidebar-brand">抖</div>
       <span id="sidebarTitle">用户监控台</span>
     </div>
     <nav class="sidebar-nav">
-      <div class="nav-label">Menu</div>
-      <a class="nav-item" href="/api/monitor/dashboard" onclick="return navigateToPage('/api/monitor/dashboard')">
+      <a class="nav-item" href="/api/monitor/dashboard" onclick="return navigateToPage('/api/monitor/dashboard')" title="数据大盘">
         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6A2.25 2.25 0 0 1 6 3.75h2.25A2.25 2.25 0 0 1 10.5 6v2.25a2.25 2.25 0 0 1-2.25 2.25H6a2.25 2.25 0 0 1-2.25-2.25V6ZM3.75 15.75A2.25 2.25 0 0 1 6 13.5h2.25a2.25 2.25 0 0 1 2.25 2.25V18a2.25 2.25 0 0 1-2.25 2.25H6A2.25 2.25 0 0 1 3.75 18v-2.25ZM13.5 6a2.25 2.25 0 0 1 2.25-2.25H18A2.25 2.25 0 0 1 20.25 6v2.25A2.25 2.25 0 0 1 18 10.5h-2.25a2.25 2.25 0 0 1-2.25-2.25V6ZM13.5 15.75a2.25 2.25 0 0 1 2.25-2.25H18a2.25 2.25 0 0 1 2.25 2.25V18A2.25 2.25 0 0 1 18 20.25h-2.25A2.25 2.25 0 0 1 13.5 18v-2.25Z" /></svg>
         数据大盘
       </a>
-      <a class="nav-item" href="/api/monitor/statistics/dashboard" onclick="return navigateToPage('/api/monitor/statistics/dashboard')">
+      <a class="nav-item" href="/api/monitor/statistics/dashboard" onclick="return navigateToPage('/api/monitor/statistics/dashboard')" title="用户统计">
         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M7.5 3.75h9A2.25 2.25 0 0 1 18.75 6v12A2.25 2.25 0 0 1 16.5 20.25h-9A2.25 2.25 0 0 1 5.25 18V6A2.25 2.25 0 0 1 7.5 3.75Zm1.5 4.5h6m-6 3h6m-6 3h3" /></svg>
         用户统计
       </a>
-      <a class="nav-item active" href="/api/monitor/cookies/dashboard" onclick="return navigateToPage('/api/monitor/cookies/dashboard')">
+      <a class="nav-item active" href="/api/monitor/cookies/dashboard" onclick="return navigateToPage('/api/monitor/cookies/dashboard')" title="Cookie 池">
         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 5.25a3 3 0 0 1 3 3m3 0a6 6 0 0 1-7.029 5.912c-.563-.097-1.159.026-1.563.43L10.5 17.25H8.25v2.25H6v2.25H2.25v-2.818c0-.597.237-1.17.659-1.591l6.499-6.499c.404-.404.527-1 .43-1.563A6 6 0 1 1 21.75 8.25Z" /></svg>
         Cookie 池
       </a>
-      <a class="nav-item" onclick="refreshList()">
+      <div class="nav-spacer"></div>
+      <a class="nav-item" onclick="refreshList()" title="刷新">
         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0 3.181 3.183a8.25 8.25 0 0 0 13.803-3.7M4.031 9.865a8.25 8.25 0 0 1 13.803-3.7l3.181 3.182m0-4.991v4.99" /></svg>
-        刷新列表
+        刷新
       </a>
     </nav>
   </aside>
 
   <div class="app-wrapper">
     <header class="top-header">
-      <button class="btn btn-secondary mobile-sidebar-toggle" onclick="toggleSidebar()">
-        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" style="width:24px;height:24px;"><path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5" /></svg>
-      </button>
-      <div style="font-size:13px;color:var(--text-muted);">列表仅显示脱敏预览，完整 Cookie 不会回传前端</div>
+      <div style="display:flex;align-items:center;gap:12px;">
+        <button class="btn btn-secondary btn-sm mobile-sidebar-toggle" onclick="toggleSidebar()" aria-label="菜单">
+          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" style="width:22px;height:22px;"><path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5" /></svg>
+        </button>
+        <div class="title-with-orb">
+          <div class="title-orb">◉</div>
+          <div>
+            <div style="font-size:15px;font-weight:750;">Cookie 池</div>
+            <div style="font-size:11px;color:var(--text-muted);">轮换 · 测活 · 启用</div>
+          </div>
+        </div>
+      </div>
+      <div class="header-right">
+        <button class="btn btn-secondary btn-sm" onclick="refreshList()">刷新</button>
+      </div>
     </header>
 
     <main class="main-content">
       <div class="content-container">
-        <div>
-          <h1 class="page-title">Cookie 池</h1>
-          <p class="page-sub">维护多条抖音 Web Cookie；监控同步时按轮换分散使用。手动「设为启用」写入默认爬虫 Cookie。</p>
+        <div class="page-header">
+          <div>
+            <h1 class="page-title">Cookie 池管理</h1>
+            <p class="page-subtitle">添加账号 Cookie，测活并切换当前启用项</p>
+          </div>
         </div>
 
-        <section class="card">
-          <div class="card-header">
-            <h2 class="card-title">添加 Cookie</h2>
-          </div>
-          <div class="card-body">
-            <div class="form-row">
-              <label class="form-label" for="cookieName">名称（可选）</label>
-              <input id="cookieName" class="input" type="text" placeholder="例如：主号 / 备用1" />
+        <div class="dashboard-grid">
+          <div class="card">
+            <div class="card-header"><h2 class="card-title">添加 Cookie</h2></div>
+            <div class="card-body">
+              <div class="form-group">
+                <label class="form-label">名称</label>
+                <input id="cookieName" class="input" type="text" placeholder="例如：主号 / 备用1" />
+              </div>
+              <div class="form-group">
+                <label class="form-label">Cookie 值</label>
+                <textarea id="cookieValue" class="textarea" placeholder="从浏览器复制完整 Cookie..."></textarea>
+              </div>
+              <button id="btnAddCookie" class="btn btn-primary" onclick="addCookie()">添加到池</button>
             </div>
-            <div class="form-row">
-              <label class="form-label" for="cookieValue">Cookie 字符串</label>
-              <textarea id="cookieValue" class="textarea" placeholder="从浏览器复制完整 Cookie..."></textarea>
-            </div>
-            <button id="btnAddCookie" class="btn btn-primary" onclick="addCookie()">添加到池</button>
           </div>
-        </section>
 
-        <section class="card">
-          <div class="card-header">
-            <h2 class="card-title">池内 Cookie <span id="cookieCountText" style="color:var(--text-muted);font-weight:500;">(0)</span></h2>
-            <button class="btn btn-secondary btn-sm" onclick="refreshList()">刷新</button>
-          </div>
-          <div class="card-body" style="padding:16px;">
+          <div class="card">
+            <div class="card-header">
+              <h2 class="card-title">池内 Cookie <span id="cookieCountText" style="color:var(--text-muted);font-weight:500;">(0)</span></h2>
+            </div>
             <div id="cookieList" class="cookie-list">
-              <div class="empty">加载中...</div>
+              <div class="empty-state">加载中...</div>
             </div>
           </div>
-        </section>
+        </div>
       </div>
     </main>
   </div>
 
+  <nav class="bottom-tabbar" aria-label="Mobile tabs">
+    <a class="bottom-tab" href="/api/monitor/dashboard" onclick="return navigateToPage('/api/monitor/dashboard')">
+      <span class="tab-ico"><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.8" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M3 10.5 12 4l9 6.5V20a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1v-9.5z"/></svg></span>
+      监控
+    </a>
+    <a class="bottom-tab" href="/api/monitor/statistics/dashboard" onclick="return navigateToPage('/api/monitor/statistics/dashboard')">
+      <span class="tab-ico"><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.8" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M4 19V5m5 14V9m5 10V7m5 12V11"/></svg></span>
+      统计
+    </a>
+    <a class="bottom-tab active" href="/api/monitor/cookies/dashboard" onclick="return navigateToPage('/api/monitor/cookies/dashboard')">
+      <span class="tab-ico"><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.8" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 5.25a3 3 0 0 1 3 3m3 0a6 6 0 1 1-7.03 5.91c-.56-.1-1.16.03-1.56.43L10.5 17.25H8.25v2.25H6v2.25H2.25v-2.82c0-.6.24-1.17.66-1.59l6.5-6.5c.4-.4.53-1 .43-1.56A6 6 0 0 1 21.75 8.25Z"/></svg></span>
+      Cookie
+    </a>
+    <a class="bottom-tab" href="javascript:void(0)" onclick="return toggleSidebar()">
+      <span class="tab-ico"><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.8" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5"/></svg></span>
+      更多
+    </a>
+  </nav>
+
   <div id="sidebarOverlay" class="overlay" onclick="toggleSidebar()"></div>
   <div id="toast-container" class="toast-container"></div>
 
-  <script src="/static/common.js"></script>
+<script src="/static/common.js"></script>
   <script>
     // API_BASE、api()、时间格式化、侧栏函数（toggleSidebar 等）见 common.js。
     // isMobileViewport 各页断点不同（本页 900），保留在本页由 common.js 在调用时引用。
     function isMobileViewport() {
-      return window.innerWidth <= 900;
+      return window.matchMedia("(max-width: 1024px)").matches;
     }
 
     function showToast(message, type = "success") {
@@ -325,5 +248,6 @@
 
     refreshList();
   </script>
+
 </body>
 </html>
