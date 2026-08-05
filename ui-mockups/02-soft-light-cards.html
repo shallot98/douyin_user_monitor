@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
+<title>B · Soft Light</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Noto Sans SC", sans-serif;
+    background: #e5e7eb; min-height: 100vh; display: flex; justify-content: center; padding: 24px 12px;
+  }
+  .phone {
+    width: 390px; height: 844px; background: #f7f8fc; border-radius: 36px; overflow: hidden;
+    border: 8px solid #111; box-shadow: 0 25px 80px rgba(0,0,0,.35); position: relative;
+    display: flex; flex-direction: column;
+  }
+  .label-chip { position: absolute; top: 12px; right: 18px; z-index: 5; background: #111; color: #fff;
+    font-size: 11px; font-weight: 700; padding: 5px 9px; border-radius: 999px; }
+  .status-bar { height: 44px; padding: 12px 22px 0; display: flex; justify-content: space-between;
+    font-size: 13px; font-weight: 600; }
+  .hero {
+    padding: 4px 18px 16px;
+  }
+  .hero h1 { font-size: 26px; font-weight: 800; letter-spacing: -0.6px; color: #111827; }
+  .hero p { color: #6b7280; font-size: 13px; margin-top: 4px; }
+  .seg {
+    margin: 0 16px 14px; background: #eceff5; border-radius: 14px; padding: 4px; display: grid;
+    grid-template-columns: repeat(4, 1fr); gap: 4px;
+  }
+  .seg div {
+    text-align: center; font-size: 12px; font-weight: 600; color: #6b7280;
+    padding: 10px 0; border-radius: 11px;
+  }
+  .seg .on { background: #fff; color: #111827; box-shadow: 0 1px 3px rgba(0,0,0,.08); }
+  .scroll { flex: 1; overflow: hidden; padding: 0 16px 20px; }
+  .kpi {
+    display: grid; grid-template-columns: 1.2fr 1fr 1fr; gap: 10px; margin-bottom: 14px;
+  }
+  .k {
+    background: #fff; border-radius: 20px; padding: 16px; box-shadow: 0 8px 24px rgba(15,23,42,.04);
+  }
+  .k.big { background: linear-gradient(160deg, #111827, #1f2937); color: #fff; }
+  .k .l { font-size: 12px; opacity: .7; margin-bottom: 8px; }
+  .k .v { font-size: 28px; font-weight: 800; letter-spacing: -1px; }
+  .k .s { font-size: 11px; margin-top: 6px; opacity: .65; }
+  .panel {
+    background: #fff; border-radius: 22px; padding: 16px; margin-bottom: 12px;
+    box-shadow: 0 8px 24px rgba(15,23,42,.04);
+  }
+  .panel h2 { font-size: 15px; font-weight: 700; margin-bottom: 12px; }
+  .input {
+    background: #f3f4f6; border-radius: 14px; padding: 14px; color: #9ca3af; font-size: 14px; margin-bottom: 10px;
+  }
+  .btn {
+    background: #111827; color: #fff; border-radius: 14px; text-align: center; padding: 13px;
+    font-weight: 700; font-size: 14px;
+  }
+  .row {
+    display: flex; gap: 12px; align-items: center; padding: 8px 0;
+  }
+  .av {
+    width: 52px; height: 52px; border-radius: 18px;
+    background: linear-gradient(135deg,#fb923c,#f472b6); color: #fff;
+    display: grid; place-items: center; font-weight: 800; font-size: 18px;
+  }
+  .meta { flex: 1; }
+  .meta b { display: block; font-size: 15px; }
+  .meta span { font-size: 12px; color: #6b7280; }
+  .pill { background: #ecfdf5; color: #059669; font-size: 11px; font-weight: 700; padding: 6px 10px; border-radius: 999px; }
+  .grid4 {
+    display: grid; grid-template-columns: repeat(4,1fr); gap: 8px; margin-top: 12px;
+    background: #f8fafc; border-radius: 16px; padding: 12px 8px;
+  }
+  .g { text-align: center; }
+  .g b { display:block; font-size: 14px; }
+  .g span { font-size: 10px; color: #9ca3af; }
+  .btns { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; margin-top: 12px; }
+  .btns div {
+    text-align: center; padding: 11px 0; border-radius: 12px; font-size: 12px; font-weight: 700;
+    background: #f3f4f6; color: #374151;
+  }
+  .btns .r { background: #fef2f2; color: #dc2626; }
+</style>
+</head>
+<body>
+  <div class="phone">
+    <div class="label-chip">B · Soft Light</div>
+    <div class="status-bar"><span>9:41</span><span>5G ■■■</span></div>
+    <div class="hero">
+      <h1>用户监控</h1>
+      <p>清爽卡片布局 · 大触控区</p>
+    </div>
+    <div class="seg">
+      <div class="on">监控</div><div>列表</div><div>用户</div><div>配置</div>
+    </div>
+    <div class="scroll">
+      <div class="kpi">
+        <div class="k big"><div class="l">监控用户</div><div class="v">1</div><div class="s">全部活跃</div></div>
+        <div class="k"><div class="l">新增作品</div><div class="v">0</div><div class="s">今日</div></div>
+        <div class="k"><div class="l">运行天数</div><div class="v">0</div><div class="s">本周期</div></div>
+      </div>
+      <div class="panel">
+        <h2>添加用户</h2>
+        <div class="input">抖音号 / 主页链接</div>
+        <div class="btn">添加并开始监控</div>
+      </div>
+      <div class="panel">
+        <h2>监控中</h2>
+        <div class="row">
+          <div class="av">李</div>
+          <div class="meta">
+            <b>李佳琦Austin</b>
+            <span>947172008 · 刚刚同步</span>
+          </div>
+          <div class="pill">运行中</div>
+        </div>
+        <div class="grid4">
+          <div class="g"><b>1</b><span>作品</span></div>
+          <div class="g"><b>0</b><span>新增</span></div>
+          <div class="g"><b>0</b><span>失败</span></div>
+          <div class="g"><b>OK</b><span>状态</span></div>
+        </div>
+        <div class="btns">
+          <div>同步</div><div>详情</div><div class="r">移除</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

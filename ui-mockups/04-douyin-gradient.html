@@ -1,0 +1,162 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
+<title>D · Douyin Gradient</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Noto Sans SC", sans-serif;
+    background: #111; min-height: 100vh; display: flex; justify-content: center; padding: 24px 12px; color: #111;
+  }
+  .phone {
+    width: 390px; height: 844px; background: #fafafa; border-radius: 36px; overflow: hidden;
+    border: 8px solid #0a0a0a; box-shadow: 0 25px 80px rgba(0,0,0,.5); position: relative;
+    display: flex; flex-direction: column;
+  }
+  .label-chip { position: absolute; top: 12px; right: 18px; z-index: 5; background: #111; color: #fff;
+    font-size: 11px; font-weight: 700; padding: 5px 9px; border-radius: 999px; }
+  .status-bar { height: 44px; padding: 12px 22px 0; display: flex; justify-content: space-between;
+    font-size: 13px; font-weight: 600; color: #fff; position: relative; z-index: 2; }
+  .banner {
+    background: linear-gradient(135deg, #25f4ee 0%, #000 42%, #fe2c55 100%);
+    padding: 0 16px 20px; color: #fff; position: relative;
+  }
+  .banner::after {
+    content: ""; position: absolute; inset: 0;
+    background: linear-gradient(180deg, rgba(0,0,0,.15), rgba(0,0,0,.55));
+  }
+  .banner > * { position: relative; z-index: 1; }
+  .brand { display: flex; justify-content: space-between; align-items: center; margin-bottom: 18px; }
+  .brand h1 { font-size: 20px; font-weight: 800; }
+  .chip {
+    background: rgba(255,255,255,.18); border: 1px solid rgba(255,255,255,.25);
+    backdrop-filter: blur(8px); border-radius: 999px; padding: 6px 10px; font-size: 12px; font-weight: 700;
+  }
+  .stats { display: grid; grid-template-columns: repeat(3,1fr); gap: 8px; }
+  .s {
+    background: rgba(255,255,255,.12); border: 1px solid rgba(255,255,255,.18);
+    border-radius: 16px; padding: 12px; backdrop-filter: blur(8px);
+  }
+  .s .l { font-size: 11px; opacity: .85; }
+  .s .v { font-size: 24px; font-weight: 800; margin-top: 4px; }
+  .body { flex: 1; padding: 14px 14px 78px; background: #f4f4f5; }
+  .nav {
+    display: grid; grid-template-columns: repeat(4,1fr); gap: 8px; margin-bottom: 12px;
+  }
+  .nav div {
+    text-align: center; font-size: 12px; font-weight: 700; color: #71717a;
+    background: #fff; border-radius: 12px; padding: 10px 0; box-shadow: 0 1px 2px rgba(0,0,0,.04);
+  }
+  .nav .on {
+    color: #fff; background: linear-gradient(90deg, #fe2c55, #ff6b81);
+  }
+  .card {
+    background: #fff; border-radius: 20px; padding: 14px; margin-bottom: 12px;
+    box-shadow: 0 10px 30px rgba(0,0,0,.04);
+  }
+  .card h2 { font-size: 15px; font-weight: 800; margin-bottom: 10px; }
+  .input {
+    border: 1.5px solid #e4e4e7; border-radius: 14px; padding: 12px 14px; color: #a1a1aa; font-size: 14px; margin-bottom: 10px;
+  }
+  .btn {
+    background: linear-gradient(90deg, #25f4ee, #fe2c55); color: #fff; text-align: center;
+    border-radius: 14px; padding: 13px; font-weight: 800; font-size: 14px;
+  }
+  .user { display: flex; gap: 12px; }
+  .av {
+    width: 54px; height: 54px; border-radius: 50%;
+    background: linear-gradient(135deg, #25f4ee, #fe2c55); padding: 2px;
+  }
+  .av i {
+    display: grid; place-items: center; width: 100%; height: 100%; border-radius: 50%;
+    background: #fff; font-style: normal; font-weight: 800; font-size: 18px;
+  }
+  .meta { flex: 1; }
+  .name { display: flex; align-items: center; gap: 8px; }
+  .name b { font-size: 15px; }
+  .tag {
+    font-size: 10px; font-weight: 800; color: #fe2c55; background: #ffe4ea;
+    padding: 3px 7px; border-radius: 999px;
+  }
+  .uid { font-size: 12px; color: #71717a; margin: 3px 0 10px; }
+  .nums {
+    display: grid; grid-template-columns: repeat(4,1fr); gap: 6px;
+  }
+  .n {
+    text-align: center; background: #fafafa; border-radius: 12px; padding: 8px 4px;
+  }
+  .n b { display: block; font-size: 13px; }
+  .n span { font-size: 10px; color: #a1a1aa; }
+  .acts { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; margin-top: 12px; }
+  .acts div {
+    text-align: center; padding: 10px 0; border-radius: 12px; font-size: 12px; font-weight: 700;
+    background: #f4f4f5; color: #3f3f46;
+  }
+  .acts .del { background: #fff1f2; color: #e11d48; }
+  .tabbar {
+    position: absolute; left: 0; right: 0; bottom: 0; height: 68px; background: #fff;
+    border-top: 1px solid #ececec; display: grid; grid-template-columns: repeat(4,1fr);
+    padding-bottom: 8px;
+  }
+  .tab { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px;
+    font-size: 11px; color: #a1a1aa; font-weight: 600; }
+  .tab.on { color: #fe2c55; }
+  .dot {
+    width: 18px; height: 18px; border-radius: 6px; background: currentColor; opacity: .25;
+  }
+  .tab.on .dot { opacity: 1; background: linear-gradient(135deg,#25f4ee,#fe2c55); }
+</style>
+</head>
+<body>
+  <div class="phone">
+    <div class="label-chip">D · Gradient</div>
+    <div class="banner">
+      <div class="status-bar"><span>9:41</span><span>5G ■■■</span></div>
+      <div class="brand">
+        <h1>抖音用户监控</h1>
+        <div class="chip">● 运行中</div>
+      </div>
+      <div class="stats">
+        <div class="s"><div class="l">监控用户</div><div class="v">1</div></div>
+        <div class="s"><div class="l">新增作品</div><div class="v">0</div></div>
+        <div class="s"><div class="l">运行天数</div><div class="v">0</div></div>
+      </div>
+    </div>
+    <div class="body">
+      <div class="nav">
+        <div class="on">监控</div><div>列表</div><div>用户</div><div>配置</div>
+      </div>
+      <div class="card">
+        <h2>添加用户</h2>
+        <div class="input">输入抖音号或主页链接</div>
+        <div class="btn">开始监控</div>
+      </div>
+      <div class="card">
+        <h2>监控用户</h2>
+        <div class="user">
+          <div class="av"><i>李</i></div>
+          <div class="meta">
+            <div class="name"><b>李佳琦Austin</b><span class="tag">LIVE</span></div>
+            <div class="uid">ID 947172008 · 刚刚同步</div>
+            <div class="nums">
+              <div class="n"><b>1</b><span>作品</span></div>
+              <div class="n"><b>0</b><span>新增</span></div>
+              <div class="n"><b>0</b><span>失败</span></div>
+              <div class="n"><b>OK</b><span>Cookie</span></div>
+            </div>
+            <div class="acts"><div>同步</div><div>详情</div><div class="del">移除</div></div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="tabbar">
+      <div class="tab on"><div class="dot"></div>首页</div>
+      <div class="tab"><div class="dot"></div>作品</div>
+      <div class="tab"><div class="dot"></div>用户</div>
+      <div class="tab"><div class="dot"></div>我的</div>
+    </div>
+  </div>
+</body>
+</html>
