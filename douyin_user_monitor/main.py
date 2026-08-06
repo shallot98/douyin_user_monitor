@@ -7,6 +7,7 @@ from pathlib import Path
 from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
+from starlette.middleware.base import BaseHTTPMiddleware
 
 from douyin_user_monitor.api.monitor import monitor_service
 from douyin_user_monitor.api.monitor import router as monitor_router
@@ -15,6 +16,17 @@ API_KEY_ENV = "DYMON_API_KEY"
 
 # 三页共享的前端静态资源（common.js / common.css）。基于本文件定位，避免依赖 cwd。
 STATIC_DIR = Path(__file__).resolve().parent / "web" / "static"
+
+
+class ShortCacheStaticMiddleware(BaseHTTPMiddleware):
+    """UI 迭代期给 /static 强制短缓存，避免 Cloudflare/浏览器长期命中旧 CSS。"""
+
+    async def dispatch(self, request: Request, call_next):
+        response = await call_next(request)
+        if request.url.path.startswith("/static/"):
+            response.headers["Cache-Control"] = "no-cache, must-revalidate, max-age=0"
+            response.headers["Pragma"] = "no-cache"
+        return response
 
 
 async def require_api_key(request: Request) -> None:
@@ -28,6 +40,7 @@ async def require_api_key(request: Request) -> None:
 
 
 app = FastAPI(title="Douyin User Monitor", version="0.3.0")
+app.add_middleware(ShortCacheStaticMiddleware)
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 app.include_router(
     monitor_router,
