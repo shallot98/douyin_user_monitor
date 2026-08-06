@@ -1,26 +1,19 @@
 # Implementation status · ui-green-console
 
 ## Current Phase
-Phase B/C/D draft landing (execute default plan)
+Theme retint: soft light daylight palette (away from dark green)
 
 ## Last Landed
-- `common.css` green shell + utilities
-- `common.js` safe sidebar close
-- `dashboard.html` full shell restyle (IDs preserved)
-- `cookies.html` full shell restyle (IDs preserved)
-- `statistics.html` theme token remap + rail/tabbar (page-local widgets kept)
+- Soft light tokens in `common.css` (bg #f3f6f4, primary #2f9e6c)
+- statistics.html :root + shell overrides retinted
+- Layout/shell/IDs unchanged
 
 ## Active TODO
-1. Runtime smoke on real server (desktop+mobile widths)
-2. Fix any statistics residual light-color hardcodes found in smoke
-3. Screenshot evidence into `evidence/`
-4. Commit
+1. User feedback on light palette
+2. Optional: push commit
 
 ## Next Target
-Manual smoke via `/api/monitor/dashboard` etc.
-
-## Blocked By
-None
+Confirm with user; polish residual statistics hardcodes if any
 
 ## Last Verified
-Not yet runtime-verified in this session
+Live `/api/monitor/dashboard` + light desktop screenshot 2026-08-06

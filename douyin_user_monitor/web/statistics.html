@@ -10,27 +10,27 @@
 
     /* 共享变量（:root/*）见 common.css；此处仅保留 statistics 特有变量 */
     :root {
-      /* statistics page defers to common.css tokens; keep aliases used by local CSS */
-      --bg-body: #0a120e;
-      --bg-surface: rgba(18, 28, 23, 0.86);
-      --bg-sidebar: rgba(12, 20, 16, 0.96);
-      --bg-sidebar-hover: rgba(143, 209, 159, 0.10);
-      --text-main: #e8f3eb;
-      --text-muted: #8aa394;
-      --text-lighter: #61786b;
-      --text-inverse: #e8f3eb;
-      --border-color: rgba(134, 201, 149, 0.12);
-      --primary: #6fbf82;
-      --primary-hover: #5aab6d;
-      --primary-light: rgba(143, 209, 159, 0.14);
-      --success: #8fd19f;
-      --success-light: rgba(143, 209, 159, 0.14);
-      --danger: #e89595;
-      --danger-light: rgba(232, 149, 149, 0.12);
+      /* soft light — align with common.css */
+      --bg-body: #f3f6f4;
+      --bg-surface: #ffffff;
+      --bg-sidebar: #ffffff;
+      --bg-sidebar-hover: #eef7f1;
+      --text-main: #1f2a24;
+      --text-muted: #5f7268;
+      --text-lighter: #8a9a91;
+      --text-inverse: #1f2a24;
+      --border-color: #e3ebe6;
+      --primary: #2f9e6c;
+      --primary-hover: #27885c;
+      --primary-light: #e7f6ee;
+      --success: #2f9e6c;
+      --success-light: #e7f6ee;
+      --danger: #d64545;
+      --danger-light: #fdecec;
       --radius-sm: 8px;
       --radius: 14px;
-      --shadow-sm: none;
-      --shadow-md: 0 12px 40px rgba(0,0,0,.28);
+      --shadow-sm: 0 1px 2px rgba(31, 42, 36, 0.04);
+      --shadow-md: 0 10px 30px rgba(31, 42, 36, 0.06);
       font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Noto Sans SC", "Segoe UI", sans-serif;
     }
 
@@ -720,14 +720,14 @@
     }
   
 
-    /* green shell alignment overrides */
+    /* light shell alignment overrides */
     body { background: var(--bg-body) !important; color: var(--text-main); }
-    .sidebar { width: var(--rail-width, 76px); background: var(--bg-sidebar) !important; }
-    .top-header { background: rgba(12,20,16,0.72) !important; border-bottom: 1px solid var(--border-color) !important; }
+    .sidebar { width: var(--rail-width, 76px); background: var(--bg-sidebar) !important; border-right: 1px solid var(--border-color); }
+    .top-header { background: rgba(255,255,255,0.9) !important; border-bottom: 1px solid var(--border-color) !important; }
     .stat-card, .card, .hero-panel, .panel, .segment-card {
       background: var(--bg-surface) !important;
       border-color: var(--border-color) !important;
-      box-shadow: none !important;
+      box-shadow: var(--shadow-sm) !important;
     }
     .main-content { padding-bottom: calc(28px + env(safe-area-inset-bottom, 0px)); }
     @media (max-width: 1024px) {
