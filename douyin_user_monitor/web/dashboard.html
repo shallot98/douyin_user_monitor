@@ -6,7 +6,7 @@
   <meta http-equiv="Pragma" content="no-cache" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
   <title>用户监控台 | Monitor</title>
-  <link rel="stylesheet" href="/static/common.css?v=sky-20260806h" />
+  <link rel="stylesheet" href="/static/common.css?v=sky-20260806i" />
   <style>
     /* page-only: keep thin */
     .header-actions-cluster { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
@@ -35,7 +35,7 @@
         Cookie 池
       </a>
       <div class="nav-spacer"></div>
-      <a class="nav-item" onclick="toggleSettings()" title="调度配置">
+      <a class="nav-item" href="/api/monitor/settings/dashboard" onclick="return navigateToPage('/api/monitor/settings/dashboard')" title="调度配置">
         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M9.594 3.94c.09-.542.56-.94 1.11-.94h2.593c.55 0 1.02.398 1.11.94l.213 1.281c.063.374.313.686.645.87.074.04.147.083.22.127.325.196.72.257 1.075.124l1.217-.456a1.125 1.125 0 0 1 1.37.49l1.296 2.247a1.125 1.125 0 0 1-.26 1.431l-1.003.827c-.293.241-.438.613-.43.992a7.723 7.723 0 0 1 0 .255c-.008.378.137.75.43.991l1.004.827c.424.35.534.955.26 1.43l-1.298 2.247a1.125 1.125 0 0 1-1.369.491l-1.217-.456c-.355-.133-.75-.072-1.076.124a6.47 6.47 0 0 1-.22.128c-.331.183-.581.495-.644.869l-.213 1.281c-.09.543-.56.94-1.11.94h-2.594c-.55 0-1.019-.398-1.11-.94l-.213-1.281c-.062-.374-.312-.686-.644-.87a6.52 6.52 0 0 1-.22-.127c-.325-.196-.72-.257-1.076-.124l-1.217.456a1.125 1.125 0 0 1-1.369-.49l-1.297-2.247a1.125 1.125 0 0 1 .26-1.431l1.004-.827c.292-.24.437-.613.43-.991a6.932 6.932 0 0 1 0-.255c.007-.38-.138-.751-.43-.992l-1.004-.827a1.125 1.125 0 0 1-.26-1.43l1.297-2.247a1.125 1.125 0 0 1 1.37-.491l1.216.456c.356.133.751.072 1.076-.124.072-.044.146-.086.22-.128.332-.183.582-.495.644-.869l.214-1.28Z" /><path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" /></svg>
         调度配置
       </a>
@@ -73,7 +73,7 @@
         <div class="page-header">
           <div>
             <h1 class="page-title">数据大盘</h1>
-            <p class="page-subtitle">监控状态 · 用户列表 · 下载动态 <span class="ui-build-chip" title="UI build">UI sky-20260806h</span></p>
+            <p class="page-subtitle">监控状态 · 用户列表 · 下载动态 <span class="ui-build-chip" title="UI build">UI sky-20260806i</span></p>
           </div>
           <div class="page-actions header-actions-cluster">
             <button id="btnStart" class="btn btn-primary" onclick="startMonitor()">
@@ -90,6 +90,39 @@
             </button>
           </div>
         </div>
+
+        <div class="settings-card" style="margin-top:24px;">
+              <div class="card-header">
+                <div>
+                  <div class="card-title">调度配置</div>
+                  <div class="card-subtitle">保存后立即应用调度</div>
+                </div>
+              </div>
+              <div class="card-body">
+                <div class="form-group">
+                  <label class="form-label">监控模式</label>
+                  <select id="monitorMode" class="input" onchange="onModeChanged()">
+                    <option value="interval">定时轮询 (Interval)</option>
+                    <option value="coverage">覆盖轮询 (Coverage)</option>
+                  </select>
+                </div>
+                <div class="form-row">
+                  <div class="form-group flex-1">
+                    <label class="form-label">间隔小时 (Interval)</label>
+                    <input id="intervalHours" type="number" class="input" min="0.01" step="0.01" value="0.05" />
+                  </div>
+                  <div class="form-group flex-1">
+                    <label class="form-label">覆盖小时 (Coverage)</label>
+                    <input id="coverageHours" type="number" class="input" min="0.1" step="0.1" value="24" />
+                  </div>
+                </div>
+                <p class="help-text" id="modeHint"></p>
+                <div style="display:flex; gap:10px; flex-wrap:wrap; margin-top:14px;">
+                  <button class="btn btn-primary" onclick="applySettings()">保存配置并应用</button>
+                  <button class="btn btn-secondary" onclick="stopMonitor()">停止后台监控</button>
+                </div>
+              </div>
+            </div>
 
         <div class="stats-grid">
           <div class="stat-card">
@@ -182,43 +215,9 @@
   </nav>
 
   <div id="sidebarOverlay" class="overlay" onclick="toggleSidebar()"></div>
-  <div id="settingsOverlay" class="overlay" onclick="toggleSettings()"></div>
-  <div id="settingsDrawer" class="drawer">
-    <div class="drawer-header">
-      <h2 style="margin:0;font-size:16px;font-weight:700;">调度与系统配置</h2>
-      <button class="btn-icon" onclick="toggleSettings()" aria-label="关闭">
-        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" /></svg>
-      </button>
-    </div>
-    <div class="drawer-body">
-      <section>
-        <h3 class="section-title">任务调度策略</h3>
-        <div class="form-group">
-          <label class="form-label">监控模式</label>
-          <select id="monitorMode" class="input" onchange="onModeChanged()">
-            <option value="interval">定时轮询 (Interval)</option>
-            <option value="coverage">覆盖轮询 (Coverage)</option>
-          </select>
-        </div>
-        <div class="form-row">
-          <div class="form-group flex-1">
-            <label class="form-label">间隔小时 (Interval)</label>
-            <input id="intervalHours" type="number" class="input" min="0.01" step="0.01" value="0.05" />
-          </div>
-          <div class="form-group flex-1">
-            <label class="form-label">覆盖小时 (Coverage)</label>
-            <input id="coverageHours" type="number" class="input" min="0.1" step="0.1" value="24" />
-          </div>
-        </div>
-        <p class="help-text" id="modeHint"></p>
-        <button class="btn btn-primary w-full" onclick="applySettings()" style="margin-top:12px;">保存配置并应用</button>
-      </section>
-    </div>
-  </div>
-
   <div id="toast-container" class="toast-container"></div>
 
-<script src="/static/common.js?v=sky-20260806h"></script>
+<script src="/static/common.js?v=sky-20260806i"></script>
   <script>
     const Icons = {
       play: `<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M5.25 5.653c0-.856.917-1.398 1.667-.986l11.54 6.347a1.125 1.125 0 0 1 0 1.972l-11.54 6.347a1.125 1.125 0 0 1-1.667-.986V5.653Z" /></svg>`,
@@ -238,10 +237,7 @@
     let userSearchKeyword = "";
 
     // UI Toggles
-    function toggleSettings() {
-      document.getElementById('settingsDrawer').classList.toggle('show');
-      document.getElementById('settingsOverlay').classList.toggle('show');
-    }
+    
     
     // toggleSidebar / closeSidebarMobile / navigateToPage 及 resize 监听见 common.js；
     // isMobileViewport 各页断点不同（本页 1024），保留在本页由 common.js 在调用时引用。

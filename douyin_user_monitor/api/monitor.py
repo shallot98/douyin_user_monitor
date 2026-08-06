@@ -37,6 +37,7 @@ SETTINGS = load_settings()
 DASHBOARD_PATH = SETTINGS.project_root / "douyin_user_monitor" / "web" / "dashboard.html"
 STATISTICS_DASHBOARD_PATH = SETTINGS.project_root / "douyin_user_monitor" / "web" / "statistics.html"
 COOKIES_DASHBOARD_PATH = SETTINGS.project_root / "douyin_user_monitor" / "web" / "cookies.html"
+SETTINGS_DASHBOARD_PATH = SETTINGS.project_root / "douyin_user_monitor" / "web" / "settings.html"
 
 CRAWLER_CLIENT = InProcessDouyinClient(SETTINGS.crawler.config_path)
 MONITOR_STORAGE = MonitorStorage(SETTINGS.monitor.state_path)
@@ -207,6 +208,17 @@ async def cookies_dashboard() -> str:
         headers=HTML_NO_CACHE_HEADERS,
     )
 
+
+
+
+@router.get("/settings/dashboard", response_class=HTMLResponse, summary="调度配置页面/Settings dashboard page")
+async def settings_dashboard() -> str:
+    if not SETTINGS_DASHBOARD_PATH.exists():
+        raise HTTPException(status_code=404, detail=f"配置页面不存在: {SETTINGS_DASHBOARD_PATH}")
+    return HTMLResponse(
+        content=SETTINGS_DASHBOARD_PATH.read_text(encoding="utf-8"),
+        headers=HTML_NO_CACHE_HEADERS,
+    )
 
 @router.get("/cookies", response_model=ResponseModel, summary="获取 Cookie 池列表/List cookie pool")
 async def list_cookies(request: Request) -> ResponseModel:
