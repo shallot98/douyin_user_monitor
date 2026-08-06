@@ -6,14 +6,14 @@
   <meta http-equiv="Pragma" content="no-cache" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
   <title>调度配置 | Monitor</title>
-  <link rel="stylesheet" href="/static/common.css?v={ver}" />
+  <link rel="stylesheet" href="/static/common.css?v=sky-20260806i" />
   <style>
-    .settings-grid {{ display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; max-width: 720px; }}
-    .settings-card {{ background: var(--bg-surface); border: 1px solid var(--border-color); border-radius: var(--radius-lg); box-shadow: var(--shadow-sm); overflow: hidden; }}
-    .settings-card .card-header {{ background: var(--bg-elevated, #f8fafc); border-bottom: 1px solid var(--border-color); padding: 16px 18px; }}
-    .settings-card .card-body {{ padding: 18px; }}
-    .status-line {{ display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 8px; }}
-    .mode-pill {{ display: inline-flex; align-items: center; gap: 6px; background: var(--primary-light); color: var(--accent); border-radius: 999px; padding: 4px 10px; font-size: 12px; font-weight: 700; }}
+    .settings-grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; max-width: 720px; }
+    .settings-card { background: var(--bg-surface); border: 1px solid var(--border-color); border-radius: var(--radius-lg); box-shadow: var(--shadow-sm); overflow: hidden; }
+    .settings-card .card-header { background: var(--bg-elevated, #f8fafc); border-bottom: 1px solid var(--border-color); padding: 16px 18px; }
+    .settings-card .card-body { padding: 18px; }
+    .status-line { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 8px; }
+    .mode-pill { display: inline-flex; align-items: center; gap: 6px; background: var(--primary-light); color: var(--accent); border-radius: 999px; padding: 4px 10px; font-size: 12px; font-weight: 700; }
   </style>
 </head>
 <body>
@@ -37,7 +37,7 @@
       </a>
       <div class="nav-spacer"></div>
       <a class="nav-item active" href="/api/monitor/settings/dashboard" onclick="return navigateToPage('/api/monitor/settings/dashboard')" title="调度配置">
-        {nav_settings_svg}
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.8" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M9.594 3.94c.09-.542.56-.94 1.11-.94h2.593c.55 0 1.02.398 1.11.94l.213 1.281c.063.374.313.686.645.87.074.04.147.083.22.127.325.196.72.257 1.075.124l1.217-.456a1.125 1.125 0 0 1 1.37.49l1.296 2.247a1.125 1.125 0 0 1-.26 1.431l-1.003.827c-.293.241-.438.613-.43.992a7.723 7.723 0 0 1 0 .255c-.008.378.137.75.43.991l1.004.827c.424.35.534.955.26 1.43l-1.298 2.247a1.125 1.125 0 0 1-1.369.491l-1.217-.456c-.355-.133-.75-.072-1.076.124a6.47 6.47 0 0 1-.22.128c-.331.183-.581.495-.644.869l-.213 1.281c-.09.543-.56.94-1.11.94h-2.594c-.55 0-1.019-.398-1.11-.94l-.213-1.281c-.062-.374-.312-.686-.644-.87a6.52 6.52 0 0 1-.22-.127c-.325-.196-.72-.257-1.076-.124l-1.217.456a1.125 1.125 0 0 1-1.369-.49l-1.297-2.247a1.125 1.125 0 0 1 .26-1.431l1.004-.827c.292-.24.437-.613.43-.991a6.932 6.932 0 0 1 0-.255c.007-.38-.138-.751-.43-.992l-1.004-.827a1.125 1.125 0 0 1-.26-1.43l1.297-2.247a1.125 1.125 0 0 1 1.37-.491l1.216.456c.356.133.751.072 1.076-.124.072-.044.146-.086.22-.128.332-.183.582-.495.644-.869l.214-1.28Z"/><path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z"/></svg>
         调度配置
       </a>
       <a class="nav-item" onclick="refreshStatus()" title="刷新状态">
@@ -74,7 +74,7 @@
         <div class="page-header">
           <div>
             <h1 class="page-title">调度与系统配置</h1>
-            <p class="page-subtitle">独立配置页 · 保存后立即应用 · <span class="ui-build-chip">UI {ver}</span></p>
+            <p class="page-subtitle">独立配置页 · 保存后立即应用 · <span class="ui-build-chip">UI sky-20260806i</span></p>
           </div>
           <div class="page-actions">
             <a class="btn btn-secondary" href="/api/monitor/dashboard" onclick="return navigateToPage('/api/monitor/dashboard')">返回大盘</a>
@@ -152,7 +152,7 @@
       Cookie
     </a>
     <a class="bottom-tab active" href="/api/monitor/settings/dashboard" onclick="return navigateToPage('/api/monitor/settings/dashboard')">
-      {nav_settings_svg}
+      <span class="tab-ico"><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M9.594 3.94c.09-.542.56-.94 1.11-.94h2.593c.55 0 1.02.398 1.11.94l.213 1.281c.063.374.313.686.645.87.074.04.147.083.22.127.325.196.72.257 1.075.124l1.217-.456a1.125 1.125 0 0 1 1.37.49l1.296 2.247a1.125 1.125 0 0 1-.26 1.431l-1.003.827c-.293.241-.438.613-.43.992a7.723 7.723 0 0 1 0 .255c-.008.378.137.75.43.991l1.004.827c.424.35.534.955.26 1.43l-1.298 2.247a1.125 1.125 0 0 1-1.369.491l-1.217-.456c-.355-.133-.75-.072-1.076.124a6.47 6.47 0 0 1-.22.128c-.331.183-.581.495-.644.869l-.213 1.281c-.09.543-.56.94-1.11.94h-2.594c-.55 0-1.019-.398-1.11-.94l-.213-1.281c-.062-.374-.312-.686-.644-.87a6.52 6.52 0 0 1-.22-.127c-.325-.196-.72-.257-1.076-.124l-1.217.456a1.125 1.125 0 0 1-1.369-.49l-1.297-2.247a1.125 1.125 0 0 1 .26-1.431l1.004-.827c.292-.24.437-.613.43-.991a6.932 6.932 0 0 1 0-.255c.007-.38-.138-.751-.43-.992l-1.004-.827a1.125 1.125 0 0 1-.26-1.43l1.297-2.247a1.125 1.125 0 0 1 1.37-.491l1.216.456c.356.133.751.072 1.076-.124.072-.044.146-.086.22-.128.332-.183.582-.495.644-.869l.214-1.28Z" /><path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" /></svg></span>
       配置
     </a>
   </nav>
@@ -160,29 +160,29 @@
   <div id="sidebarOverlay" class="overlay" onclick="toggleSidebar()"></div>
   <div id="toast-container" class="toast-container"></div>
 
-  <script src="/static/common.js?v={ver}"></script>
+  <script src="/static/common.js?v=sky-20260806i"></script>
   <script>
-    const Icons = {{ checkCircle: `<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75 11.25 15 15 9.75M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" /></svg>`, exclamation: `<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3Z" /></svg>` }};
+    const Icons = { checkCircle: `<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75 11.25 15 15 9.75M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" /></svg>`, exclamation: `<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3Z" /></svg>` };
 
-    function isMobileViewport() {{ return window.matchMedia("(max-width: 1024px)").matches; }}
+    function isMobileViewport() { return window.matchMedia("(max-width: 1024px)").matches; }
 
-    function showToast(message, type = 'success') {{
+    function showToast(message, type = 'success') {
       const container = document.getElementById("toast-container");
       const toast = document.createElement("div");
-      toast.className = `toast toast-${{type}}`;
-      toast.innerHTML = `<div style="color: ${{type==='success'?'var(--success)':'var(--danger)'}}">${{type === 'success' ? Icons.checkCircle : Icons.exclamation}}</div><div style="font-size:14px; font-weight:500;">${{message}}</div>`;
+      toast.className = `toast toast-${type}`;
+      toast.innerHTML = `<div style="color: ${type==='success'?'var(--success)':'var(--danger)'}">${type === 'success' ? Icons.checkCircle : Icons.exclamation}</div><div style="font-size:14px; font-weight:500;">${message}</div>`;
       container.appendChild(toast);
-      requestAnimationFrame(() => {{ requestAnimationFrame(() => {{ toast.classList.add('show'); }}); }});
-      setTimeout(() => {{ toast.classList.remove('show'); setTimeout(() => toast.remove(), 300); }}, 3000);
-    }}
+      requestAnimationFrame(() => { requestAnimationFrame(() => { toast.classList.add('show'); }); });
+      setTimeout(() => { toast.classList.remove('show'); setTimeout(() => toast.remove(), 300); }, 3000);
+    }
 
-    function onModeChanged() {{
+    function onModeChanged() {
       const mode = document.getElementById("monitorMode").value;
       const hint = document.getElementById("modeHint");
       hint.textContent = mode === "coverage" ? "覆盖模式：系统将 Coverage 小时数均分给所有监控用户并加入随机抖动。" : "定时模式：每隔 Interval 小时对全量用户触发一次抓取。";
-    }}
+    }
 
-    function renderStatus(status) {{
+    function renderStatus(status) {
       const running = !!(status && (status.running || status.is_running));
       const mode = status?.mode || "-";
       const interval = status?.interval_hours != null ? status.interval_hours : "-";
@@ -198,37 +198,37 @@
       if (status?.interval_hours != null) document.getElementById("intervalHours").value = String(status.interval_hours);
       if (status?.coverage_hours != null) document.getElementById("coverageHours").value = String(status.coverage_hours);
       onModeChanged();
-    }}
+    }
 
-    async function refreshStatus() {{
-      try {{
+    async function refreshStatus() {
+      try {
         const status = await api("/status");
-        renderStatus(status || {{}});
-      }} catch (err) {{
+        renderStatus(status || {});
+      } catch (err) {
         showToast(err.message, "error");
-      }}
-    }}
+      }
+    }
 
-    async function applySettings() {{
-      try {{
-        const body = {{ mode: document.getElementById("monitorMode").value, interval_hours: Number(document.getElementById("intervalHours").value || "0.05"), coverage_hours: Number(document.getElementById("coverageHours").value || "24") }};
-        await api("/start", {{ method: "POST", body: JSON.stringify(body) }});
+    async function applySettings() {
+      try {
+        const body = { mode: document.getElementById("monitorMode").value, interval_hours: Number(document.getElementById("intervalHours").value || "0.05"), coverage_hours: Number(document.getElementById("coverageHours").value || "24") };
+        await api("/start", { method: "POST", body: JSON.stringify(body) });
         showToast("调度已更新 / 已启动");
         await refreshStatus();
-      }} catch (err) {{
+      } catch (err) {
         showToast(err.message, "error");
-      }}
-    }}
+      }
+    }
 
-    async function stopMonitor() {{
-      try {{
-        await api("/stop", {{ method: "POST" }});
+    async function stopMonitor() {
+      try {
+        await api("/stop", { method: "POST" });
         showToast("已停止");
         await refreshStatus();
-      }} catch (err) {{
+      } catch (err) {
         showToast(err.message, "error");
-      }}
-    }}
+      }
+    }
 
     onModeChanged();
     refreshStatus();
