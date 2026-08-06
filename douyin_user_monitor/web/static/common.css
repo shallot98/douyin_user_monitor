@@ -1,12 +1,16 @@
-/* Ultra clean daylight — no green tint */
+/* Shared ultra-clean daylight theme for dashboard / statistics / cookies */
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+/* Ultra clean daylight — pure white + sky blue, no green cast */
 :root {
-  --bg-body: #f9fbfc;
+  --bg-body: #f7f9fc;
   --bg-surface: #ffffff;
   --bg-surface-solid: #ffffff;
-  --bg-elevated: #f8fbfc;
+  --bg-elevated: #f8fafc;
   --bg-sidebar: #ffffff;
   --bg-sidebar-hover: #f1f5f9;
-  --bg-input: #f8fbfc;
+  --bg-input: #f8fafc;
   --text-main: #0f172a;
   --text-muted: #64748b;
   --text-lighter: #94a3b8;
@@ -14,63 +18,36 @@
   --border-color: #e2e8f0;
   --border-strong: #cbd5e1;
   --primary: #0ea5e9;
-  --primary-hover: #0284c8;
-  --primary-light: #f0f9ff;
+  --primary-hover: #0284c7;
+  --primary-light: #e0f2fe;
   --accent: #0ea5e9;
-  --success: #10b981;
+  --success: #059669;
   --success-light: #ecfdf5;
   --danger: #ef4444;
   --danger-light: #fef2f2;
-  --warn: #f59e0b;
+  --warn: #d97706;
   --warn-light: #fffbeb;
-  --on-primary: #ffffff;
-  --rail-active-fg: #ffffff;
-  /* Fresh mint daylight — bright, airy, not gloomy */
-  --bg-body: #eef7f2;
-  --bg-surface: #ffffff;
-  --bg-surface-solid: #ffffff;
-  --bg-elevated: #f5fbf8;
-  --bg-sidebar: #ffffff;
-  --bg-sidebar-hover: #e6f5ec;
-  --bg-input: #f3faf6;
-  --text-main: #163028;
-  --text-muted: #5a7266;
-  --text-lighter: #84a092;
-  --text-inverse: #163028;
-  --border-color: #d7ebe0;
-  --border-strong: #b9dcc9;
-  --primary: #1f9d6a;
-  --primary-hover: #188557;
-  --primary-light: #e3f7ec;
-  --accent: #1f9d6a;
-  --success: #1f9d6a;
-  --success-light: #e3f7ec;
-  --danger: #e04848;
-  --danger-light: #fdecec;
-  --warn: #d08912;
-  --warn-light: #fff7e8;
   --on-primary: #ffffff;
   --rail-active-fg: #ffffff;
   --radius-sm: 8px;
   --radius: 14px;
   --radius-lg: 18px;
-  --shadow-sm: 0 1px 2px rgba(31, 42, 36, 0.04);
-  --shadow: 0 10px 30px rgba(31, 42, 36, 0.06);
+  --shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.04);
+  --shadow: 0 10px 30px rgba(15, 23, 42, 0.06);
   --rail-width: 76px;
   --header-height: 64px;
   --bottom-tab-height: 68px;
   font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Noto Sans SC", "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
   color-scheme: light;
 }
-
 html, body {
   height: 100%;
 }
 
 body {
   background:
-    radial-gradient(920px 460px at 88% -12%, rgba(31, 157, 106, 0.14), transparent 58%),
-    radial-gradient(720px 400px at -5% 105%, rgba(64, 170, 210, 0.10), transparent 52%),
+    radial-gradient(920px 460px at 88% -12%, rgba(14, 165, 233, 0.10), transparent 58%),
+    radial-gradient(720px 400px at -5% 105%, rgba(56, 189, 248, 0.08), transparent 52%),
     var(--bg-body);
   color: var(--text-main);
   -webkit-font-smoothing: antialiased;
@@ -395,7 +372,7 @@ a { color: inherit; }
 }
 .btn svg { width: 16px; height: 16px; }
 .btn-primary {
-  background: linear-gradient(180deg, #3eb57d, #2f9e6c);
+  background: linear-gradient(180deg, #38bdf8, #0ea5e9);
   color: var(--on-primary);
   box-shadow: 0 8px 18px rgba(47, 158, 108, 0.18);
 }
@@ -444,7 +421,7 @@ a { color: inherit; }
 .user-info { display: flex; gap: 12px; min-width: 0; flex: 1; }
 .user-avatar, .avatar {
   width: 44px; height: 44px; border-radius: 14px;
-  background: linear-gradient(145deg, #5ecb93, #2f9e6c);
+  background: linear-gradient(145deg, #38bdf8, #0284c7);
   color: var(--on-primary); font-weight: 800;
   display: grid; place-items: center; flex-shrink: 0;
   overflow: hidden;
@@ -496,7 +473,7 @@ a { color: inherit; }
 /* ---- Overlay / drawer / toast ---- */
 .overlay {
   position: fixed; inset: 0;
-  background: rgba(31, 42, 36, 0.28);
+  background: rgba(15, 23, 42, 0.28);
   opacity: 0; pointer-events: none;
   transition: opacity 0.2s ease;
   z-index: 50;
