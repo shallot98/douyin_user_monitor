@@ -1,8 +1,30 @@
-/* Shared soft light console theme for dashboard / statistics / cookies */
-
-* { box-sizing: border-box; margin: 0; padding: 0; }
-
+/* Ultra clean daylight — no green tint */
 :root {
+  --bg-body: #f9fbfc;
+  --bg-surface: #ffffff;
+  --bg-surface-solid: #ffffff;
+  --bg-elevated: #f8fbfc;
+  --bg-sidebar: #ffffff;
+  --bg-sidebar-hover: #f1f5f9;
+  --bg-input: #f8fbfc;
+  --text-main: #0f172a;
+  --text-muted: #64748b;
+  --text-lighter: #94a3b8;
+  --text-inverse: #0f172a;
+  --border-color: #e2e8f0;
+  --border-strong: #cbd5e1;
+  --primary: #0ea5e9;
+  --primary-hover: #0284c8;
+  --primary-light: #f0f9ff;
+  --accent: #0ea5e9;
+  --success: #10b981;
+  --success-light: #ecfdf5;
+  --danger: #ef4444;
+  --danger-light: #fef2f2;
+  --warn: #f59e0b;
+  --warn-light: #fffbeb;
+  --on-primary: #ffffff;
+  --rail-active-fg: #ffffff;
   /* Fresh mint daylight — bright, airy, not gloomy */
   --bg-body: #eef7f2;
   --bg-surface: #ffffff;
