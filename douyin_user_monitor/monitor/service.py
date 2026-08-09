@@ -7,6 +7,12 @@ from typing import Any, Callable, Dict, List, Optional, Set, Tuple
 
 from douyin_user_monitor.monitor.cookie_liveness_service import CookieLivenessService
 from douyin_user_monitor.monitor.crawler_protocol import MonitorCrawlerProtocol
+from douyin_user_monitor.monitor.dashboard_payload import (
+    DASHBOARD_ACTIVITY_LIMIT,
+    DASHBOARD_RECENT_RECORDS_PER_USER,
+    project_dashboard_users,
+    project_public_status,
+)
 from douyin_user_monitor.monitor.downloader import AwemeAssetDownloader
 from douyin_user_monitor.monitor.errors import sanitize_public_error
 from douyin_user_monitor.monitor.history_sync import (
@@ -472,11 +478,15 @@ class MonitorService:
         return self.get_status()
 
     def get_status(self) -> Dict[str, Any]:
-        """纯读接口：仅在内存态上做展示层修正，不写盘（前端轮询高频调用）。"""
+        """纯读接口：仅在内存态上做展示层修正，不写盘（前端轮询高频调用）。
+
+        返回独立 dict，不就地改 storage 缓存，避免污染进程内状态。
+        """
         state = self._storage.load_state()
         running = bool(self._loop_task and not self._loop_task.done())
 
-        monitoring = state["monitoring"]
+        raw = state["monitoring"] if isinstance(state.get("monitoring"), dict) else {}
+        monitoring = dict(raw)
         monitoring["is_running"] = running
         monitoring.setdefault("desired_running", False)
         monitoring["mode"] = self._mode
@@ -487,6 +497,24 @@ class MonitorService:
         monitoring.pop("random_max_seconds", None)
         self._drop_legacy_scan_keys(monitoring)
         return monitoring
+
+    def get_public_status(self) -> Dict[str, Any]:
+        """面板用精简状态：去掉 Cookie 原文与大体积 samples。"""
+        return project_public_status(self.get_status())
+
+    async def list_dashboard_users(
+        self,
+        *,
+        recent_records_per_user: int = DASHBOARD_RECENT_RECORDS_PER_USER,
+        activity_limit: int = DASHBOARD_ACTIVITY_LIMIT,
+    ) -> Dict[str, Any]:
+        """大盘列表：省略 aweme_ids，只保留少量最近下载记录 + 全局动态。"""
+        users = await self.list_users_with_profile()
+        return project_dashboard_users(
+            users,
+            recent_records_per_user=recent_records_per_user,
+            activity_limit=activity_limit,
+        )
 
     async def shutdown(self) -> None:
         """进程退出：保留 desired_running 与覆盖进度，便于重启后续跑。"""

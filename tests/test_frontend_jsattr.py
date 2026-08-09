@@ -112,23 +112,26 @@ class JsAttrEscapingTests(unittest.TestCase):
 
     def test_both_pages_load_common_js(self):
         # 两页都必须引入 common.js，才能拿到共享的 jsAttr 安全实现。
+        # 允许 cache-bust 查询串：/static/common.js 或 /static/common.js?v=...
+        common_js_re = re.compile(r'src="/static/common\.js(?:\?[^"]*)?"')
         for html_path in (DASHBOARD_HTML, STATISTICS_HTML):
             text = html_path.read_text(encoding="utf-8")
-            self.assertIn('src="/static/common.js"', text, f"{html_path.name} 未引入 common.js")
+            self.assertRegex(
+                text,
+                common_js_re,
+                f"{html_path.name} 未引入 common.js",
+            )
+        # dashboard 仍加载 common.js（toast/nav/api），即使不再有 jsAttr 注入点
 
 
 class JsAttrUsageStructureTests(unittest.TestCase):
     """纯结构断言（不依赖 node）：onclick 数据注入点必须用 jsAttr，禁止改回不安全写法。"""
 
-    def test_dashboard_copyuser_onclick_uses_jsattr(self):
+    def test_dashboard_no_longer_embeds_copyuser_onclick(self):
+        # 大盘已去掉可操作用户列表；copyUserProfile 仅在 statistics 统一表保留。
         text = DASHBOARD_HTML.read_text(encoding="utf-8")
-        onclick_lines = [
-            line for line in text.splitlines() if "copyUserProfile(" in line and "onclick" in line
-        ]
-        self.assertTrue(onclick_lines, "dashboard.html 未找到 copyUserProfile 的 onclick 注入点")
-        for line in onclick_lines:
-            self.assertIn("jsAttr(", line)
-            self.assertNotIn("escapeHtml(", line)
+        self.assertNotIn("copyUserProfile(", text)
+        self.assertNotIn("function renderUsers(", text)
 
     def test_statistics_copyuser_onclick_uses_jsattr(self):
         text = STATISTICS_HTML.read_text(encoding="utf-8")

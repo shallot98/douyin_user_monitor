@@ -20,7 +20,12 @@ from douyin_user_monitor.monitor.service import (
     MIN_INTERVAL_HOURS,
     MonitorService,
 )
+from douyin_user_monitor.monitor.dashboard_payload import (
+    DASHBOARD_ACTIVITY_LIMIT,
+    build_recent_activity,
+)
 from douyin_user_monitor.monitor.statistics import build_user_statistics
+from douyin_user_monitor.monitor.user_table import query_monitor_users, wants_paginated_users
 from douyin_user_monitor.monitor.storage import MonitorStorage
 from douyin_user_monitor.monitor.telegram_notifier import TelegramNotifier
 from douyin_user_monitor.monitor.user_lookup import find_user_by_id
@@ -32,6 +37,10 @@ HTML_NO_CACHE_HEADERS = {
     "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
     "Pragma": "no-cache",
 }
+
+# 统计接口短缓存：状态文件未变时避免反复扫 500+ 用户的 download_records
+_STATISTICS_CACHE: dict[str, Any] | None = None
+_STATISTICS_CACHE_MTIME_NS: int | None = None
 
 SETTINGS = load_settings()
 DASHBOARD_PATH = SETTINGS.project_root / "douyin_user_monitor" / "web" / "dashboard.html"
@@ -289,15 +298,82 @@ async def check_cookie(request: Request, cookie_id: str) -> ResponseModel:
 
 
 @router.get("/users", response_model=ResponseModel, summary="获取监控用户列表/Get monitor users")
-async def list_users(request: Request) -> ResponseModel:
-    users = await monitor_service.list_users_with_profile()
-    return _build_success(request, {"users": users})
+async def list_users(
+    request: Request,
+    search: str | None = Query(None, description="Search nickname/sec_uid/id/profile_url"),
+    monitor: str | None = Query(None, description="all|enabled|paused"),
+    account: str | None = Query(None, description="all|normal|deleted|banned|abnormal"),
+    activity: str | None = Query(None, description="all|active_7d|active_30d|silent_7d|silent_30d|publish_unknown"),
+    backfill: str | None = Query(None, description="all|idle|active|paused|completed|failed"),
+    sort_by: str | None = Query(None, description="downloads|last_publish|last_check|last_download|nickname|created"),
+    sort_order: str | None = Query(None, description="asc|desc"),
+    page: int | None = Query(None, description="1-based page; presence switches to table mode"),
+    page_size: int | None = Query(None, description="20|50|100"),
+    view: str | None = Query(None, description="dashboard|table"),
+) -> ResponseModel:
+    # Compat A: no page/page_size/view=table → legacy dashboard full projection.
+    # With pagination params → filter/sort/page table for statistics unified list.
+    if wants_paginated_users(page=page, page_size=page_size, view=view):
+        users = monitor_service.list_users()
+        payload = query_monitor_users(
+            users,
+            search=search or "",
+            monitor=monitor or "all",
+            account=account or "all",
+            activity=activity or "all",
+            backfill=backfill or "all",
+            sort_by=sort_by or "downloads",
+            sort_order=sort_order or "desc",
+            page=1 if page is None else page,
+            page_size=20 if page_size is None else page_size,
+        )
+        return _build_success(request, payload)
+
+    # 大盘默认返回精简投影：去掉 downloaded_aweme_ids 与全量 download_records，
+    # 避免 500+ 用户时 10MB JSON 拖慢首屏。
+    payload = await monitor_service.list_dashboard_users()
+    return _build_success(request, payload)
+
+
+@router.get(
+    "/recent_activity",
+    response_model=ResponseModel,
+    summary="获取最近下载动态/Get recent download activity",
+)
+async def recent_activity(
+    request: Request,
+    limit: int | None = Query(None, description="Max feed items (default dashboard limit)"),
+) -> ResponseModel:
+    """Lightweight feed for dashboard — no profile hydration, no full user projection."""
+    users = monitor_service.list_users()
+    activity_limit = DASHBOARD_ACTIVITY_LIMIT if limit is None else max(0, int(limit))
+    payload = {
+        "recent_activity": build_recent_activity(users, limit=activity_limit),
+    }
+    return _build_success(request, payload)
 
 
 @router.get("/statistics", response_model=ResponseModel, summary="获取用户统计/Get user statistics")
 async def user_statistics(request: Request) -> ResponseModel:
-    users = await monitor_service.list_users_with_profile()
-    return _build_success(request, build_user_statistics(users))
+    global _STATISTICS_CACHE, _STATISTICS_CACHE_MTIME_NS
+    # 统计只读本地态，无需资料补全网络请求；并按状态文件 mtime 做短缓存。
+    mtime_ns = None
+    try:
+        mtime_ns = monitor_service._storage.state_file.stat().st_mtime_ns  # noqa: SLF001
+    except OSError:
+        mtime_ns = None
+    if (
+        _STATISTICS_CACHE is not None
+        and mtime_ns is not None
+        and _STATISTICS_CACHE_MTIME_NS == mtime_ns
+    ):
+        return _build_success(request, _STATISTICS_CACHE)
+
+    users = monitor_service.list_users()
+    payload = build_user_statistics(users)
+    _STATISTICS_CACHE = payload
+    _STATISTICS_CACHE_MTIME_NS = mtime_ns
+    return _build_success(request, payload)
 
 
 @router.get("/users/{user_id}/avatar", summary="代理监控用户头像/Proxy monitor user avatar")
@@ -421,7 +497,8 @@ async def run_user_history_backfill_once(request: Request, user_id: str) -> Resp
 
 @router.get("/status", response_model=ResponseModel, summary="获取监控状态/Get monitor status")
 async def monitor_status(request: Request) -> ResponseModel:
-    return _build_success(request, monitor_service.get_status())
+    # 面板轮询：屏蔽 Cookie 原文与测活 samples，减小状态包。
+    return _build_success(request, monitor_service.get_public_status())
 
 
 @router.post("/start", response_model=ResponseModel, summary="启动监控/Start monitoring")

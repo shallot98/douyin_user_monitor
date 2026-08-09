@@ -1,6 +1,6 @@
 import unittest
 from datetime import datetime, timedelta, timezone
-from unittest.mock import AsyncMock, patch
+from unittest.mock import patch
 
 from fastapi.testclient import TestClient
 
@@ -23,7 +23,7 @@ def build_record(publish_time: str, media_type: str, image_count: int = 0, total
 
 
 class BuildUserStatisticsTests(unittest.TestCase):
-    def test_build_user_statistics_aggregates_summary_and_silent_users(self):
+    def test_build_user_statistics_aggregates_summary_only(self):
         now = datetime(2026, 3, 27, 12, 0, tzinfo=CHINA_TZ)
         users = [
             {
@@ -91,11 +91,36 @@ class BuildUserStatisticsTests(unittest.TestCase):
         self.assertEqual(summary["deleted_users"], 1)
         self.assertEqual(summary["banned_users"], 1)
         self.assertAlmostEqual(summary["structured_coverage_percent"], 57.1, places=1)
-        self.assertEqual(statistics["lists"]["silent_users_7d"][0]["nickname"], "沉默用户")
-        self.assertEqual(statistics["lists"]["unknown_publish_users"][0]["nickname"], "无记录用户")
-        self.assertEqual(statistics["lists"]["deactivated_users"][0]["nickname"], "沉默用户")
-        self.assertEqual(statistics["lists"]["deactivated_users"][1]["nickname"], "无记录用户")
-        self.assertEqual(statistics["rankings"]["top_downloaded_users"][0]["nickname"], "活跃用户")
+
+        # Preview lists kept as empty shells (no builder work); use /users?page= for rows.
+        self.assertEqual(statistics["lists"]["silent_users_7d"], [])
+        self.assertEqual(statistics["lists"]["silent_users_30d"], [])
+        self.assertEqual(statistics["lists"]["unknown_publish_users"], [])
+        self.assertEqual(statistics["lists"]["deactivated_users"], [])
+        self.assertEqual(statistics["rankings"]["top_downloaded_users"], [])
+        self.assertIn("lists_deprecated", statistics["notes"])
+
+    def test_build_user_statistics_summary_counts_many_silent_without_list_payload(self):
+        now = datetime(2026, 3, 27, 12, 0, tzinfo=CHINA_TZ)
+        users = []
+        for i in range(30):
+            users.append({
+                "id": f"user-{i}",
+                "nickname": f"沉默{i}",
+                "sec_user_id": f"sec-{i}",
+                "enabled": True,
+                "account_status": "normal",
+                "account_status_label": "正常",
+                "downloaded_count": 1,
+                "downloaded_aweme_ids": ["x"],
+                "download_records": [
+                    build_record("2026-01-01T00:00:00+08:00", "video", total_size_bytes=10),
+                ],
+            })
+        statistics = build_user_statistics(users, now=now)
+        self.assertEqual(statistics["summary"]["silent_users_7d"], 30)
+        self.assertEqual(statistics["lists"]["silent_users_7d"], [])
+        self.assertEqual(statistics["rankings"]["top_downloaded_users"], [])
 
 
 class UserStatisticsRouteTests(unittest.TestCase):
@@ -122,9 +147,12 @@ class UserStatisticsRouteTests(unittest.TestCase):
         ]
         with patch.object(
             monitor_api.monitor_service,
-            "list_users_with_profile",
-            AsyncMock(return_value=users),
+            "list_users",
+            return_value=users,
         ):
+            # clear module-level statistics cache between tests
+            monitor_api._STATISTICS_CACHE = None
+            monitor_api._STATISTICS_CACHE_MTIME_NS = None
             response = self.client.get("/api/monitor/statistics")
 
         self.assertEqual(response.status_code, 200)
@@ -132,7 +160,9 @@ class UserStatisticsRouteTests(unittest.TestCase):
         self.assertEqual(body["code"], 200)
         self.assertEqual(body["data"]["summary"]["total_users"], 1)
         self.assertEqual(body["data"]["summary"]["total_downloaded_works"], 3)
-        self.assertEqual(body["data"]["rankings"]["top_downloaded_users"][0]["nickname"], "统计测试")
+        self.assertEqual(body["data"]["rankings"]["top_downloaded_users"], [])
+        self.assertEqual(body["data"]["lists"]["silent_users_7d"], [])
+        self.assertIn("lists_deprecated", body["data"]["notes"])
 
 
 if __name__ == "__main__":

@@ -76,8 +76,11 @@ def normalize_user_entry(user: Dict[str, Any]) -> None:
 class MonitorStorage:
     def __init__(self, state_file: Path):
         self.state_file = state_file
+        # 进程内缓存：13MB+ 状态文件每次 read+json.loads 就要 300ms+，
+        # 面板轮询 /status /users 会成倍放大首屏等待。
+        self._cache: Dict[str, Any] | None = None
+        self._cache_mtime_ns: int | None = None
         self._ensure_exists()
-
     def _ensure_exists(self) -> None:
         self.state_file.parent.mkdir(parents=True, exist_ok=True)
         if self.state_file.exists():
@@ -85,15 +88,24 @@ class MonitorStorage:
         self.save_state(build_default_state())
 
     def load_state(self) -> Dict[str, Any]:
+        """读取监控状态。同进程内命中 mtime 缓存时直接返回共享对象。
+
+        注意：返回值可能是缓存引用。展示层若要就地改字段（例如 get_status），
+        必须先浅拷贝再改，避免污染缓存。写路径请走 update_state/save_state。
+        """
+        cached = self._read_cache_if_fresh()
+        if cached is not None:
+            return cached
         try:
             raw = self.state_file.read_text(encoding="utf-8")
             state = json.loads(raw)
         except (json.JSONDecodeError, OSError):
             state = build_default_state()
             self.save_state(state)
+            return self._cache if self._cache is not None else state
         self._normalize_state(state)
+        self._store_cache(state)
         return state
-
     def save_state(self, state: Dict[str, Any]) -> None:
         with self._state_file_lock():
             self._save_state_unlocked(state)
@@ -118,23 +130,48 @@ class MonitorStorage:
                 fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
 
     def _load_state_unlocked(self) -> Dict[str, Any]:
+        cached = self._read_cache_if_fresh()
+        if cached is not None:
+            return cached
         try:
             raw = self.state_file.read_text(encoding="utf-8")
             state = json.loads(raw)
         except (json.JSONDecodeError, OSError):
             state = build_default_state()
             self._write_json_atomic(state)
+            self._store_cache(state)
+            return state
         self._normalize_state(state)
+        self._store_cache(state)
         return state
 
     def _save_state_unlocked(self, state: Dict[str, Any]) -> None:
         self._write_json_atomic(state)
+        self._store_cache(state)
 
     def _write_json_atomic(self, state: Dict[str, Any]) -> None:
         temp_file = self.state_file.with_suffix(".tmp")
         content = json.dumps(state, ensure_ascii=False, indent=2)
         temp_file.write_text(content, encoding="utf-8")
         temp_file.replace(self.state_file)
+
+    def _file_mtime_ns(self) -> int | None:
+        try:
+            return self.state_file.stat().st_mtime_ns
+        except OSError:
+            return None
+
+    def _read_cache_if_fresh(self) -> Dict[str, Any] | None:
+        if self._cache is None:
+            return None
+        mtime_ns = self._file_mtime_ns()
+        if mtime_ns is None or self._cache_mtime_ns != mtime_ns:
+            return None
+        return self._cache
+
+    def _store_cache(self, state: Dict[str, Any]) -> None:
+        self._cache = state
+        self._cache_mtime_ns = self._file_mtime_ns()
 
     def _normalize_state(self, state: Dict[str, Any]) -> None:
         normalize_root_state(state)

@@ -9,7 +9,6 @@ from douyin_user_monitor.monitor.timeutils import CHINA_TZ, safe_int
 
 SILENT_7D_DAYS = 7
 SILENT_30D_DAYS = 30
-TOP_DOWNLOADED_USERS_LIMIT = 12
 
 
 def build_user_statistics(
@@ -17,19 +16,25 @@ def build_user_statistics(
     *,
     now: datetime | None = None,
 ) -> Dict[str, Any]:
+    """Build statistics summary payload.
+
+    Rankings/lists preview arrays are intentionally empty (no list builder work).
+    User rows live on GET /api/monitor/users?page=... (user_table).
+    """
     current_time = now.astimezone(CHINA_TZ) if now else datetime.now(CHINA_TZ)
     user_rows = [_build_user_row(user, current_time) for user in users if isinstance(user, dict)]
     return {
         "generated_at": current_time.isoformat(timespec="seconds"),
         "summary": _build_summary(user_rows),
+        # Kept as empty shells for wire compatibility; do not rebuild previews.
         "rankings": {
-            "top_downloaded_users": _top_downloaded_users(user_rows),
+            "top_downloaded_users": [],
         },
         "lists": {
-            "silent_users_7d": _build_silent_users(user_rows, SILENT_7D_DAYS),
-            "silent_users_30d": _build_silent_users(user_rows, SILENT_30D_DAYS),
-            "unknown_publish_users": _build_unknown_publish_users(user_rows),
-            "deactivated_users": _build_deactivated_users(user_rows),
+            "silent_users_7d": [],
+            "silent_users_30d": [],
+            "unknown_publish_users": [],
+            "deactivated_users": [],
         },
         "windows": {
             "silent_7d_days": SILENT_7D_DAYS,
@@ -40,6 +45,10 @@ def build_user_statistics(
             "content_mix": "视频/图集结构基于本地已保存的 download_records。",
             "silent_rule": "沉默用户仅统计存在最近发布时间记录且早于阈值的用户；无记录用户单独列出。",
             "account_status_rule": "注销/封禁列表仅基于明确状态信号；无明确信号保持正常。",
+            "lists_deprecated": (
+                "rankings/lists preview arrays are empty; "
+                "use GET /api/monitor/users?page=... for user rows."
+            ),
         },
     }
 
@@ -164,40 +173,28 @@ def _build_user_activity(
     }
 
 
-def _build_silent_users(user_rows: List[Dict[str, Any]], days: int) -> List[Dict[str, Any]]:
-    key = "is_silent_7d" if days == SILENT_7D_DAYS else "is_silent_30d"
-    silent_users = [user for user in user_rows if user[key]]
-    silent_users.sort(key=lambda user: _timestamp_or_zero(user.get("last_publish_at")))
-    return silent_users
-
-
-def _build_unknown_publish_users(user_rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    unknown_users = [user for user in user_rows if not user["activity_known"]]
-    unknown_users.sort(key=lambda user: str(user.get("nickname") or ""))
-    return unknown_users
-
-
-def _build_deactivated_users(user_rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    deactivated = [user for user in user_rows if user["is_abnormal_account"]]
-    deactivated.sort(
-        key=lambda user: (
-            0 if user["account_status"] == "deleted" else 1,
-            str(user.get("nickname") or ""),
-        )
-    )
-    return deactivated
-
-
-def _top_downloaded_users(user_rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    ranked = sorted(
-        user_rows,
-        key=lambda user: (
-            -user["total_downloaded_works"],
-            -_timestamp_or_zero(user.get("last_download_at")),
-            str(user.get("nickname") or ""),
-        ),
-    )
-    return ranked[:TOP_DOWNLOADED_USERS_LIMIT]
+def _public_list_user(user: Dict[str, Any]) -> Dict[str, Any]:
+    """面板列表只需展示字段，去掉大量布尔标记以缩小 JSON。"""
+    return {
+        "id": user.get("id"),
+        "nickname": user.get("nickname"),
+        "sec_user_id": user.get("sec_user_id"),
+        "profile_url": user.get("profile_url"),
+        "avatar_url": user.get("avatar_url"),
+        "enabled": user.get("enabled"),
+        "account_status": user.get("account_status"),
+        "account_status_label": user.get("account_status_label"),
+        "account_status_reason": user.get("account_status_reason"),
+        "account_status_updated_at": user.get("account_status_updated_at"),
+        "last_checked_at": user.get("last_checked_at"),
+        "total_downloaded_works": user.get("total_downloaded_works"),
+        "known_video_posts": user.get("known_video_posts"),
+        "known_image_posts": user.get("known_image_posts"),
+        "last_publish_at": user.get("last_publish_at"),
+        "last_download_at": user.get("last_download_at"),
+        "days_since_last_publish": user.get("days_since_last_publish"),
+        "activity_known": user.get("activity_known"),
+    }
 
 
 def _normalize_records(raw_records: Any) -> List[Dict[str, Any]]:
@@ -271,10 +268,3 @@ def _unique_non_empty_count(values: Any) -> int:
     if not isinstance(values, Iterable) or isinstance(values, (str, bytes, dict)):
         return 0
     return len({str(value).strip() for value in values if str(value).strip()})
-
-
-def _timestamp_or_zero(raw_value: Any) -> float:
-    parsed = _parse_datetime(raw_value)
-    if parsed is None:
-        return 0.0
-    return parsed.timestamp()
