@@ -26,6 +26,9 @@ record_process_action() {
     "${ACTION_COMPLETED}") PROCESS_MOVED_COUNT=$((PROCESS_MOVED_COUNT + 1)) ;;
     "${ACTION_SKIP}") PROCESS_SKIPPED_COUNT=$((PROCESS_SKIPPED_COUNT + 1)) ;;
     "${ACTION_WAIT}") ;;
+    "${ACTION_CAPACITY}")
+      CAPACITY_LIMIT_HIT=1
+      ;;
     *) PROCESS_ERROR_COUNT=$((PROCESS_ERROR_COUNT + 1)) ;;
   esac
 }
@@ -36,6 +39,10 @@ process_pending_files_batched() {
   max_reconcile=$(normalize_nonnegative_limit "${MAX_RECONCILE_FILES_PER_RUN}" "0")
 
   while IFS= read -r -d '' file_path; do
+    if [[ "${CAPACITY_LIMIT_HIT}" == "1" ]]; then
+      log "容量熔断已触发，跳过剩余 pending 对账: processed=${processed}"
+      return 0
+    fi
     if (( max_reconcile > 0 && processed >= max_reconcile )); then
       log "pending 对账达到本轮上限: ${processed}/${max_reconcile}"
       return 0
@@ -43,6 +50,10 @@ process_pending_files_batched() {
     action=$(process_one_file "${token}" "${file_path}")
     record_process_action "${action}"
     processed=$((processed + 1))
+    if [[ "${CAPACITY_LIMIT_HIT}" == "1" ]]; then
+      log "容量熔断已触发，结束 pending 对账: processed=${processed}"
+      return 0
+    fi
   done < <(list_pending_paths)
 }
 
@@ -176,6 +187,10 @@ flush_all_batches() {
 submit_new_files_batched() {
   local token="$1" run_epoch="$2" batch_size pending_limit max_new
   local pending_count new_count=0 limit_logged="false"
+  if [[ "${CAPACITY_LIMIT_HIT}" == "1" ]]; then
+    log "容量熔断已触发，跳过本轮新文件提交"
+    return 0
+  fi
   batch_size=$(normalize_nonnegative_limit "${MOVE_BATCH_SIZE}" "1")
   (( batch_size > 0 )) || batch_size=1
   pending_limit=$(normalize_nonnegative_limit "${MAX_PENDING_TASKS}" "1")
@@ -184,6 +199,10 @@ submit_new_files_batched() {
   init_batch_buffers
 
   while IFS= read -r -d '' file_path; do
+    if [[ "${CAPACITY_LIMIT_HIT}" == "1" ]]; then
+      log "容量熔断已触发，停止新文件提交: new=${new_count}"
+      break
+    fi
     if ! can_submit_more_new_files "${pending_limit}" "${pending_count}" "${new_count}" "${max_new}"; then
       [[ "${limit_logged}" == "true" ]] || log "新任务提交达到本轮上限: new=${new_count}, pending=${pending_count}, max_new=${max_new}, pending_limit=${pending_limit}"
       limit_logged="true"
@@ -193,7 +212,9 @@ submit_new_files_batched() {
     submit_candidate_file "${token}" "${run_epoch}" "${file_path}" "${batch_size}" || true
     new_count=$((new_count + SUBMIT_CANDIDATE_ADDED))
   done < <(list_source_files)
-  flush_all_batches "${token}"
+  if [[ "${CAPACITY_LIMIT_HIT}" != "1" ]]; then
+    flush_all_batches "${token}"
+  fi
 }
 
 submit_candidate_file() {
@@ -223,6 +244,7 @@ process_files_batched() {
   PROCESS_ERROR_COUNT=0
   PROCESS_SKIPPED_COUNT=0
   PROCESS_SUBMITTED_COUNT=0
+  CAPACITY_LIMIT_HIT=0
   reset_dry_run_prediction_counts
   reset_move_task_cache
   reset_remote_list_cache
@@ -230,4 +252,7 @@ process_files_batched() {
   log "启用批量模式: batch_size=${MOVE_BATCH_SIZE}, max_new=${MAX_NEW_FILES_PER_RUN}, max_reconcile=${MAX_RECONCILE_FILES_PER_RUN}, verify_after_move=${VERIFY_AFTER_MOVE}, remote_cache=${REMOTE_LIST_CACHE_ENABLED}"
   process_pending_files_batched "${token}"
   submit_new_files_batched "${token}" "${run_epoch}"
+  if [[ "${CAPACITY_LIMIT_HIT}" == "1" ]]; then
+    log "本轮因目标盘容量不足提前结束；空间恢复后下一轮会自动继续"
+  fi
 }

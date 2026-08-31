@@ -40,6 +40,8 @@ handle_pending_reconcile() {
     "${ACTION_COMPLETED}") emit_process_outcome "${ACTION_COMPLETED}" ;;
     "${ACTION_WAIT}") emit_process_outcome "${ACTION_WAIT}" ;;
     "${ACTION_SKIP}") emit_process_outcome "${ACTION_SKIP}" ;;
+    "${ACTION_CAPACITY}") emit_process_outcome "${ACTION_CAPACITY}" ;;
+    "${ACTION_ERROR}") emit_process_outcome "${ACTION_ERROR}" ;;
     *) emit_process_outcome "${ACTION_CONTINUE}" ;;
   esac
 }
@@ -158,7 +160,7 @@ process_one_file() {
   fi
 
   case "${action}" in
-    "${ACTION_COMPLETED}"|"${ACTION_WAIT}"|"${ACTION_SKIP}"|"${ACTION_ERROR}")
+    "${ACTION_COMPLETED}"|"${ACTION_WAIT}"|"${ACTION_SKIP}"|"${ACTION_ERROR}"|"${ACTION_CAPACITY}")
       emit_process_outcome "${action}"
       return 0
       ;;
@@ -171,7 +173,7 @@ process_one_file() {
 
   action=$(handle_existing_target "${token}" "${actual_file_path}" "${src_dir}" "${dst_dir}" "${file_name}")
   case "${action}" in
-    "${ACTION_COMPLETED}"|"${ACTION_WAIT}"|"${ACTION_SKIP}"|"${ACTION_ERROR}")
+    "${ACTION_COMPLETED}"|"${ACTION_WAIT}"|"${ACTION_SKIP}"|"${ACTION_ERROR}"|"${ACTION_CAPACITY}")
       emit_process_outcome "${action}"
       return 0
       ;;
@@ -215,7 +217,7 @@ command_run() {
   if [[ "${DRY_RUN}" == "true" ]]; then
     log "DRY_RUN 完成，计划处理 ${DRY_RUN_PLANNED_COUNT} 个文件；预测 completed=${DRY_RUN_COMPLETED_COUNT}, wait=${DRY_RUN_WAIT_COUNT}, continue=${DRY_RUN_CONTINUE_COUNT}, skip=${DRY_RUN_SKIP_COUNT}, unknown=${DRY_RUN_UNKNOWN_COUNT}"
   else
-    log "完成，本轮完成收口 ${PROCESS_MOVED_COUNT} 个文件，提交 ${PROCESS_SUBMITTED_COUNT} 个文件，跳过 ${PROCESS_SKIPPED_COUNT} 个文件，失败 ${PROCESS_ERROR_COUNT} 个文件"
+    log "完成，本轮完成收口 ${PROCESS_MOVED_COUNT} 个文件，提交 ${PROCESS_SUBMITTED_COUNT} 个文件，跳过 ${PROCESS_SKIPPED_COUNT} 个文件，失败 ${PROCESS_ERROR_COUNT} 个文件${CAPACITY_LIMIT_HIT:+, capacity_limit=1}"
   fi
   if [[ "${PROCESS_ERROR_COUNT}" -gt 0 ]]; then
     exit 1

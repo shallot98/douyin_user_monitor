@@ -1,10 +1,8 @@
 import tempfile
-import time
 import unittest
 from pathlib import Path
 
 from douyin_user_monitor.monitor.dashboard_payload import (
-    build_recent_activity,
     project_dashboard_users,
     project_public_status,
 )

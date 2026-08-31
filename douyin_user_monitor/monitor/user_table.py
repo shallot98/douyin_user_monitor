@@ -12,8 +12,8 @@ from typing import Any, Dict, List, Mapping, Sequence
 
 from douyin_user_monitor.monitor.profile_parser import ACCOUNT_STATUS_NORMAL
 from douyin_user_monitor.monitor.statistics import (
-    SILENT_30D_DAYS,
     SILENT_7D_DAYS,
+    SILENT_30D_DAYS,
     _build_user_row,
     _public_list_user,
 )

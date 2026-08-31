@@ -98,6 +98,14 @@ reconcile_failed_task() {
     return 0
   fi
 
+  # 容量不足：清掉这条 pending（便于空间恢复后重新提交），并熔断本轮，避免 500+ 次无效重试
+  if is_capacity_limit_error "${MOVE_TASK_ERROR}"; then
+    unmark_file_pending "${file_path}"
+    mark_capacity_limit_hit "${file_path}" "task=${PENDING_RECORD_TASK_ID:--}"
+    emit_reconcile_action "${ACTION_CAPACITY}"
+    return 0
+  fi
+
   unmark_file_pending "${file_path}"
   log "${reason}，准备重试: file=${file_path}, task=${PENDING_RECORD_TASK_ID:--}, state=${MOVE_TASK_STATE:--}, progress=${MOVE_TASK_PROGRESS:-0}, status=${MOVE_TASK_STATUS:--}, error=${MOVE_TASK_ERROR:--}"
   emit_reconcile_action "${ACTION_CONTINUE}"

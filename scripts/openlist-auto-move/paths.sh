@@ -47,8 +47,8 @@ sanitize_file_name_in_place() {
   local sanitized_name
   local target_path
 
-  dir_path=$(dirname "${file_path}")
-  base_name=$(basename "${file_path}")
+  dir_path=$(dirname -- "${file_path}")
+  base_name=$(basename -- "${file_path}")
   sanitized_name=$(sanitize_component "${base_name}")
 
   if [[ -z "${sanitized_name}" ]]; then
@@ -67,7 +67,7 @@ sanitize_file_name_in_place() {
     return 1
   fi
 
-  mv "${file_path}" "${target_path}"
+  mv -- "${file_path}" "${target_path}"
   log "已重命名文件: ${file_path} -> ${target_path}"
   printf '%s' "${target_path}"
 }
@@ -78,8 +78,8 @@ predict_sanitized_file_path() {
   local base_name
   local sanitized_name
 
-  dir_path=$(dirname "${file_path}")
-  base_name=$(basename "${file_path}")
+  dir_path=$(dirname -- "${file_path}")
+  base_name=$(basename -- "${file_path}")
   sanitized_name=$(sanitize_component "${base_name}")
 
   if [[ -z "${sanitized_name}" ]]; then
@@ -130,7 +130,7 @@ build_remote_paths() {
 
   local source_path="${SOURCE_MOUNT}/${relative_path}"
   local relative_dir
-  relative_dir=$(dirname "${relative_path}")
+  relative_dir=$(dirname -- "${relative_path}")
 
   local effective_relative_dir="${relative_dir}"
   if [[ "${SANITIZE_EMOJI}" == "true" ]]; then
@@ -144,8 +144,8 @@ build_remote_paths() {
 
   local src_dir
   local file_name
-  src_dir=$(dirname "${source_path}")
-  file_name=$(basename "${source_path}")
+  src_dir=$(dirname -- "${source_path}")
+  file_name=$(basename -- "${source_path}")
   printf '%s\n%s\n%s\n' "${src_dir}" "${dst_dir}" "${file_name}"
 }
 

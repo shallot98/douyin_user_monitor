@@ -8,7 +8,7 @@ status blob (no raw cookies / full liveness samples).
 
 from __future__ import annotations
 
-from typing import Any, Dict, Iterable, List, Mapping, MutableMapping, Optional, Sequence
+from typing import Any, Dict, List, Mapping, Sequence
 
 DASHBOARD_RECENT_RECORDS_PER_USER = 3
 DASHBOARD_ACTIVITY_LIMIT = 50

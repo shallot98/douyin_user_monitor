@@ -13,22 +13,23 @@ from douyin_user_monitor.crawler.inprocess_client import DEFAULT_HEADERS, InProc
 from douyin_user_monitor.monitor.cookie_liveness import CookieLivenessConfig
 from douyin_user_monitor.monitor.cookie_liveness_service import CookieLivenessService
 from douyin_user_monitor.monitor.cookie_pool import CookiePoolService
+from douyin_user_monitor.monitor.dashboard_payload import (
+    DASHBOARD_ACTIVITY_LIMIT,
+    build_recent_activity,
+)
 from douyin_user_monitor.monitor.hermes_weixin_sender import HermesWeixinConfig, HermesWeixinSender
 from douyin_user_monitor.monitor.notifier import NoopMonitorNotifier
+from douyin_user_monitor.monitor.parse_service import ParseService
 from douyin_user_monitor.monitor.schedule import MODE_COVERAGE, MODE_INTERVAL
 from douyin_user_monitor.monitor.service import (
     MIN_INTERVAL_HOURS,
     MonitorService,
 )
-from douyin_user_monitor.monitor.dashboard_payload import (
-    DASHBOARD_ACTIVITY_LIMIT,
-    build_recent_activity,
-)
 from douyin_user_monitor.monitor.statistics import build_user_statistics
-from douyin_user_monitor.monitor.user_table import query_monitor_users, wants_paginated_users
 from douyin_user_monitor.monitor.storage import MonitorStorage
 from douyin_user_monitor.monitor.telegram_notifier import TelegramNotifier
 from douyin_user_monitor.monitor.user_lookup import find_user_by_id
+from douyin_user_monitor.monitor.user_table import query_monitor_users, wants_paginated_users
 from douyin_user_monitor.settings_loaders import load_settings
 
 router = APIRouter()
@@ -47,6 +48,7 @@ DASHBOARD_PATH = SETTINGS.project_root / "douyin_user_monitor" / "web" / "dashbo
 STATISTICS_DASHBOARD_PATH = SETTINGS.project_root / "douyin_user_monitor" / "web" / "statistics.html"
 COOKIES_DASHBOARD_PATH = SETTINGS.project_root / "douyin_user_monitor" / "web" / "cookies.html"
 SETTINGS_DASHBOARD_PATH = SETTINGS.project_root / "douyin_user_monitor" / "web" / "settings.html"
+API_DASHBOARD_PATH = SETTINGS.project_root / "douyin_user_monitor" / "web" / "api.html"
 
 CRAWLER_CLIENT = InProcessDouyinClient(SETTINGS.crawler.config_path)
 MONITOR_STORAGE = MonitorStorage(SETTINGS.monitor.state_path)
@@ -133,6 +135,11 @@ class StartMonitorPayload(BaseModel):
     mode: str = Field(default=MODE_INTERVAL, description=f"监控模式: {MODE_INTERVAL} | {MODE_COVERAGE}")
     interval_hours: float = Field(default=0.05, ge=MIN_INTERVAL_HOURS, description="定时模式轮询间隔(小时)")
     coverage_hours: float = Field(default=24.0, gt=0, description="覆盖模式下，全量用户完成一轮的目标小时数")
+
+
+class ParseBody(BaseModel):
+    text: str = Field(min_length=1, description="抖音分享文本 / 口令 / 作品链接")
+    include_raw: bool = Field(default=False, description="是否附带 aweme_detail 原始字段")
 
 
 def _build_error(request: Request, message: str, status_code: int = 400) -> HTTPException:
@@ -228,6 +235,41 @@ async def settings_dashboard() -> str:
         content=SETTINGS_DASHBOARD_PATH.read_text(encoding="utf-8"),
         headers=HTML_NO_CACHE_HEADERS,
     )
+
+
+@router.get("/api/dashboard", response_class=HTMLResponse, summary="外部解析 API 文档页/Parse API docs page")
+async def api_dashboard() -> str:
+    if not API_DASHBOARD_PATH.exists():
+        raise HTTPException(status_code=404, detail=f"API 页面不存在: {API_DASHBOARD_PATH}")
+    return HTMLResponse(
+        content=API_DASHBOARD_PATH.read_text(encoding="utf-8"),
+        headers=HTML_NO_CACHE_HEADERS,
+    )
+
+
+PARSE_SERVICE = ParseService(CRAWLER_CLIENT)
+
+
+@router.post("/parse", response_model=ResponseModel, summary="解析抖音分享链接/Parse Douyin share link")
+async def parse_share_post(request: Request, payload: ParseBody) -> ResponseModel:
+    try:
+        data = await PARSE_SERVICE.parse(payload.text, include_raw=payload.include_raw)
+    except Exception as exc:  # noqa: BLE001
+        raise _build_error(request, str(exc))
+    return _build_success(request, data)
+
+
+@router.get("/parse", response_model=ResponseModel, summary="解析抖音分享链接(GET)/Parse Douyin share link via query")
+async def parse_share_get(
+    request: Request,
+    text: str = Query(min_length=1, description="抖音分享文本 / 口令 / 作品链接"),
+    include_raw: bool = Query(default=False, description="是否附带 aweme_detail 原始字段"),
+) -> ResponseModel:
+    try:
+        data = await PARSE_SERVICE.parse(text, include_raw=include_raw)
+    except Exception as exc:  # noqa: BLE001
+        raise _build_error(request, str(exc))
+    return _build_success(request, data)
 
 @router.get("/cookies", response_model=ResponseModel, summary="获取 Cookie 池列表/List cookie pool")
 async def list_cookies(request: Request) -> ResponseModel:

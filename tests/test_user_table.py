@@ -120,6 +120,60 @@ class QueryMonitorUsersTests(unittest.TestCase):
         self.assertEqual(result["items"][0]["downloaded_count"], 20)
         self.assertNotIn("is_silent_7d", result["items"][0])
 
+    def test_sort_created_desc_and_asc(self):
+        desc = query_monitor_users(
+            self.users,
+            sort_by="created",
+            sort_order="desc",
+            page=1,
+            page_size=20,
+            now=self.now,
+        )
+        asc = query_monitor_users(
+            self.users,
+            sort_by="created",
+            sort_order="asc",
+            page=1,
+            page_size=20,
+            now=self.now,
+        )
+        desc_ids = [item["id"] for item in desc["items"]]
+        asc_ids = [item["id"] for item in asc["items"]]
+        self.assertEqual(desc_ids, ["user-4", "user-3", "user-2", "user-1"])
+        self.assertEqual(asc_ids, ["user-1", "user-2", "user-3", "user-4"])
+        self.assertEqual(desc["applied"]["sort_by"], "created")
+        self.assertEqual(desc["applied"]["sort_order"], "desc")
+        self.assertEqual(asc["applied"]["sort_order"], "asc")
+        self.assertTrue(all(item.get("created_at") for item in asc["items"]))
+
+    def test_sort_created_missing_timestamp_sinks_last(self):
+        users = self.users + [
+            {
+                "id": "user-5",
+                "nickname": "无添加时间",
+                "sec_user_id": "sec-5",
+                "enabled": True,
+                "account_status": "normal",
+                "created_at": None,
+                "last_checked_at": None,
+                "downloaded_count": 0,
+                "downloaded_aweme_ids": [],
+                "history_sync": {"status": "idle"},
+                "download_records": [],
+            }
+        ]
+        for order in ("desc", "asc"):
+            result = query_monitor_users(
+                users,
+                sort_by="created",
+                sort_order=order,
+                page=1,
+                page_size=20,
+                now=self.now,
+            )
+            ids = [item["id"] for item in result["items"]]
+            self.assertEqual(ids[-1], "user-5", f"order={order}")
+
     def test_monitor_enabled_paused(self):
         enabled = query_monitor_users(self.users, monitor="enabled", now=self.now)
         paused = query_monitor_users(self.users, monitor="paused", now=self.now)
@@ -237,6 +291,28 @@ class UsersRoutePaginationTests(unittest.TestCase):
         self.assertEqual(len(data["items"]), 2)
         self.assertEqual(data["items"][0]["id"], "user-4")
         self.assertEqual(data["applied"]["monitor"], "enabled")
+
+    def test_paginated_users_route_sort_by_created(self):
+        seen = {}
+        for order, expected_first in (("desc", "user-4"), ("asc", "user-1")):
+            with patch.object(monitor_api.monitor_service, "list_users", return_value=self.users):
+                response = self.client.get(
+                    "/api/monitor/users",
+                    params={
+                        "page": 1,
+                        "page_size": 20,
+                        "sort_by": "created",
+                        "sort_order": order,
+                    },
+                )
+            self.assertEqual(response.status_code, 200)
+            data = response.json()["data"]
+            self.assertEqual(data["applied"]["sort_by"], "created")
+            self.assertEqual(data["applied"]["sort_order"], order)
+            self.assertEqual(data["items"][0]["id"], expected_first)
+            self.assertTrue(data["items"][0]["created_at"])
+            seen[order] = [item["id"] for item in data["items"]]
+        self.assertEqual(seen["desc"], list(reversed(seen["asc"])))
 
     def test_recent_activity_route_no_profile_hydration(self):
         with patch.object(monitor_api.monitor_service, "list_users", return_value=self.users) as mocked:

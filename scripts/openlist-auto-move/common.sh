@@ -54,6 +54,27 @@ ACTION_CONTINUE="continue"
 ACTION_SKIP="skip"
 ACTION_ERROR="error"
 ACTION_UNKNOWN="unknown"
+# process_one_file 在 $() 子 shell 中运行，容量熔断通过该 action 回传给父进程
+ACTION_CAPACITY="capacity_limit"
+
+# 目标盘容量不足时置位，本轮停止继续对账/提交，避免空转数十分钟
+CAPACITY_LIMIT_HIT=0
+
+is_capacity_limit_error() {
+  local err="${1:-${MOVE_TASK_ERROR:-}}"
+  [[ "${err}" == *"capacity limit"* ]]
+}
+
+mark_capacity_limit_hit() {
+  local file_path="${1:-}"
+  local detail="${2:-}"
+  CAPACITY_LIMIT_HIT=1
+  if [[ -n "${file_path}" ]]; then
+    log "目标盘容量不足(capacity limit)，本轮停止后续对账/提交以免空转: file=${file_path}${detail:+, ${detail}}"
+  else
+    log "目标盘容量不足(capacity limit)，本轮停止后续对账/提交以免空转${detail:+: ${detail}}"
+  fi
+}
 
 COMMAND="run"
 COMMAND_TARGET=""
@@ -84,7 +105,7 @@ require_cmd() {
 
 ensure_parent_dir() {
   local target="$1"
-  mkdir -p "$(dirname "${target}")"
+  mkdir -p -- "$(dirname -- "${target}")"
 }
 
 describe_state_isolation() {

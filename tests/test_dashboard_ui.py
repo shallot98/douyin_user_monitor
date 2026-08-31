@@ -35,7 +35,7 @@ class DashboardUiTests(unittest.TestCase):
         self.assertNotIn('id="profileUrl"', html)
         self.assertNotIn('onclick="addUser()"', html)
         self.assertNotIn('用户管理入口', html)
-        self.assertIn('用户管理', html)
+        # 页内「用户管理」按钮已删，导航统一收到侧栏；入口用链接断言，不锚文案
         self.assertIn('/api/monitor/statistics/dashboard', html)
         self.assertIn('下载动态', html)
         self.assertIn('内容结构总览', html)
