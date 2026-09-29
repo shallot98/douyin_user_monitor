@@ -254,7 +254,6 @@ class UserSyncAccountStatusTests(unittest.IsolatedAsyncioTestCase):
             "account_status_updated_at": None,
             "downloaded_count": 0,
             "downloaded_aweme_ids": [],
-            "download_records": [],
             "last_aweme_id": None,
             "history_sync": {"status": "idle", "has_more": False},
         }
@@ -288,7 +287,6 @@ class UserSyncSkipFetchTests(unittest.IsolatedAsyncioTestCase):
             "account_status_updated_at": "2026-01-01T00:00:00Z",
             "downloaded_count": 0,
             "downloaded_aweme_ids": [],
-            "download_records": [],
             "last_aweme_id": None,
             "history_sync": {"status": "idle", "has_more": False},
         }
@@ -318,7 +316,6 @@ class UserSyncSkipFetchTests(unittest.IsolatedAsyncioTestCase):
             "enabled": True,
             "downloaded_count": 0,
             "downloaded_aweme_ids": [],
-            "download_records": [],
             "last_aweme_id": None,
             "history_sync": {"status": "idle", "has_more": False},
         }
@@ -353,7 +350,6 @@ class UserSyncNicknamePreservationTests(unittest.IsolatedAsyncioTestCase):
             "account_status_updated_at": None,
             "downloaded_count": 0,
             "downloaded_aweme_ids": [],
-            "download_records": [],
             "last_aweme_id": None,
             "history_sync": {"status": "idle", "has_more": False},
         }
@@ -382,7 +378,6 @@ class UserSyncNicknamePreservationTests(unittest.IsolatedAsyncioTestCase):
             "account_status_updated_at": None,
             "downloaded_count": 0,
             "downloaded_aweme_ids": [],
-            "download_records": [],
             "last_aweme_id": None,
             "history_sync": {"status": "idle", "has_more": False},
         }
@@ -414,7 +409,6 @@ class UserSyncNotificationTests(unittest.IsolatedAsyncioTestCase):
             "enabled": True,
             "downloaded_count": 0,
             "downloaded_aweme_ids": [],
-            "download_records": [],
             "last_aweme_id": None,
             "history_sync": {"status": "idle", "has_more": False},
         }
@@ -450,7 +444,6 @@ class UserSyncNotificationTests(unittest.IsolatedAsyncioTestCase):
             "account_status_updated_at": "2026-01-01T00:00:00Z",
             "downloaded_count": 0,
             "downloaded_aweme_ids": [],
-            "download_records": [],
             "last_aweme_id": None,
             "history_sync": {"status": "idle", "has_more": False},
         }
@@ -487,7 +480,6 @@ class MonitorServiceAccountHydrationTests(unittest.IsolatedAsyncioTestCase):
                     "last_aweme_id": None,
                     "downloaded_count": 0,
                     "downloaded_aweme_ids": [],
-                    "download_records": [],
                     "history_sync": {"status": "idle", "has_more": False},
                     "last_error": None,
                 }
@@ -530,7 +522,6 @@ class MonitorServiceAccountHydrationTests(unittest.IsolatedAsyncioTestCase):
                     "last_aweme_id": None,
                     "downloaded_count": 0,
                     "downloaded_aweme_ids": [],
-                    "download_records": [],
                     "history_sync": {"status": "idle", "has_more": False},
                     "last_error": None,
                 }
@@ -573,7 +564,6 @@ class MonitorServiceAccountHydrationTests(unittest.IsolatedAsyncioTestCase):
                     "last_aweme_id": None,
                     "downloaded_count": 0,
                     "downloaded_aweme_ids": [],
-                    "download_records": [],
                     "history_sync": {"status": "idle", "has_more": False},
                     "last_error": None,
                 }

@@ -10,6 +10,7 @@ import orjson
 from douyin_user_monitor.monitor.history_sync import normalize_history_sync_state
 from douyin_user_monitor.monitor.nickname_history import normalize_nickname_history
 from douyin_user_monitor.monitor.profile_parser import build_account_status_fields
+from douyin_user_monitor.monitor.record_store import RecordStore, record_db_path
 from douyin_user_monitor.monitor.timeutils import cn_now
 
 DEFAULT_INTERVAL_HOURS = 0.05
@@ -79,15 +80,29 @@ def normalize_user_entry(user: Dict[str, Any]) -> None:
     user["account_status_updated_at"] = account_status_updated_at or None
     if not isinstance(user.get("downloaded_aweme_ids"), list):
         user["downloaded_aweme_ids"] = []
-    if not isinstance(user.get("download_records"), list):
-        user["download_records"] = []
     normalize_nickname_history(user)
     normalize_history_sync_state(user)
+
+
+class LegacyRecordsInStateError(RuntimeError):
+    """JSON state still carries `download_records`; they belong in the RecordStore."""
+
+
+def _assert_no_inline_records(state: Dict[str, Any], *, where: str) -> None:
+    for user in state.get("users") or []:
+        if isinstance(user, dict) and "download_records" in user:
+            raise LegacyRecordsInStateError(
+                f"{where}: user {user.get('id')!r} carries download_records in the JSON state; "
+                "records live in monitor_records.db (run scripts/split_download_records.py "
+                "for a legacy state file, or write through storage.records)"
+            )
 
 
 class MonitorStorage:
     def __init__(self, state_file: Path):
         self.state_file = state_file
+        # download_records 拆到 SQLite：JSON 只剩用户配置/状态（~2MB），写一次 ~20ms
+        self.records = RecordStore(record_db_path(state_file))
         # 进程内缓存：13MB+ 状态文件每次 read+json.loads 就要 300ms+，
         # 面板轮询 /status /users 会成倍放大首屏等待。
         self._cache: Dict[str, Any] | None = None
@@ -157,18 +172,19 @@ class MonitorStorage:
         with self.state_file.open("rb") as source:
             # The path may be atomically replaced during parsing; stamp the file we opened.
             stamp = file_stamp(os.fstat(source.fileno()))
-            # 48MB 状态：stdlib json.load ≈1.2s，orjson ≈0.25s；读写都在事件循环上同步执行。
+            # 读写都在事件循环上同步执行，orjson 比 stdlib json 快 ~5x。
             state = orjson.loads(source.read())
+        _assert_no_inline_records(state, where=f"read {self.state_file}")
         self._normalize_state(state)
         return state, stamp
 
     def _save_state_unlocked(self, state: Dict[str, Any]) -> None:
+        _assert_no_inline_records(state, where=f"write {self.state_file}")
         stamp = self._write_json_atomic(state)
         self._store_cache(state, stamp)
 
     def _write_json_atomic(self, state: Dict[str, Any]) -> FileStamp:
         temp_file = self.state_file.with_suffix(".tmp")
-        # stdlib json.dumps(indent=2) ≈2s/48MB 会冻结整个服务；orjson 同格式 ≈0.1s。
         content = orjson.dumps(state, option=orjson.OPT_INDENT_2 | orjson.OPT_NON_STR_KEYS)
         with temp_file.open("wb") as target:
             target.write(content)

@@ -1,11 +1,11 @@
 # 媒体归档与网页播放
 
 Role: baseline
-Updated: 2026-09-14
+Updated: 2026-09-29
 
 ## 当前数据流
 
-用户及作品记录保存在 `data/monitor_users.json`。归档页读取 `download_records`，不需要实时请求抖音作品列表。媒体角色包括原片 `video_file`、播放文件 `fast_play_file` 和封面 `cover_file`；网页媒体请求使用作品 ID 与文件下标。
+用户配置与状态保存在 `data/monitor_users.json`；作品记录 `download_records` 按用户整列表存于同目录 `data/monitor_records.db`（SQLite，WAL）。归档页读取这些记录，不需要实时请求抖音作品列表。媒体角色包括原片 `video_file`、播放文件 `fast_play_file` 和封面 `cover_file`；网页媒体请求使用作品 ID 与文件下标。
 
 | 文件 | 当前职责 |
 | --- | --- |
@@ -18,6 +18,7 @@ Updated: 2026-09-14
 | [playback_media.py](../../../douyin_user_monitor/monitor/playback_media.py) | 检查实际编码、像素格式、尺寸、码率及 MP4 索引位置 |
 | [user_sync.py](../../../douyin_user_monitor/monitor/user_sync.py) | 保存下载记录中的媒体角色和来源信息 |
 | [storage.py](../../../douyin_user_monitor/monitor/storage.py) | 文件锁内重新读取磁盘状态后合并更新，原子替换 JSON，并维护进程内缓存 |
+| [record_store.py](../../../douyin_user_monitor/monitor/record_store.py) | 作品记录的 SQLite 存储与进程内缓存；写入在状态文件锁内、先于 JSON 提交 |
 | [works.html](../../../douyin_user_monitor/web/works.html) | 卡片封面、视频弹层和播放错误展示 |
 | [cloud_playback](../../../scripts/cloud_playback/README.md) | 独立节点转换、D2 直接上传、原片恢复、元数据回执及网站发布 |
 

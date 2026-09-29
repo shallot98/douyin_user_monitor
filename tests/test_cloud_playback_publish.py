@@ -3,6 +3,7 @@ from copy import deepcopy
 import pytest
 
 from douyin_user_monitor.monitor.storage import MonitorStorage
+from record_helpers import seed_state
 from scripts.cloud_playback.publish import PublicationError, publish_verified
 
 
@@ -26,7 +27,7 @@ def fixture(tmp_path):
                            "is_mp4": True, "faststart": True, "full_decode_verified": True},
     }
     storage = MonitorStorage(tmp_path / "state.json")
-    storage.save_state(state)
+    seed_state(storage, state)
     return storage, publication
 
 
@@ -36,7 +37,7 @@ def test_preserves_concurrent_monitoring_and_original_history(fixture):
     other_process = MonitorStorage(storage.state_file)
 
     def monitor_update(state):
-        state["users"][0]["download_records"].append({"aweme_id": "new", "files": ["new.mp4"]})
+        other_process.records.put("user", [*other_process.records.get("user"), {"aweme_id": "new", "files": ["new.mp4"]}])
         state["users"][0]["last_checked_at"] = "newer"
         state["monitoring"]["last_run_at"] = "newer"
 
@@ -67,10 +68,12 @@ def test_repeated_publication_is_idempotent(fixture):
 def test_stale_source_does_not_write_state(fixture, field, value):
     storage, publication = fixture
     before = storage.state_file.read_bytes()
+    records_before = deepcopy(storage.records.get("user"))
     publication[field] = value
     with pytest.raises(PublicationError):
         publish_verified(storage, [publication])
     assert storage.state_file.read_bytes() == before
+    assert MonitorStorage(storage.state_file).records.get("user") == records_before
 
 
 @pytest.mark.parametrize("field,value", [
@@ -80,10 +83,12 @@ def test_stale_source_does_not_write_state(fixture, field, value):
 def test_unverified_or_incompatible_media_is_never_published(fixture, field, value):
     storage, publication = fixture
     before = storage.state_file.read_bytes()
+    records_before = deepcopy(storage.records.get("user"))
     publication["playback_media"][field] = value
     with pytest.raises(PublicationError):
         publish_verified(storage, [publication])
     assert storage.state_file.read_bytes() == before
+    assert MonitorStorage(storage.state_file).records.get("user") == records_before
 
 
 def test_cover_only_publication_keeps_existing_playback(fixture):
@@ -99,10 +104,12 @@ def test_cover_only_publication_keeps_existing_playback(fixture):
 def test_failed_batch_does_not_mutate_cached_state(fixture):
     storage, publication = fixture
     before = deepcopy(storage.load_state())
+    records_before = deepcopy(storage.records.get("user"))
     missing = {**publication, "aweme_id": "missing"}
     with pytest.raises(PublicationError):
         publish_verified(storage, [publication, missing])
     assert storage.load_state() == before
+    assert storage.records.get("user") == records_before
 
 
 def test_input_objects_remain_unchanged(fixture):
@@ -134,11 +141,14 @@ def test_recovered_original_becomes_download_target_and_keeps_old_archive_refere
 def test_concurrent_original_replacement_cannot_be_overwritten(fixture):
     storage, publication = fixture
     publication = recovered_original(publication)
-    storage.update_state(lambda state: state["users"][0]["download_records"][0].update(video_file="new-original.mp4"))
+    records = deepcopy(storage.records.get("user"))
+    records[0]["video_file"] = "new-original.mp4"
+    storage.update_state(lambda state: storage.records.put("user", records))
     before = storage.state_file.read_bytes()
     with pytest.raises(PublicationError, match="Concurrent video_file"):
         publish_verified(storage, [publication])
     assert storage.state_file.read_bytes() == before
+    assert storage.records.get("user") == records
 
 
 def test_unverified_original_cannot_change_archive_reference(fixture):
@@ -146,6 +156,8 @@ def test_unverified_original_cannot_change_archive_reference(fixture):
     publication = recovered_original(publication)
     publication["evidence"]["original"]["content_verified"] = False
     before = storage.state_file.read_bytes()
+    records_before = deepcopy(storage.records.get("user"))
     with pytest.raises(PublicationError, match="Recovered original"):
         publish_verified(storage, [publication])
     assert storage.state_file.read_bytes() == before
+    assert storage.records.get("user") == records_before

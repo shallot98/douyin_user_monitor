@@ -14,6 +14,7 @@ from douyin_user_monitor.api import monitor as monitor_api
 from douyin_user_monitor.main import app
 from douyin_user_monitor.monitor.openlist_client import ArchiveUnavailableError, OpenListClient
 from douyin_user_monitor.settings import ArchiveSettings
+from record_helpers import patch_monitor_users
 
 
 def archive_user(**overrides: Any) -> Dict[str, Any]:
@@ -57,7 +58,7 @@ class ArchiveListRouteTests(unittest.TestCase):
 
     def test_lists_local_records_without_touching_douyin(self):
         with (
-            patch.object(monitor_api.monitor_service, "list_users_async", return_value=[archive_user()]),
+            patch_monitor_users([archive_user()]),
             patch.object(
                 monitor_api.AWEME_FEED_SERVICE, "list_user_awemes", new=AsyncMock()
             ) as douyin_mock,
@@ -81,18 +82,18 @@ class ArchiveListRouteTests(unittest.TestCase):
     def test_works_for_user_whose_douyin_list_is_forbidden(self):
         """作品列表被隐藏(403)的账号，归档列表照样能看——这正是改用本地的原因。"""
         user = archive_user(last_error="获取用户作品列表失败: HTTP Status Code 403")
-        with patch.object(monitor_api.monitor_service, "list_users_async", return_value=[user]):
+        with patch_monitor_users([user]):
             response = self.client.get("/api/monitor/users/user-1/archive")
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["data"]["total"], 2)
 
     def test_unknown_user_is_404(self):
-        with patch.object(monitor_api.monitor_service, "list_users_async", return_value=[]):
+        with patch_monitor_users([]):
             response = self.client.get("/api/monitor/users/nope/archive")
         self.assertEqual(response.status_code, 404)
 
     def test_reports_archive_backend_state(self):
-        with patch.object(monitor_api.monitor_service, "list_users_async", return_value=[archive_user()]):
+        with patch_monitor_users([archive_user()]):
             response = self.client.get("/api/monitor/users/user-1/archive")
         self.assertIn("archive_enabled", response.json()["data"])
 
@@ -114,7 +115,7 @@ class ArchiveMediaRouteTests(unittest.TestCase):
         }
         opener = AsyncMock(return_value=(206, upstream, self._body()))
         with (
-            patch.object(monitor_api.monitor_service, "list_users_async", return_value=[archive_user()]),
+            patch_monitor_users([archive_user()]),
             patch.object(
                 monitor_api.OPENLIST_CLIENT,
                 "resolve_candidate_url",
@@ -139,7 +140,7 @@ class ArchiveMediaRouteTests(unittest.TestCase):
     def test_serves_image_by_file_index(self):
         opener = AsyncMock(return_value=(200, {"Content-Type": "image/jpeg"}, self._body()))
         with (
-            patch.object(monitor_api.monitor_service, "list_users_async", return_value=[archive_user()]),
+            patch_monitor_users([archive_user()]),
             patch.object(
                 monitor_api.OPENLIST_CLIENT, "resolve_candidate_url", new=AsyncMock(return_value="http://x/p/a.jpg")
             ) as resolve,
@@ -163,7 +164,7 @@ class ArchiveMediaRouteTests(unittest.TestCase):
                 monitor=replace(monitor_api.SETTINGS.monitor, download_root=root),
             )
             with (
-                patch.object(monitor_api.monitor_service, "list_users_async", return_value=[archive_user()]),
+                patch_monitor_users([archive_user()]),
                 patch.object(monitor_api, "SETTINGS", patched_settings),
                 patch.object(
                     monitor_api.OPENLIST_CLIENT, "resolve_candidate_url",
@@ -181,18 +182,18 @@ class ArchiveMediaRouteTests(unittest.TestCase):
             resolve.assert_awaited_once()
 
     def test_unknown_aweme_is_404(self):
-        with patch.object(monitor_api.monitor_service, "list_users_async", return_value=[archive_user()]):
+        with patch_monitor_users([archive_user()]):
             response = self.client.get("/api/monitor/users/user-1/archive/missing/media/0")
         self.assertEqual(response.status_code, 404)
 
     def test_out_of_range_index_is_404(self):
-        with patch.object(monitor_api.monitor_service, "list_users_async", return_value=[archive_user()]):
+        with patch_monitor_users([archive_user()]):
             response = self.client.get("/api/monitor/users/user-1/archive/7001/media/9")
         self.assertEqual(response.status_code, 404)
 
     def test_archive_unavailable_is_404(self):
         with (
-            patch.object(monitor_api.monitor_service, "list_users_async", return_value=[archive_user()]),
+            patch_monitor_users([archive_user()]),
             patch.object(
                 monitor_api.OPENLIST_CLIENT,
                 "resolve_candidate_url",
@@ -204,7 +205,7 @@ class ArchiveMediaRouteTests(unittest.TestCase):
 
     def test_upstream_failure_is_502(self):
         with (
-            patch.object(monitor_api.monitor_service, "list_users_async", return_value=[archive_user()]),
+            patch_monitor_users([archive_user()]),
             patch.object(
                 monitor_api.OPENLIST_CLIENT, "resolve_candidate_url", new=AsyncMock(return_value="http://x/p/a.mp4")
             ),

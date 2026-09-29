@@ -47,6 +47,7 @@ from douyin_user_monitor.monitor.storage import (
     DEFAULT_MODE,
     MonitorStorage,
 )
+from douyin_user_monitor.monitor.record_store import RecordStore
 from douyin_user_monitor.monitor.sync_utils import merge_synced_downloads
 from douyin_user_monitor.monitor.timeutils import CHINA_TZ, cn_now
 from douyin_user_monitor.monitor.user_lookup import find_user_by_id, find_user_by_sec_uid
@@ -277,7 +278,6 @@ class MonitorService:
             "last_aweme_id": None,
             "downloaded_count": 0,
             "downloaded_aweme_ids": [],
-            "download_records": [],
             "history_sync": build_history_sync_state(
                 status=HISTORY_SYNC_STATUS_PENDING,
                 page_size=HISTORY_SYNC_PAGE_SIZE,
@@ -400,6 +400,8 @@ class MonitorService:
             state["users"] = [item for item in state["users"] if item["id"] != user_id]
 
         self._storage.update_state(_remove)
+        # JSON 先落盘再删记录：中途失败最多留一行孤儿记录，不会出现用户还在、记录没了
+        self._storage.records.delete(user_id)
         self._coverage_priority_user_ids = [uid for uid in self._coverage_priority_user_ids if uid != user_id]
         return found["user"]
 
@@ -514,7 +516,7 @@ class MonitorService:
         activity_limit: int = DASHBOARD_ACTIVITY_LIMIT,
     ) -> Dict[str, Any]:
         """大盘列表：省略 aweme_ids，只保留少量最近下载记录 + 全局动态。"""
-        users = await self.list_users_with_profile()
+        users = self._storage.records.attach_all(await self.list_users_with_profile())
         return project_dashboard_users(
             users,
             recent_records_per_user=recent_records_per_user,
@@ -726,10 +728,12 @@ class MonitorService:
         return None
 
     @staticmethod
-    def _merge_user_sync_fields(disk_user: Dict[str, Any], synced_snapshot: Dict[str, Any]) -> None:
+    def _merge_user_sync_fields(
+        disk_user: Dict[str, Any], synced_snapshot: Dict[str, Any], records: RecordStore,
+    ) -> None:
         prev_status = str(disk_user.get("account_status") or ACCOUNT_STATUS_NORMAL)
         prev_nickname = str(disk_user.get("nickname") or "")
-        merge_synced_downloads(disk_user, synced_snapshot)
+        merge_synced_downloads(disk_user, synced_snapshot, records)
         for key in USER_SYNC_MERGE_FIELDS:
             if key in synced_snapshot:
                 disk_user[key] = synced_snapshot[key]
@@ -757,7 +761,7 @@ class MonitorService:
             for synced in synced_users:
                 disk_user = find_user_by_id(state["users"], str(synced.get("id") or ""))
                 if disk_user is not None:
-                    self._merge_user_sync_fields(disk_user, synced)
+                    self._merge_user_sync_fields(disk_user, synced, self._storage.records)
             monitoring = state["monitoring"]
             monitoring["last_run_at"] = cn_now()
             monitoring["last_run_result"] = summary
@@ -790,7 +794,7 @@ class MonitorService:
             disk_user = find_user_by_id(state["users"], user_id)
             # 用户已被并发删除：丢弃本次增量，绝不复活
             if disk_user is not None:
-                self._merge_user_sync_fields(disk_user, user_snapshot)
+                self._merge_user_sync_fields(disk_user, user_snapshot, self._storage.records)
             monitoring = state["monitoring"]
             monitoring["coverage_progress"] = progress
             monitoring["last_run_at"] = cn_now()
@@ -1076,7 +1080,8 @@ class MonitorService:
         # 探测网络在锁外的 state 快照上完成；仅把 cookie_liveness 字段合并回最新磁盘态，
         # 不整体回写快照，避免探测期间并发写入的 users/cookie_pool 被陈旧快照覆盖。
         try:
-            payload = await service.maybe_run(state)
+            # 下载时间样本来自作品记录，给探测一个带记录的用户视图
+            payload = await service.maybe_run({**state, "users": self._storage.records.attach_all(state["users"])})
         except Exception as exc:  # noqa: BLE001
             self._merge_cookie_liveness_error(sanitize_public_error(exc))
             return

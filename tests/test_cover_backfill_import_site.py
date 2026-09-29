@@ -13,6 +13,7 @@ from unittest.mock import patch
 from PIL import Image
 
 from douyin_user_monitor.monitor.cover_store import CoverStore
+from douyin_user_monitor.monitor.record_store import RecordStore, record_db_path
 from scripts.cover_backfill.export import export_batch
 from scripts.cover_backfill.import_site import import_batch
 from scripts.cover_backfill.journal import append_receipt
@@ -38,7 +39,20 @@ class CoverBatchImportTests(unittest.TestCase):
         self.jpeg = buffer.getvalue()
 
     def save_state(self, users):
-        self.state.write_bytes(json_bytes({"users": users}) + b"\n")
+        """Split layout like the monitor: records → RecordStore, then atomically replace the JSON."""
+        users = deepcopy(users)
+        store = RecordStore(record_db_path(self.state))
+        try:
+            current = {str(user["id"]) for user in users}
+            for user_id in store.snapshot():
+                if user_id not in current:
+                    store.delete(user_id)
+            store.put_many({str(user["id"]): user.pop("download_records", []) for user in users})
+        finally:
+            store.close()
+        temp = self.state.with_suffix(".tmp")
+        temp.write_bytes(json_bytes({"users": users}) + b"\n")
+        temp.replace(self.state)
 
     def receipt(self, aweme_id="123", *, failed=False):
         job = Job(user_id="user-1", aweme_id=aweme_id, sec_user_id="sec-1",

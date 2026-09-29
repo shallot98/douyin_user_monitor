@@ -15,6 +15,7 @@ from douyin_user_monitor.api.media_proxy import (
     parse_byte_range,
 )
 from douyin_user_monitor.main import app
+from record_helpers import patch_monitor_users
 
 PAYLOAD = bytes(range(256)) * 40  # 10240 bytes
 
@@ -101,7 +102,7 @@ class CloudMediaRangeRouteTests(unittest.TestCase):
 
     def _get(self, headers=None):
         with (
-            patch.object(monitor_api.monitor_service, "list_users_async", return_value=[local_user()]),
+            patch_monitor_users([local_user()]),
             patch.object(
                 monitor_api.OPENLIST_CLIENT, "resolve_candidate_url",
                 new=AsyncMock(return_value=self.server.url("本地用户/a.mp4")),

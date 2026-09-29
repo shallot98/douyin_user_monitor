@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import tempfile
 import unittest
+from pathlib import Path
 from typing import Any, Dict
 
 from douyin_user_monitor.monitor.nickname_history import (
@@ -10,6 +12,7 @@ from douyin_user_monitor.monitor.nickname_history import (
     normalize_nickname_history,
     record_nickname_change,
 )
+from douyin_user_monitor.monitor.record_store import RecordStore
 from douyin_user_monitor.monitor.service import MonitorService
 from douyin_user_monitor.monitor.storage import normalize_user_entry
 
@@ -132,23 +135,29 @@ class BuildFormerNicknamesTests(unittest.TestCase):
 class MergeIntegrationTests(unittest.TestCase):
     """改名必须在锁内合并处按磁盘旧值落盘，不能靠锁外快照。"""
 
+    def setUp(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.records = RecordStore(Path(tmp.name) / "monitor_records.db")
+        self.addCleanup(self.records.close)
+
     def test_merge_records_rename_from_disk_previous_value(self):
         disk_user = {"id": "u1", "nickname": "旧名", "nickname_history": []}
         synced = {"id": "u1", "nickname": "新名"}
-        MonitorService._merge_user_sync_fields(disk_user, synced)
+        MonitorService._merge_user_sync_fields(disk_user, synced, self.records)
         self.assertEqual(disk_user["nickname"], "新名")
         self.assertEqual(disk_user["nickname_history"], ["旧名"])
 
     def test_merge_leaves_history_alone_without_rename(self):
         disk_user = {"id": "u1", "nickname": "同名", "nickname_history": ["旧名"]}
-        MonitorService._merge_user_sync_fields(disk_user, {"id": "u1", "nickname": "同名"})
+        MonitorService._merge_user_sync_fields(disk_user, {"id": "u1", "nickname": "同名"}, self.records)
         self.assertEqual(disk_user["nickname_history"], ["旧名"])
 
     def test_stale_snapshot_history_does_not_overwrite_disk(self):
         # nickname_history 刻意不在 USER_SYNC_MERGE_FIELDS 里：锁外快照的旧副本不得覆盖磁盘
         disk_user = {"id": "u1", "nickname": "旧名", "nickname_history": ["更早的名字"]}
         synced = {"id": "u1", "nickname": "新名", "nickname_history": []}
-        MonitorService._merge_user_sync_fields(disk_user, synced)
+        MonitorService._merge_user_sync_fields(disk_user, synced, self.records)
         self.assertEqual(disk_user["nickname_history"], ["旧名", "更早的名字"])
 
 

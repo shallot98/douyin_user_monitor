@@ -10,6 +10,7 @@ from copy import deepcopy
 from pathlib import Path
 
 from douyin_user_monitor.monitor.archive_feed import build_archive_item, find_record, list_archive_files
+from douyin_user_monitor.monitor.record_store import load_state_with_records
 from douyin_user_monitor.monitor.archive_path_aliases import ARCHIVE_PATH_ALIASES_FILENAME, ArchivePathAliasError
 from douyin_user_monitor.monitor.playback_media import (
     FAST_PLAY_MAX_BIT_RATE,
@@ -255,7 +256,8 @@ def main(argv=None):
     client = OpenListClient(settings.archive)
     documents = {name: json.loads(path.read_text(encoding="utf-8")) for name, path in (
         ("manifest", args.inventory_dir / "manifest.json"), ("inventory", args.inventory_dir / "video-inventory.json"),
-        ("state", state_path), ("pilot", args.repair_dir / "pilot-queue.json"))}
+        ("pilot", args.repair_dir / "pilot-queue.json"))}
+    documents["state"] = load_state_with_records(state_path)
     for name, path in (("probes", args.inventory_dir / "results.jsonl"),
                        ("recovered", args.repair_dir / "recovered-paths-results.jsonl")):
         documents[name] = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()]

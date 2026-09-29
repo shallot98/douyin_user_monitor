@@ -8,6 +8,8 @@ import uuid
 from contextlib import contextmanager
 from datetime import datetime, timezone
 
+from douyin_user_monitor.monitor.record_store import load_state_with_records
+
 from .journal import atomic_json
 from .models import SCHEMA_VERSION, BackfillError
 
@@ -24,7 +26,8 @@ class CurrentRecords:
         stat = self._path.stat()
         stamp = stat.st_ino, stat.st_size, stat.st_mtime_ns
         if stamp != self._stamp:
-            state = json.loads(self._path.read_bytes())
+            # 记录写入都在 update_state 锁内、必然改写 JSON，状态文件标识即可当记录的失效键
+            state = load_state_with_records(self._path)
             if not isinstance(state, dict) or not isinstance(state.get("users"), list):
                 raise BackfillError("Monitor state must contain its current users list")
             self._users, self._stamp = state["users"], stamp

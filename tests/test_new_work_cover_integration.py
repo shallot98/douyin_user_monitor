@@ -42,7 +42,7 @@ class NewDownloadCoverIntegrationTests(unittest.IsolatedAsyncioTestCase):
         state = self.storage.load_state()
         state["users"] = [{
             "id": "user-1", "sec_user_id": "sec-1", "nickname": "image-user", "enabled": True,
-            "downloaded_aweme_ids": [], "download_records": [], "downloaded_count": 0,
+            "downloaded_aweme_ids": [], "downloaded_count": 0,
             "history_sync": build_history_sync_state(status=HISTORY_SYNC_STATUS_COMPLETED),
         }]
         self.storage.save_state(state)
@@ -72,7 +72,7 @@ class NewDownloadCoverIntegrationTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(result["errors"], [])
         self.assertEqual(result["downloaded_items"], 1)
-        user = self.storage.load_state()["users"][0]
+        user = self.storage.records.attach(self.storage.load_state()["users"][0])
         record = user["download_records"][0]
         self.assertEqual(user["downloaded_aweme_ids"], ["9002"])
         metadata = CoverStore(self.root / "covers").lookup("user-1", record)
@@ -95,7 +95,7 @@ class NewDownloadCoverIntegrationTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result["downloaded_items"], 0)
         self.assertEqual(len(result["errors"]), 1)
         self.assertIn("cannot identify image", result["errors"][0]["error"])
-        user = self.storage.load_state()["users"][0]
+        user = self.storage.records.attach(self.storage.load_state()["users"][0])
         self.assertEqual(user["downloaded_aweme_ids"], [])
         self.assertEqual(user["download_records"], [])
         self.assertEqual(list((self.root / "covers").rglob("*.jpg")), [])
@@ -122,7 +122,7 @@ class NewDownloadCoverIntegrationTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(retry["errors"], [])
         self.assertEqual(retry["downloaded_items"], 1)
         self.assertEqual(retry_requests, ["/cover"])
-        record = self.storage.load_state()["users"][0]["download_records"][0]
+        record = self.storage.records.get("user-1")[0]
         self.assertIsNotNone(self.cover_store.lookup("user-1", record))
         self.assertEqual((self.download_root / record["files"][0]).read_bytes(), self.original)
         self.notifier.notify_download_completed.assert_awaited_once()
@@ -159,7 +159,7 @@ class NewDownloadCoverIntegrationTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(retry["errors"], [])
         self.assertEqual(retry["downloaded_items"], 1)
         self.assertEqual(retry_requests, ["/photo"])
-        record = self.storage.load_state()["users"][0]["download_records"][0]
+        record = self.storage.records.get("user-1")[0]
         self.assertEqual((self.download_root / record["files"][0]).read_bytes(), self.original)
         self.assertIsNotNone(self.cover_store.lookup("user-1", record))
         self.notifier.notify_download_completed.assert_awaited_once()

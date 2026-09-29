@@ -52,7 +52,6 @@ def _seed_user(service: MonitorService, user_id: str) -> None:
             "enabled": True,
             "downloaded_count": 0,
             "downloaded_aweme_ids": [],
-            "download_records": [],
             "history_sync": build_history_sync_state(status=HISTORY_SYNC_STATUS_PENDING),
         }
     )

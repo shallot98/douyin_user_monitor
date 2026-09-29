@@ -8,6 +8,7 @@ from fastapi.testclient import TestClient
 
 from douyin_user_monitor.api import monitor as monitor_api
 from douyin_user_monitor.main import app
+from record_helpers import patch_monitor_users
 
 
 def sample_user(**overrides: Any) -> Dict[str, Any]:
@@ -47,7 +48,7 @@ class ListUserAwemesRouteTests(unittest.TestCase):
     def test_returns_items_plus_slim_user_header(self):
         users = [sample_user()]
         with (
-            patch.object(monitor_api.monitor_service, "list_users_async", return_value=users),
+            patch_monitor_users(users),
             patch.object(
                 monitor_api.AWEME_FEED_SERVICE,
                 "list_user_awemes",
@@ -90,7 +91,7 @@ class ListUserAwemesRouteTests(unittest.TestCase):
             )
         ]
         with (
-            patch.object(monitor_api.monitor_service, "list_users_async", return_value=users),
+            patch_monitor_users(users),
             patch.object(
                 monitor_api.AWEME_FEED_SERVICE,
                 "list_user_awemes",
@@ -104,7 +105,7 @@ class ListUserAwemesRouteTests(unittest.TestCase):
 
     def test_header_former_nicknames_empty_without_rename(self):
         with (
-            patch.object(monitor_api.monitor_service, "list_users_async", return_value=[sample_user()]),
+            patch_monitor_users([sample_user()]),
             patch.object(
                 monitor_api.AWEME_FEED_SERVICE,
                 "list_user_awemes",
@@ -115,20 +116,20 @@ class ListUserAwemesRouteTests(unittest.TestCase):
         self.assertEqual(response.json()["data"]["user"]["former_nicknames"], [])
 
     def test_unknown_user_is_404(self):
-        with patch.object(monitor_api.monitor_service, "list_users_async", return_value=[]):
+        with patch_monitor_users([]):
             response = self.client.get("/api/monitor/users/nope/awemes")
         self.assertEqual(response.status_code, 404)
 
     def test_user_without_sec_user_id_is_rejected(self):
         users = [sample_user(sec_user_id="")]
-        with patch.object(monitor_api.monitor_service, "list_users_async", return_value=users):
+        with patch_monitor_users(users):
             response = self.client.get("/api/monitor/users/user-1/awemes")
         self.assertEqual(response.status_code, 400)
 
     def test_upstream_failure_maps_to_502(self):
         users = [sample_user()]
         with (
-            patch.object(monitor_api.monitor_service, "list_users_async", return_value=users),
+            patch_monitor_users(users),
             patch.object(
                 monitor_api.AWEME_FEED_SERVICE,
                 "list_user_awemes",
@@ -156,7 +157,7 @@ class ProxyAwemeVideoRouteTests(unittest.TestCase):
             else AsyncMock(return_value=stream_result)
         )
         return (
-            patch.object(monitor_api.monitor_service, "list_users_async", return_value=users),
+            patch_monitor_users(users),
             patch.object(monitor_api.AWEME_FEED_SERVICE, "resolve_play_url", new=resolve),
             patch.object(
                 monitor_api.CRAWLER_CLIENT,
@@ -235,7 +236,7 @@ class ProxyAwemeVideoRouteTests(unittest.TestCase):
         self.assertEqual(response.status_code, 502)
 
     def test_unknown_user_is_404_before_any_upstream_call(self):
-        with patch.object(monitor_api.monitor_service, "list_users_async", return_value=[]):
+        with patch_monitor_users([]):
             with patch.object(
                 monitor_api.AWEME_FEED_SERVICE, "resolve_play_url", new=AsyncMock()
             ) as resolve:

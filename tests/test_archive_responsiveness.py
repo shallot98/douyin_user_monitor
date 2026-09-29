@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-import json
 import tempfile
 import threading
 import unittest
@@ -16,6 +15,7 @@ from fastapi import FastAPI
 from douyin_user_monitor.api import monitor as monitor_api
 from douyin_user_monitor.monitor.openlist_client import ArchiveUnavailableError, OpenListClient
 from douyin_user_monitor.monitor.storage import MonitorStorage, build_default_state
+from record_helpers import write_state_file
 
 READ_WAIT_SECONDS = 2
 USER_PATH = "/api/monitor/users/user-1"
@@ -48,7 +48,7 @@ class ArchiveResponsivenessTests(unittest.IsolatedAsyncioTestCase):
         self.path = self.root / "state.json"
         state = build_default_state()
         state["users"] = [archive_user()]
-        self.path.write_text(json.dumps(state), encoding="utf-8")
+        write_state_file(self.path, state)
         self.server = ArchiveMediaServer({
             "cover.jpg": b"CLOUD-COVER", "play.mp4": PLAYBACK_BYTES, "original.mp4": ORIGINAL_BYTES,
         })

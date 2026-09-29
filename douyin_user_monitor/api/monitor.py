@@ -55,6 +55,7 @@ from douyin_user_monitor.monitor.service import (
     MIN_INTERVAL_HOURS,
     MonitorService,
 )
+from douyin_user_monitor.monitor.record_store import RecordStore
 from douyin_user_monitor.monitor.statistics import build_user_statistics
 from douyin_user_monitor.monitor.storage import FileStamp, MonitorStorage, file_stamp
 from douyin_user_monitor.monitor.telegram_notifier import TelegramNotifier
@@ -90,7 +91,7 @@ HTML_NO_CACHE_HEADERS = {
 
 # 统计接口短缓存：状态文件未变时避免反复扫 500+ 用户的 download_records
 _STATISTICS_CACHE: dict[str, Any] | None = None
-_STATISTICS_CACHE_STAMP: FileStamp | None = None
+_STATISTICS_CACHE_STAMP: tuple[FileStamp, int] | None = None
 
 SETTINGS = load_settings()
 DASHBOARD_PATH = SETTINGS.project_root / "douyin_user_monitor" / "web" / "dashboard.html"
@@ -224,6 +225,15 @@ async def _find_user_or_raise(user_id: str) -> dict[str, Any]:
     if user is None:
         raise HTTPException(status_code=404, detail="用户不存在")
     return user
+
+
+def _records() -> RecordStore:
+    return monitor_service._storage.records  # noqa: SLF001
+
+
+async def _find_user_with_records_or_raise(user_id: str) -> dict[str, Any]:
+    """作品/媒体/封面接口用：用户视图带上 RecordStore 里的 download_records。"""
+    return _records().attach(await _find_user_or_raise(user_id))
 
 
 def _validate_avatar_url(raw_url: Any) -> str:
@@ -454,7 +464,7 @@ async def recent_activity(
     limit: int | None = Query(None, description="Max feed items (default dashboard limit)"),
 ) -> ResponseModel:
     """Lightweight feed for dashboard — no profile hydration, no full user projection."""
-    users = monitor_service.list_users()
+    users = _records().attach_all(monitor_service.list_users())
     activity_limit = DASHBOARD_ACTIVITY_LIMIT if limit is None else max(0, int(limit))
     payload = {
         "recent_activity": build_recent_activity(users, limit=activity_limit),
@@ -465,9 +475,9 @@ async def recent_activity(
 @router.get("/statistics", response_model=ResponseModel, summary="获取用户统计/Get user statistics")
 async def user_statistics(request: Request) -> ResponseModel:
     global _STATISTICS_CACHE, _STATISTICS_CACHE_STAMP
-    # 统计只读本地态；完整文件标识能识别 mtime 相同的原子替换。
+    # 统计只读本地态；完整文件标识能识别 mtime 相同的原子替换，记录变化看 RecordStore 修订号。
     try:
-        stamp = file_stamp(monitor_service._storage.state_file.stat())  # noqa: SLF001
+        stamp = (file_stamp(monitor_service._storage.state_file.stat()), _records().current_revision())  # noqa: SLF001
     except OSError:
         stamp = None
     if (
@@ -477,7 +487,7 @@ async def user_statistics(request: Request) -> ResponseModel:
     ):
         return _build_success(request, _STATISTICS_CACHE)
 
-    users = monitor_service.list_users()
+    users = _records().attach_all(monitor_service.list_users())
     payload = build_user_statistics(users)
     _STATISTICS_CACHE = payload
     _STATISTICS_CACHE_STAMP = stamp
@@ -581,7 +591,7 @@ async def list_user_archive(
     抖音端实时拉列表容易触发风控，且作品列表被隐藏的账号会直接 403；
     已下载的作品元数据本地都有，够渲染列表，只有媒体字节需要走归档。
     """
-    user = await _find_user_or_raise(user_id)
+    user = await _find_user_with_records_or_raise(user_id)
     payload = build_archive_page(user, page=page, page_size=page_size)
     payload["items"] = await with_cover_urls(COVER_STORE, user_id, payload["items"])
     payload["user"] = _feed_user_header(user)
@@ -598,7 +608,7 @@ async def read_archive_cover(
     request: Request, user_id: str, aweme_id: str, *,
     v: str | None = Query(None, pattern=r"^[0-9a-f]{64}$"),
 ) -> Response:
-    user = await _find_user_or_raise(user_id)
+    user = await _find_user_with_records_or_raise(user_id)
     return await cover_response(request, user, COVER_STORE, aweme_id=aweme_id, version=v)
 
 
@@ -679,7 +689,7 @@ async def stream_archived_media(
     媒体不从项目本机读取；本机只保留状态和路径元数据。
     路径来自服务端记录，不接受调用方传路径，避免变成任意文件读取。
     """
-    user = await _find_user_or_raise(user_id)
+    user = await _find_user_with_records_or_raise(user_id)
     try:
         relative_path = resolve_archive_file(user, aweme_id, file_index)
     except KeyError as exc:
@@ -736,7 +746,8 @@ async def list_user_awemes(
 
     每次调用都是一次真实抖音请求，前端按需翻页，避免无谓消耗 Cookie 配额。
     """
-    user = await _find_user_or_raise(user_id)
+    # 头部曾用名要从作品记录的目录名反推
+    user = await _find_user_with_records_or_raise(user_id)
     sec_user_id = str(user.get("sec_user_id") or "").strip()
     if not sec_user_id:
         raise _build_error(request, "该用户缺少 sec_user_id，无法拉取作品列表")

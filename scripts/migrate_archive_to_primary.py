@@ -36,6 +36,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT))
 
 from douyin_user_monitor.monitor.nickname_history import derive_archive_dir_names  # noqa: E402
+from douyin_user_monitor.monitor.record_store import load_state_with_records  # noqa: E402
 from douyin_user_monitor.monitor.openlist_client import OpenListClient  # noqa: E402
 from douyin_user_monitor.monitor.path_sanitize import (  # noqa: E402
     fallback_dir_for,
@@ -708,8 +709,8 @@ def _load_users(state_path: Path) -> List[Dict[str, Any]]:
         log(f"DB 用户表不存在: {state_path}，无法建 sec_user_id 映射（全 emoji 目录将无法兜底）")
         return []
     try:
-        raw = json.loads(state_path.read_text(encoding="utf-8"))
-    except (json.JSONDecodeError, OSError) as exc:
+        raw = load_state_with_records(state_path)
+    except (ValueError, OSError) as exc:
         log(f"读 DB 用户表失败: {exc}")
         return []
     users = raw.get("users") if isinstance(raw, dict) else raw

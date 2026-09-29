@@ -29,7 +29,6 @@ def _seed_normal_user(storage: MonitorStorage, user_id: str) -> None:
                 "account_status_updated_at": None,
                 "downloaded_count": 0,
                 "downloaded_aweme_ids": [],
-                "download_records": [],
                 "last_aweme_id": None,
                 "history_sync": build_history_sync_state(status=HISTORY_SYNC_STATUS_COMPLETED, page_size=50),
             }
