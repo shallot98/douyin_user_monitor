@@ -24,7 +24,8 @@ SSH_TIMEOUT_SECONDS = 30
 PROCESS_TIMEOUT_SECONDS = 45
 WEBSITE_TIMEOUT_SECONDS = 30
 SSH_SKILL_EXECUTE = Path("/root/.codex/skills/ssh-skill/scripts/ssh_execute.py")
-SSH_PYTHON = "/root/.local/bin/python"
+# ssh-skill 依赖 paramiko：系统 python 有，项目 venv 没有
+SSH_PYTHON = "/usr/bin/python3"
 
 
 @dataclass(frozen=True)
