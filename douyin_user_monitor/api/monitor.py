@@ -12,6 +12,7 @@ from fastapi import APIRouter, BackgroundTasks, HTTPException, Query, Request
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, Response, StreamingResponse
 from pydantic import BaseModel, Field
 
+from douyin_user_monitor.api.archive_media_cache import ArchiveMediaCache
 from douyin_user_monitor.api.covers import cover_response, with_cover_urls
 from douyin_user_monitor.api.media_proxy import (
     MediaUpstreamError,
@@ -75,6 +76,12 @@ MEDIA_CACHE_SECONDS = 300
 ARCHIVE_MEDIA_CACHE_SECONDS = 86400
 ARCHIVE_STREAM_ATTEMPTS = 2
 ARCHIVE_PREFETCH_LIMIT = 6
+# 播放文件中位数 2~4MB；超过 10MB 的等整份落盘反而比流式代理慢，继续直接代理
+ARCHIVE_MEDIA_CACHE_MAX_FILE_BYTES = 10 * 1024 * 1024
+# 缓存只为一次观看内的多次 Range 请求和列表预取服务，不求长期命中，留最近几十个即可
+ARCHIVE_MEDIA_CACHE_MAX_TOTAL_BYTES = 200 * 1024 * 1024
+# 本机磁盘余量低于此值时停止缓存并清空，把空间让给其他程序
+ARCHIVE_MEDIA_CACHE_MIN_FREE_BYTES = 2 * 1024 * 1024 * 1024
 
 
 def _archive_media_type(relative_path: str, upstream_type: str | None) -> str:
@@ -169,6 +176,13 @@ monitor_service = MonitorService(
 AWEME_FEED_SERVICE = AwemeFeedService(CRAWLER_CLIENT)
 OPENLIST_CLIENT = OpenListClient(SETTINGS.archive)
 ARCHIVE_PATH_ALIASES = load_archive_path_aliases(SETTINGS.monitor.state_path)
+# 跟状态文件放一起（生产即 data/media_cache），测试的临时状态目录也就自然隔离
+ARCHIVE_MEDIA_CACHE = ArchiveMediaCache(
+    SETTINGS.monitor.state_path.parent / "media_cache",
+    max_file_bytes=ARCHIVE_MEDIA_CACHE_MAX_FILE_BYTES,
+    max_total_bytes=ARCHIVE_MEDIA_CACHE_MAX_TOTAL_BYTES,
+    min_free_bytes=ARCHIVE_MEDIA_CACHE_MIN_FREE_BYTES,
+)
 
 
 class AddUserPayload(BaseModel):
@@ -648,7 +662,22 @@ async def _open_archived_cloud_stream(
     ) from last_error
 
 
+async def _cached_archive_media(
+    user: dict[str, Any], aweme_id: str, relative_path: str, verified_paths: tuple[str, ...]
+) -> Path | None:
+    """小文件整份落本机缓存后返回路径；超限/不可缓存返回 None，由调用方走流式代理。"""
+    key = ArchiveMediaCache.key_for(str(user.get("id") or ""), aweme_id, relative_path)
+    return await ARCHIVE_MEDIA_CACHE.get_or_fetch(
+        key,
+        Path(relative_path).suffix.lower(),
+        lambda: _open_archived_cloud_stream(
+            relative_path, user.get("sec_user_id"), None, verified_paths=verified_paths
+        ),
+    )
+
+
 async def _prefetch_archive_urls(user: dict[str, Any], items: list[dict[str, Any]]) -> None:
+    """列表页前几条预先落缓存，点开即播。"""
     jobs = []
     for item in items[:ARCHIVE_PREFETCH_LIMIT]:
         play_index = item.get("play_index")
@@ -661,11 +690,7 @@ async def _prefetch_archive_urls(user: dict[str, Any], items: list[dict[str, Any
         except (KeyError, IndexError, ArchivePathAliasError) as exc:
             LOGGER.warning("archive playback prefetch skipped aweme=%s: %s", item.get("aweme_id"), exc)
             continue
-        jobs.append(
-            OPENLIST_CLIENT.resolve_stream_url(
-                relative_path, sec_user_id=user.get("sec_user_id"), verified_paths=verified
-            )
-        )
+        jobs.append(_cached_archive_media(user, aweme_id, relative_path, verified))
     if not jobs:
         return
     results = await asyncio.gather(*jobs, return_exceptions=True)
@@ -714,6 +739,9 @@ async def stream_archived_media(
         # server, so keep proxying instead of redirecting the browser to 127.0.0.1.
         if not stream_url.startswith(OPENLIST_CLIENT._self_proxy_prefix()):  # noqa: SLF001
             return RedirectResponse(stream_url, status_code=307, headers={"Cache-Control": "no-store"})
+    cached_path = await _cached_archive_media(user, aweme_id, relative_path, verified_paths)
+    if cached_path is not None:
+        return _local_media_response(cached_path, request.headers.get("range"))
     status_code, upstream_response_headers, body = await _open_archived_cloud_stream(
         relative_path, user.get("sec_user_id"), request.headers.get("range"), verified_paths=verified_paths
     )
