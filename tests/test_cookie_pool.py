@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import asyncio
 import unittest
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
+from unittest.mock import AsyncMock
 
 from douyin_user_monitor.monitor.cookie_liveness import (
     STATUS_HEALTHY,
@@ -49,6 +51,10 @@ class FakeRuntime:
     async def update_cookie(self, cookie: str) -> None:
         self.cookie = cookie
         self.updates.append(cookie)
+
+    async def clear_cookie(self) -> None:
+        self.cookie = ""
+        self.updates.append("")
 
     @asynccontextmanager
     async def temporary_cookie(self, cookie: str):
@@ -202,6 +208,130 @@ class CookiePoolServiceTests(unittest.IsolatedAsyncioTestCase):
         self.assertIsNotNone(checked["last_check_at"])
         self.assertIn("cookie_liveness", storage.state["monitoring"])
         self.assertEqual(storage.state["monitoring"]["cookie_liveness"]["status"], STATUS_HEALTHY)
+
+    async def test_check_expired_cookie_removes_it_and_switches_active_cookie(self):
+        storage = MemStorage({"users": _users(3), "monitoring": {}})
+        runtime = FakeRuntime(cookie="")
+        crawler = FakeCrawler({
+            "sec-1": RuntimeError("auth expired"),
+            "sec-2": RuntimeError("auth expired"),
+            "sec-3": RuntimeError("auth expired"),
+        })
+        service = CookiePoolService(
+            storage=storage,
+            crawler=runtime,
+            liveness_service=_liveness(crawler),
+        )
+        expired = await service.add_item(cookie="cookie-expired-aaaaaaaa", name="expired")
+        live = await service.add_item(cookie="cookie-live-bbbbbbbb", name="live")
+
+        result = await service.check_item(expired["id"])
+
+        self.assertEqual(result["status"], "expired")
+        items = await service.list_items()
+        self.assertEqual([item["id"] for item in items], [live["id"]])
+        self.assertTrue(items[0]["is_active"])
+        self.assertEqual(runtime.cookie, "cookie-live-bbbbbbbb")
+
+
+class ExpiredCookieCleanupTests(unittest.IsolatedAsyncioTestCase):
+    async def asyncSetUp(self):
+        self.storage = MemStorage({"users": _users(3), "monitoring": {}})
+        self.runtime = FakeRuntime()
+        self.liveness = _liveness(FakeCrawler({f"sec-{i}": RuntimeError("auth expired") for i in range(1, 4)}))
+        self.service = CookiePoolService(storage=self.storage, crawler=self.runtime, liveness_service=self.liveness)
+        self.item = await self.service.add_item(cookie="expired-test-cookie", name="expired")
+
+    async def test_only_expired_cookie_stays_removed_after_list_rotation_and_restart(self):
+        await self.service.check_item(self.item["id"])
+        self.assertEqual(self.runtime.cookie, "")
+        self.assertEqual(await self.service.list_items(), [])
+        async with self.service.rotation_session() as selected:
+            self.assertIsNone(selected)
+            self.assertEqual(self.runtime.cookie, "")
+        restarted = CookiePoolService(storage=self.storage, crawler=self.runtime, liveness_service=self.liveness)
+        self.assertEqual(await restarted.list_items(), [])
+        fresh = await restarted.add_item(cookie="replacement-test-cookie")
+        self.assertTrue(fresh["is_active"])
+        self.assertEqual(self.runtime.cookie, "replacement-test-cookie")
+
+    async def test_failed_clear_keeps_item_and_surfaces_error(self):
+        self.runtime.clear_cookie = AsyncMock(side_effect=OSError("configuration not writable"))
+        with self.assertRaisesRegex(OSError, "configuration not writable"):
+            await self.service.check_item(self.item["id"])
+        self.assertEqual([row["id"] for row in await self.service.list_items()], [self.item["id"]])
+        self.assertEqual(self.runtime.cookie, "expired-test-cookie")
+
+    async def test_new_cookie_added_while_clear_waits_is_not_lost_or_overwritten(self):
+        entered, release = asyncio.Event(), asyncio.Event()
+
+        async def clear():
+            entered.set()
+            await release.wait()
+            self.runtime.cookie = ""
+
+        self.runtime.clear_cookie = clear
+        check = asyncio.create_task(self.service.check_item(self.item["id"]))
+        try:
+            await asyncio.wait_for(entered.wait(), 1)
+            added = asyncio.create_task(self.service.add_item(cookie="concurrent-new-cookie"))
+            await asyncio.sleep(0)
+            # The expired entry stays present until its persisted runtime value is cleared.
+            self.assertEqual(len(self.storage.state["monitoring"]["cookie_pool"]["items"]), 1)
+            release.set()
+            await check
+            fresh = await added
+            self.assertEqual(self.runtime.cookie, "concurrent-new-cookie")
+            self.assertEqual([row["id"] for row in await self.service.list_items()], [fresh["id"]])
+            self.assertTrue(fresh["is_active"])
+        finally:
+            release.set()
+            await check
+
+    async def test_stale_check_does_not_remove_cookie_replaced_during_probe(self):
+        entered, release = asyncio.Event(), asyncio.Event()
+        original_check = self.liveness.run_check
+
+        async def delayed(*args, **kwargs):
+            result = await original_check(*args, **kwargs)
+            entered.set()
+            await release.wait()
+            return result
+
+        self.liveness.run_check = delayed
+        check = asyncio.create_task(self.service.check_item(self.item["id"]))
+        await entered.wait()
+        await self.service.update_item(self.item["id"], cookie="new-value-after-probe")
+        release.set()
+        await check
+        row = (await self.service.list_items())[0]
+        self.assertEqual(row["id"], self.item["id"])
+        self.assertIsNone(row["status"])
+
+    async def test_failed_replacement_keeps_the_active_item(self):
+        await self.service.add_item(cookie="replacement-test-cookie")
+        self.runtime.update_cookie = AsyncMock(side_effect=OSError("replacement write failed"))
+        with self.assertRaisesRegex(OSError, "replacement write failed"):
+            await self.service.check_item(self.item["id"])
+        items = await self.service.list_items()
+        self.assertEqual(len(items), 2)
+        self.assertEqual([row["id"] for row in items if row["is_active"]], [self.item["id"]])
+        self.assertEqual(self.runtime.cookie, "expired-test-cookie")
+
+    async def test_remaining_expired_items_are_not_activated_as_replacements(self):
+        other = await self.service.add_item(cookie="also-expired-cookie")
+        self.storage.state["monitoring"]["cookie_pool"]["items"][1]["status"] = "expired"
+        await self.service.check_item(self.item["id"])
+        self.assertEqual(self.runtime.cookie, "")
+        items = await self.service.list_items()
+        self.assertEqual([row["id"] for row in items], [other["id"]])
+        self.assertFalse(items[0]["is_active"])
+
+    async def test_public_cookie_writes_still_reject_empty_values(self):
+        with self.assertRaises(ValueError):
+            await self.service.add_item(cookie=" ")
+        with self.assertRaises(ValueError):
+            await self.service.update_item(self.item["id"], cookie=" ")
 
 
 if __name__ == "__main__":

@@ -126,7 +126,7 @@ class AvatarProxyRouteTests(unittest.TestCase):
     def test_proxy_user_avatar_returns_local_image_response(self):
         users = [{"id": "user-1", "avatar_url": "https://example.com/avatar.jpeg"}]
         with (
-            patch.object(monitor_api.monitor_service, "list_users", return_value=users),
+            patch.object(monitor_api.monitor_service, "list_users_async", return_value=users),
             patch("douyin_user_monitor.api.monitor.httpx.AsyncClient", FakeAvatarClient),
         ):
             response = self.client.get("/api/monitor/users/user-1/avatar")
@@ -138,7 +138,7 @@ class AvatarProxyRouteTests(unittest.TestCase):
 
     def test_proxy_user_avatar_rejects_missing_avatar(self):
         users = [{"id": "user-1", "avatar_url": None}]
-        with patch.object(monitor_api.monitor_service, "list_users", return_value=users):
+        with patch.object(monitor_api.monitor_service, "list_users_async", return_value=users):
             response = self.client.get("/api/monitor/users/user-1/avatar")
 
         self.assertEqual(response.status_code, 404)

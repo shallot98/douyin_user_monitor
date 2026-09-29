@@ -52,10 +52,19 @@ class InProcessDouyinClient:
         text = (cookie or "").strip()
         if not text:
             raise ValueError("Cookie 不能为空")
+        await self._persist_cookie(text)
+
+    async def clear_cookie(self) -> None:
+        """Remove a revoked Cookie from runtime and persistent crawler configuration."""
+        await self._persist_cookie("")
+
+    async def _persist_cookie(self, text: str) -> None:
         async with self._cookie_lock:
+            previous = self._headers_bucket().get("Cookie")
             try:
                 await self._crawler.update_cookie(text)
             except Exception as exc:
+                self._headers_bucket()["Cookie"] = previous
                 raise RuntimeError(f"更新 Cookie 失败: {exc}") from exc
 
     @asynccontextmanager
@@ -112,6 +121,12 @@ class InProcessDouyinClient:
             raise RuntimeError(f"获取用户作品列表失败: {exc}") from exc
         if not isinstance(data, dict):
             raise ValueError("爬虫返回的作品列表格式无效")
+        if isinstance(data.get("not_login_module"), dict):
+            raise RuntimeError("获取用户作品列表失败: 抖音返回未登录状态，Cookie 登录无效（login required）")
+        if "aweme_list" not in data:
+            raise ValueError("爬虫返回的作品列表缺少有效 aweme_list，无法确认作品和分页结果")
+        if data["aweme_list"] is not None and not isinstance(data["aweme_list"], list):
+            raise ValueError("爬虫返回的 aweme_list 不是列表")
         return data
 
     async def fetch_one_video(self, aweme_id: str) -> Dict[str, Any]:

@@ -7,6 +7,26 @@
 
 const API_BASE = "/api/monitor";
 
+const THEME_STORAGE_KEY = "douyin-monitor-theme";
+
+function applyTheme(theme) {
+  const dark = theme === "dark";
+  document.body.classList.toggle("theme-dark", dark);
+  document.querySelectorAll(".theme-toggle").forEach((button) => {
+    button.title = dark ? "切换正常模式" : "切换暗黑模式";
+    button.setAttribute("aria-label", button.title);
+  });
+}
+
+function toggleTheme() {
+  const next = document.body.classList.contains("theme-dark") ? "light" : "dark";
+  localStorage.setItem(THEME_STORAGE_KEY, next);
+  applyTheme(next);
+  return false;
+}
+
+applyTheme(localStorage.getItem(THEME_STORAGE_KEY) || "light");
+
 // --- 侧栏（移动端抽屉）交互 ---
 function closeSidebarMobile() {
   document.getElementById("sidebar")?.classList.remove("show");
@@ -38,6 +58,7 @@ window.addEventListener("resize", () => {
 async function api(path, options = {}) {
   const res = await fetch(`${API_BASE}${path}`, {
     headers: { "Content-Type": "application/json" },
+    cache: "no-store",
     ...options,
   });
   const data = await res.json().catch(() => ({}));

@@ -15,6 +15,9 @@ class CookieRuntime(Protocol):
     async def update_cookie(self, cookie: str) -> None:
         ...
 
+    async def clear_cookie(self) -> None:
+        ...
+
     def temporary_cookie(self, cookie: str) -> AbstractAsyncContextManager[None]:
         ...
 

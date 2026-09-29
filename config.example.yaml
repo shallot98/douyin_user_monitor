@@ -53,3 +53,20 @@ cookie_rotation:
   # 跳过测活为 expired 的条目；若全部 expired 则仍轮换全部非空 Cookie
   skip_expired: true
 
+
+archive:
+  # 已下载作品的归档回放（作品页播放视频/看图走这里，不请求抖音）
+  enabled: true
+  # OpenList 地址；默认与 scripts/openlist-auto-move 的 API_URL 一致
+  openlist_base_url: "http://127.0.0.1:5244"
+  # API token 来源：留空则从 OpenList 自身的 SQLite 只读读取
+  openlist_db_path: "/opt/openlist/data/data.db"
+  openlist_token: ""
+  # 主力盘 D2：网页显示与播放优先读取现有归档目录
+  primary_base: "/d2/vps/抖音视频"
+  # 备份盘：防主力盘跑路；部分历史作品仅存于此，读取会自动回落
+  backup_base: "/kuake/抖音视频"
+  # D2 保留原名，也查找历史清理后的副本；须与 mover 的
+  # PRIMARY_SANITIZE_EMOJI 保持一致
+  sanitize_primary_dirs: false
+  timeout_seconds: 30

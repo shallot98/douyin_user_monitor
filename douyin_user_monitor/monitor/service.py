@@ -24,6 +24,7 @@ from douyin_user_monitor.monitor.history_sync import (
     build_history_sync_state,
     normalize_history_sync_state,
 )
+from douyin_user_monitor.monitor.nickname_history import record_nickname_change
 from douyin_user_monitor.monitor.notifier import MonitorNotifierProtocol, NoopMonitorNotifier
 from douyin_user_monitor.monitor.profile_parser import (
     ACCOUNT_STATUS_BANNED,
@@ -46,6 +47,7 @@ from douyin_user_monitor.monitor.storage import (
     DEFAULT_MODE,
     MonitorStorage,
 )
+from douyin_user_monitor.monitor.sync_utils import merge_synced_downloads
 from douyin_user_monitor.monitor.timeutils import CHINA_TZ, cn_now
 from douyin_user_monitor.monitor.user_lookup import find_user_by_id, find_user_by_sec_uid
 from douyin_user_monitor.monitor.user_sync import UserSyncService
@@ -85,9 +87,6 @@ USER_SYNC_MERGE_FIELDS = (
     "last_checked_at",
     "last_aweme_id",
     "last_download_at",
-    "downloaded_count",
-    "downloaded_aweme_ids",
-    "download_records",
     "history_sync",
     "updated_at",
 )
@@ -129,6 +128,8 @@ class MonitorService:
         notifier: Optional[MonitorNotifierProtocol] = None,
         cookie_liveness_service: Optional[CookieLivenessService] = None,
         cookie_pool_service: Optional[Any] = None,
+        *,
+        cover_publisher=None,
     ):
         self._crawler = crawler
         self._storage = storage
@@ -144,6 +145,7 @@ class MonitorService:
             downloader=self._downloader,
             notifier=self._notifier,
             cookie_rotation_session=rotation_session,
+            cover_publisher=cover_publisher,
         )
 
         self._run_lock = asyncio.Lock()
@@ -198,6 +200,9 @@ class MonitorService:
 
     def list_users(self) -> List[Dict[str, Any]]:
         return self._storage.load_state()["users"]
+
+    async def list_users_async(self) -> List[Dict[str, Any]]:
+        return (await self._storage.load_state_async())["users"]
 
     async def list_users_with_profile(self) -> List[Dict[str, Any]]:
         snapshot = self._storage.load_state()
@@ -723,6 +728,8 @@ class MonitorService:
     @staticmethod
     def _merge_user_sync_fields(disk_user: Dict[str, Any], synced_snapshot: Dict[str, Any]) -> None:
         prev_status = str(disk_user.get("account_status") or ACCOUNT_STATUS_NORMAL)
+        prev_nickname = str(disk_user.get("nickname") or "")
+        merge_synced_downloads(disk_user, synced_snapshot)
         for key in USER_SYNC_MERGE_FIELDS:
             if key in synced_snapshot:
                 disk_user[key] = synced_snapshot[key]
@@ -731,6 +738,10 @@ class MonitorService:
         new_status = str(disk_user.get("account_status") or ACCOUNT_STATUS_NORMAL)
         if prev_status == ACCOUNT_STATUS_NORMAL and new_status in (ACCOUNT_STATUS_BANNED, ACCOUNT_STATUS_DELETED):
             disk_user["enabled"] = False
+        # nickname_history 同样刻意不入白名单：它按磁盘旧值在此派生，
+        # 若走白名单会被锁外快照里的旧副本覆盖。归档目录以下载当时的昵称命名，
+        # 改名后档案会分散，这里留下旧名以便认出网盘上的历史目录。
+        record_nickname_change(disk_user, prev_nickname)
 
     def _commit_user_sync_results(
         self,
@@ -1148,10 +1159,11 @@ class MonitorService:
             )
         else:
             history_sync["status"] = HISTORY_SYNC_STATUS_PENDING
-            history_sync["has_more"] = True
+            if not history_sync["pending_awemes"]:
+                history_sync["has_more"] = True
+                history_sync["last_error"] = None
             history_sync["started_at"] = history_sync.get("started_at") or cn_now()
             history_sync["updated_at"] = cn_now()
-            history_sync["last_error"] = None
             history_sync["completed_at"] = None
         user["updated_at"] = cn_now()
 

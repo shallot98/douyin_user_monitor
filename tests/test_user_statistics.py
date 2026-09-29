@@ -152,7 +152,7 @@ class UserStatisticsRouteTests(unittest.TestCase):
         ):
             # clear module-level statistics cache between tests
             monitor_api._STATISTICS_CACHE = None
-            monitor_api._STATISTICS_CACHE_MTIME_NS = None
+            monitor_api._STATISTICS_CACHE_STAMP = None
             response = self.client.get("/api/monitor/statistics")
 
         self.assertEqual(response.status_code, 200)

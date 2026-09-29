@@ -40,6 +40,7 @@ import re
 from httpx import Response
 
 from crawlers.utils.logger import logger
+from crawlers.utils.http_errors import status_error_message
 from crawlers.utils.api_exceptions import (
     APIConnectionError,
     APIResponseError,
@@ -334,7 +335,7 @@ class BaseCrawler:
             raise APIUnauthorizedError(f"HTTP Status Code {status_code}")
         elif status_code == 403:
             # 抖音风控/失效 Cookie 常返回 403，与 401 同视为鉴权失败信号
-            raise APIUnauthorizedError(f"HTTP Status Code {status_code}")
+            raise APIUnauthorizedError(status_error_message(response))
         elif status_code == 429:
             raise APIRateLimitError(f"HTTP Status Code {status_code}")
         else:

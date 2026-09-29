@@ -6,3 +6,4 @@ PyYAML==6.0.1
 aiofiles==23.2.1
 rich==13.7.1
 importlib_resources==6.4.0
+Pillow==12.3.0

@@ -44,3 +44,32 @@ def merge_download_records(
         if len(merged) >= MAX_DOWNLOAD_RECORDS_PER_USER:
             break
     return merged
+
+
+def merge_synced_downloads(disk_user: Dict[str, Any], snapshot: Dict[str, Any]) -> None:
+    """Commit append-only downloads without rolling back concurrent record repairs."""
+    if not any(key in snapshot for key in ("download_records", "downloaded_aweme_ids", "downloaded_count")):
+        return
+    existing_records = disk_user.get("download_records", [])
+    existing_ids = merge_downloaded_ids(
+        disk_user.get("downloaded_aweme_ids", []),
+        [record.get("aweme_id", "") for record in existing_records if isinstance(record, dict)],
+    )
+    known_ids = set(existing_ids)
+    new_records = [
+        record for record in snapshot.get("download_records", [])
+        if isinstance(record, dict) and str(record.get("aweme_id", "")).strip() not in known_ids
+    ]
+    snapshot_ids = merge_downloaded_ids(
+        snapshot.get("downloaded_aweme_ids", []),
+        [record.get("aweme_id", "") for record in new_records],
+    )
+    merged_ids = merge_downloaded_ids(existing_ids, snapshot_ids)
+    # Snapshot records are already newest-first; the download helper reverses its new batch.
+    disk_user["download_records"] = merge_download_records(existing_records, list(reversed(new_records)))
+    disk_user["downloaded_aweme_ids"] = merged_ids
+    disk_user["downloaded_count"] = max(
+        safe_int(disk_user.get("downloaded_count")) + len(set(snapshot_ids) - known_ids),
+        safe_int(snapshot.get("downloaded_count")),
+        len(merged_ids),
+    )

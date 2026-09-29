@@ -62,7 +62,12 @@ process_files_legacy() {
     fi
 
     record_legacy_process_action "${action}"
+    [[ "${CAPACITY_LIMIT_HIT}" == "1" ]] && break
   done < <(list_candidate_files)
+  if [[ "${CAPACITY_LIMIT_HIT}" == "1" ]]; then
+    retire_capacity_failed_pending "${token}" "${MAX_RECONCILE_FILES_PER_RUN}" 1
+    backup_local_originals_without_move "${token}" "${run_epoch}" 0
+  fi
 }
 
 normalize_legacy_pending_limit() {
@@ -112,6 +117,7 @@ record_legacy_process_action() {
     "${ACTION_COMPLETED}") PROCESS_MOVED_COUNT=$((PROCESS_MOVED_COUNT + 1)) ;;
     "${ACTION_SKIP}") PROCESS_SKIPPED_COUNT=$((PROCESS_SKIPPED_COUNT + 1)) ;;
     "${ACTION_WAIT}") ;;
+    "${ACTION_CAPACITY}") mark_capacity_limit_hit ;;
     *) PROCESS_ERROR_COUNT=$((PROCESS_ERROR_COUNT + 1)) ;;
   esac
 }

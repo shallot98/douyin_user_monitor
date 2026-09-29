@@ -201,7 +201,7 @@ class RotationSessionTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(counts["A"], 2)
         self.assertEqual(counts["B"], 2)
 
-    async def test_no_rotation_with_single_cookie(self):
+    async def test_single_cookie_usage_records_health(self):
         storage = MemStorage()
         runtime = FakeRuntime()
         liveness = CookieLivenessService(
@@ -223,7 +223,12 @@ class RotationSessionTests(unittest.IsolatedAsyncioTestCase):
         )
         await service.add_item(cookie="cookie-only-111111111111111", name="only")
         async with service.rotation_session() as selected:
-            self.assertIsNone(selected)
+            self.assertEqual(selected["name"], "only")
+            self.assertEqual(runtime.cookie, "cookie-only-111111111111111")
+        item = (await service.list_items())[0]
+        self.assertEqual(item["use_count"], 1)
+        self.assertEqual(item["status"], "healthy")
+        self.assertEqual(item["auth_fail_streak"], 0)
 
     def _two_cookie_service(self):
         storage = MemStorage()

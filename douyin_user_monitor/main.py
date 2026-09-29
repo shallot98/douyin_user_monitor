@@ -9,7 +9,7 @@ from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.base import BaseHTTPMiddleware
 
-from douyin_user_monitor.api.monitor import monitor_service
+from douyin_user_monitor.api.monitor import OPENLIST_CLIENT, monitor_service
 from douyin_user_monitor.api.monitor import router as monitor_router
 
 API_KEY_ENV = "DYMON_API_KEY"
@@ -63,3 +63,4 @@ async def startup_monitor() -> None:
 @app.on_event("shutdown")
 async def shutdown_monitor() -> None:
     await monitor_service.shutdown()
+    await OPENLIST_CLIENT.close()

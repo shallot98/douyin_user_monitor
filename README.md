@@ -19,6 +19,10 @@ source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
+运行环境还需安装 `ffmpeg`（包含 `ffprobe`），用于检查视频编码、前置播放索引和生成封面。
+原片始终原样保存；优先使用现成的小体积 H.264 播放版本，需要转换时只生成独立播放文件。
+原片已经适合快速播放时直接复用，避免重复存储。处理失败会明确报错，并保留原片供重试。
+
 3. 配置
 ```bash
 cp config.example.yaml config.yaml

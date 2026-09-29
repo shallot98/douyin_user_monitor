@@ -60,6 +60,22 @@ class BaseCrawlerErrorTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(len(calls), 2)
 
+    async def test_argus_403_keeps_the_precise_rejection_reason(self):
+        for reason in ("Uifid Not Found", "Signature Not Found"):
+            with self.subTest(reason=reason):
+                body = f"Blocked by ArgusSecurityPlugin {reason}"
+                crawler = await self._make_crawler(lambda request: httpx.Response(403, text=body))
+                with self.assertRaises(APIUnauthorizedError) as caught:
+                    await crawler.get_fetch_data("https://example.com/api")
+                self.assertEqual(str(caught.exception), f"HTTP Status Code 403: {body}")
+                self.assertTrue(is_auth_like_error(str(caught.exception)))
+
+    async def test_unknown_403_body_does_not_leak_into_public_error(self):
+        crawler = await self._make_crawler(lambda request: httpx.Response(403, text="sessionid=private-value"))
+        with self.assertRaises(APIUnauthorizedError) as caught:
+            await crawler.get_fetch_data("https://example.com/api")
+        self.assertEqual(str(caught.exception), "HTTP Status Code 403")
+
     async def test_connect_error_exhausted_raises_not_none(self):
         calls = []
 

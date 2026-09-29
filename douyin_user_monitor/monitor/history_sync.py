@@ -41,6 +41,7 @@ def build_history_sync_state(
     updated_at: str | None = None,
     completed_at: str | None = None,
     last_error: str | None = None,
+    pending_awemes: List[Dict[str, str]] | None = None,
 ) -> Dict[str, Any]:
     return {
         "status": status,
@@ -54,7 +55,21 @@ def build_history_sync_state(
         "updated_at": updated_at,
         "completed_at": completed_at,
         "last_error": last_error,
+        "pending_awemes": _normalize_pending_awemes(pending_awemes),
     }
+
+
+def _normalize_pending_awemes(value: Any) -> List[Dict[str, str]]:
+    if not isinstance(value, list):
+        return []
+    pending: Dict[str, Dict[str, str]] = {}
+    for item in value:
+        if not isinstance(item, dict):
+            continue
+        aweme_id = str(item.get("aweme_id") or "").strip()
+        if aweme_id and aweme_id not in pending:
+            pending[aweme_id] = {"aweme_id": aweme_id, "error": str(item.get("error") or "")[:1000]}
+    return list(pending.values())
 
 
 def normalize_history_sync_state(user: Dict[str, Any]) -> Dict[str, Any]:
@@ -76,9 +91,13 @@ def normalize_history_sync_state(user: Dict[str, Any]) -> Dict[str, Any]:
         updated_at=_clean_text(raw.get("updated_at")),
         completed_at=_clean_text(raw.get("completed_at")),
         last_error=_clean_text(raw.get("last_error")),
+        pending_awemes=raw.get("pending_awemes"),
     )
     if normalized["status"] == HISTORY_SYNC_STATUS_COMPLETED:
         normalized["has_more"] = False
+        if normalized["pending_awemes"]:
+            normalized["status"] = HISTORY_SYNC_STATUS_FAILED
+            normalized["completed_at"] = None
     user["history_sync"] = normalized
     return normalized
 
@@ -104,16 +123,31 @@ def update_history_sync_progress(
     history_sync["updated_at"] = now
     history_sync["completed_at"] = now if not has_more else None
     history_sync["last_error"] = "\n".join(errors)[:1000] if errors else None
-    if errors and has_more:
+    if history_sync.get("pending_awemes"):
+        refresh_history_sync_status(history_sync, now=now)
+    elif errors:
         history_sync["status"] = HISTORY_SYNC_STATUS_FAILED
+        history_sync["completed_at"] = None
+
+
+def refresh_history_sync_status(history_sync: Dict[str, Any], *, now: str) -> None:
+    pending = history_sync.get("pending_awemes", [])
+    history_sync["started_at"] = history_sync.get("started_at") or now
+    history_sync["updated_at"] = now
+    history_sync["completed_at"] = None
+    if pending:
+        history_sync["status"] = HISTORY_SYNC_STATUS_FAILED
+        history_sync["last_error"] = "\n".join(f"{item['aweme_id']}: {item['error']}" for item in pending)[:1000]
+    else:
+        history_sync["last_error"] = None
+        history_sync["status"] = HISTORY_SYNC_STATUS_RUNNING if history_sync["has_more"] else HISTORY_SYNC_STATUS_COMPLETED
+        if not history_sync["has_more"]:
+            history_sync["completed_at"] = now
 
 
 def complete_history_sync(history_sync: Dict[str, Any], *, now: str) -> None:
-    history_sync["status"] = HISTORY_SYNC_STATUS_COMPLETED
     history_sync["has_more"] = False
-    history_sync["updated_at"] = now
-    history_sync["completed_at"] = now
-    history_sync["last_error"] = None
+    refresh_history_sync_status(history_sync, now=now)
 
 
 def _default_status(user: Dict[str, Any]) -> str:

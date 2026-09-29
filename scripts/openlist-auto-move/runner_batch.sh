@@ -52,6 +52,7 @@ process_pending_files_batched() {
     processed=$((processed + 1))
     if [[ "${CAPACITY_LIMIT_HIT}" == "1" ]]; then
       log "容量熔断已触发，结束 pending 对账: processed=${processed}"
+      retire_capacity_failed_pending "${token}" "${max_reconcile}" "${processed}"
       return 0
     fi
   done < <(list_pending_paths)
@@ -107,6 +108,7 @@ mark_batch_pending() {
 process_batch_fallback() {
   local token="$1" key="$2" file_path action
   while IFS= read -r file_path; do
+    [[ "${CAPACITY_LIMIT_HIT}" == "1" ]] && break
     [[ -n "${file_path}" ]] || continue
     action=$(process_one_file "${token}" "${file_path}")
     record_process_action "${action}"
@@ -151,6 +153,7 @@ precheck_batch_candidate_target() {
 
 flush_batch() {
   local token="$1" key="$2" count src_dir dst_dir names_json move_rc=0
+  [[ "${CAPACITY_LIMIT_HIT}" == "1" ]] && return 0
   count="${BATCH_COUNTS["${key}"]:-0}"
   (( count > 0 )) || return 0
   src_dir="${BATCH_SRC_DIRS["${key}"]}"
@@ -180,6 +183,7 @@ flush_batch() {
 flush_all_batches() {
   local token="$1" key
   for key in "${BATCH_KEYS[@]}"; do
+    [[ "${CAPACITY_LIMIT_HIT}" == "1" ]] && break
     flush_batch "${token}" "${key}"
   done
 }
@@ -188,7 +192,7 @@ submit_new_files_batched() {
   local token="$1" run_epoch="$2" batch_size pending_limit max_new
   local pending_count new_count=0 limit_logged="false"
   if [[ "${CAPACITY_LIMIT_HIT}" == "1" ]]; then
-    log "容量熔断已触发，跳过本轮新文件提交"
+    backup_local_originals_without_move "${token}" "${run_epoch}" 0
     return 0
   fi
   batch_size=$(normalize_nonnegative_limit "${MOVE_BATCH_SIZE}" "1")
@@ -215,6 +219,9 @@ submit_new_files_batched() {
   if [[ "${CAPACITY_LIMIT_HIT}" != "1" ]]; then
     flush_all_batches "${token}"
   fi
+  if [[ "${CAPACITY_LIMIT_HIT}" == "1" ]]; then
+    backup_local_originals_without_move "${token}" "${run_epoch}" "${new_count}"
+  fi
 }
 
 submit_candidate_file() {
@@ -229,6 +236,11 @@ submit_candidate_file() {
   is_file_pending "${context[0]}" && return 0
   ensure_batch_target_dir "${token}" "${context[2]}" || { PROCESS_ERROR_COUNT=$((PROCESS_ERROR_COUNT + 1)); return 0; }
   precheck_batch_candidate_target "${token}" "${context[0]}" "${context[1]}" "${context[2]}" "${context[3]}" || return 0
+  # 先硬链接进备份暂存区并提交 copy（不等结果），再让文件进入 move 批次。
+  # 暂存失败就不入批，本地文件保留、下轮重试。
+  if ! ensure_backup_copy "${token}" "${context[0]}" "${context[1]}" "${context[2]}" "${context[3]}"; then
+    return 0
+  fi
   key="${context[1]}"$'\t'"${context[2]}"
   batch_add_file "${key}" "${context[0]}" "${context[1]}" "${context[2]}" "${context[3]}"
   SUBMIT_CANDIDATE_ADDED=1
@@ -253,6 +265,6 @@ process_files_batched() {
   process_pending_files_batched "${token}"
   submit_new_files_batched "${token}" "${run_epoch}"
   if [[ "${CAPACITY_LIMIT_HIT}" == "1" ]]; then
-    log "本轮因目标盘容量不足提前结束；空间恢复后下一轮会自动继续"
+    log "本轮停止主力盘移动，继续了原始文件备份；目标盘配额恢复后可继续移动"
   fi
 }

@@ -1,0 +1,635 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
+  <meta http-equiv="Pragma" content="no-cache" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <title>作品浏览 | Monitor</title>
+  <link rel="stylesheet" href="/static/common.css?v=theme-20260920a" />
+  <style>
+    /* works page-only styles; shell/sidebar/buttons come from common.css */
+    .owner-card { display:flex; align-items:center; gap:14px; background:var(--bg-surface); border:1px solid var(--border-color); border-radius:var(--radius-lg); box-shadow:var(--shadow-sm); padding:14px 16px; }
+    .owner-avatar { width:56px; height:56px; border-radius:18px; overflow:hidden; flex-shrink:0; display:grid; place-items:center; font-size:20px; font-weight:800; color:var(--on-primary); background:linear-gradient(145deg,#38bdf8,#0284c7); }
+    .owner-avatar img { width:100%; height:100%; object-fit:cover; }
+    .owner-main { min-width:0; flex:1; }
+    .owner-name { font-size:17px; font-weight:750; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .owner-meta { display:flex; flex-wrap:wrap; gap:6px 12px; margin-top:4px; font-size:12px; color:var(--text-muted); }
+    .owner-aliases { display:flex; flex-wrap:wrap; align-items:center; gap:6px; margin-top:6px; font-size:11px; color:var(--text-lighter); }
+    .alias-chip { padding:2px 8px; border-radius:999px; border:1px solid var(--border-color); background:var(--bg-elevated); color:var(--text-muted); font-weight:600; }
+
+    .works-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(186px,1fr)); gap:14px; }
+    .work-card { display:flex; flex-direction:column; background:var(--bg-surface); border:1px solid var(--border-color); border-radius:var(--radius); overflow:hidden; box-shadow:var(--shadow-sm); cursor:pointer; transition:transform .15s ease, box-shadow .15s ease; }
+    .work-card:hover { transform:translateY(-2px); box-shadow:var(--shadow); }
+    .work-cover { position:relative; aspect-ratio:3/4; background:var(--bg-elevated); overflow:hidden; }
+    .work-cover img { width:100%; height:100%; object-fit:cover; display:block; }
+    .work-cover-empty { width:100%; height:100%; display:grid; place-items:center; color:var(--text-lighter); font-size:12px; }
+    .work-chips { position:absolute; left:8px; top:8px; display:flex; gap:6px; flex-wrap:wrap; }
+    .work-chip { font-size:11px; font-weight:700; padding:3px 8px; border-radius:999px; color:#fff; background:rgba(15,23,42,.62); backdrop-filter:blur(4px); }
+    .work-chip.downloaded { background:rgba(5,150,105,.88); }
+    .work-time-tag { position:absolute; right:8px; bottom:8px; font-size:11px; font-weight:700; padding:3px 7px; border-radius:8px; color:#fff; background:rgba(15,23,42,.62); }
+    .work-play { position:absolute; inset:0; display:grid; place-items:center; color:#fff; pointer-events:none; }
+    .work-play svg { width:40px; height:40px; filter:drop-shadow(0 2px 6px rgba(0,0,0,.45)); }
+    .work-body { padding:9px 11px 11px; display:flex; flex-direction:column; gap:5px; }
+    .work-desc { font-size:12.5px; line-height:1.45; min-height:36px; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; }
+    .work-foot { display:flex; align-items:center; justify-content:space-between; gap:8px; font-size:11px; color:var(--text-lighter); }
+
+    .viewer { position:fixed; inset:0; z-index:80; display:none; align-items:center; justify-content:center; padding:24px; background:rgba(15,23,42,.82); backdrop-filter:blur(6px); }
+    .viewer.show { display:flex; }
+    .viewer-box { display:flex; flex-direction:column; width:auto; max-width:min(92vw,960px); max-height:92vh; overflow:hidden; background:var(--bg-surface); border-radius:var(--radius-lg); box-shadow:0 24px 70px rgba(0,0,0,.38); }
+    .viewer-head { display:flex; align-items:center; justify-content:space-between; gap:10px; padding:12px 14px; border-bottom:1px solid var(--border-color); }
+    .viewer-title { min-width:0; font-size:13px; font-weight:700; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .viewer-stage { position:relative; flex:none; width:min(82vw,860px); max-height:72vh; aspect-ratio:16/9; display:grid; place-items:center; background:#0b1220; overflow:hidden; }
+    .viewer-stage video, .viewer-stage img { display:block; width:auto; height:auto; max-width:100%; max-height:100%; object-fit:contain; }
+    .viewer-nav { position:absolute; top:50%; transform:translateY(-50%); width:40px; height:40px; border:0; border-radius:999px; background:rgba(255,255,255,.88); color:#0f172a; cursor:pointer; display:grid; place-items:center; }
+    .viewer-nav.prev { left:10px; } .viewer-nav.next { right:10px; }
+    .viewer-nav svg { width:20px; height:20px; }
+    .viewer-foot { display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:10px; padding:10px 14px; border-top:1px solid var(--border-color); font-size:12px; color:var(--text-muted); }
+    @media (max-width:640px) {
+      .works-grid { grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px; }
+      .viewer { padding:12px; }
+      .viewer-box { width:100%; max-width:100%; max-height:calc(100dvh - 24px); border-radius:var(--radius); }
+      .viewer-stage { width:100%; max-height:70dvh; }
+    }
+
+    /* 分页条：与统计页用户表同一套视觉 */
+    .pagination-bar { display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap; padding:12px 14px; border-top:1px solid var(--border-color); background:var(--bg-elevated); }
+    .pagination-meta { font-size:12px; color:var(--text-muted); font-weight:600; }
+    .pagination-controls { display:flex; align-items:center; gap:6px; flex-wrap:wrap; }
+    .pagination-controls .btn[disabled] { opacity:.45; cursor:not-allowed; }
+    .page-indicator { display:flex; align-items:center; gap:4px; flex-wrap:wrap; }
+    .page-num { min-width:32px; }
+    .page-num.active { background:var(--primary); border-color:var(--primary); color:var(--on-primary); }
+    .page-ellipsis { font-size:12px; color:var(--text-lighter); padding:0 2px; }
+
+    /* ?embed=1：作为统计页浮层的内容加载，外层已提供标题栏与关闭按钮 */
+    body.embed .sidebar,
+    body.embed #sidebarOverlay,
+    body.embed .top-header,
+    body.embed .page-header { display:none !important; }
+    body.embed .main-content { padding:16px 16px 20px; }
+    body.embed .content-container { max-width:none; }
+  </style>
+</head>
+<body>
+  <aside class="sidebar" id="sidebar">
+    <div class="sidebar-header">
+      <div class="sidebar-brand">抖</div>
+      <span id="sidebarTitle">用户监控台</span>
+    </div>
+    <nav class="sidebar-nav">
+      <a class="nav-item" href="/api/monitor/dashboard" onclick="return navigateToPage('/api/monitor/dashboard')" title="数据大盘">
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6A2.25 2.25 0 0 1 6 3.75h2.25A2.25 2.25 0 0 1 10.5 6v2.25a2.25 2.25 0 0 1-2.25 2.25H6a2.25 2.25 0 0 1-2.25-2.25V6ZM3.75 15.75A2.25 2.25 0 0 1 6 13.5h2.25a2.25 2.25 0 0 1 2.25 2.25V18a2.25 2.25 0 0 1-2.25 2.25H6A2.25 2.25 0 0 1 3.75 18v-2.25ZM13.5 6a2.25 2.25 0 0 1 2.25-2.25H18A2.25 2.25 0 0 1 20.25 6v2.25A2.25 2.25 0 0 1 18 10.5h-2.25a2.25 2.25 0 0 1-2.25-2.25V6ZM13.5 15.75a2.25 2.25 0 0 1 2.25-2.25H18a2.25 2.25 0 0 1 2.25 2.25V18A2.25 2.25 0 0 1 18 20.25h-2.25A2.25 2.25 0 0 1 13.5 18v-2.25Z" /></svg>
+        数据大盘
+      </a>
+      <a class="nav-item active" href="/api/monitor/statistics/dashboard" onclick="return navigateToPage('/api/monitor/statistics/dashboard')" title="用户统计">
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M7.5 3.75h9A2.25 2.25 0 0 1 18.75 6v12A2.25 2.25 0 0 1 16.5 20.25h-9A2.25 2.25 0 0 1 5.25 18V6A2.25 2.25 0 0 1 7.5 3.75Zm1.5 4.5h6m-6 3h6m-6 3h3" /></svg>
+        用户统计
+      </a>
+      <a class="nav-item" href="/api/monitor/cookies/dashboard" onclick="return navigateToPage('/api/monitor/cookies/dashboard')" title="Cookie 池">
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 5.25a3 3 0 0 1 3 3m3 0a6 6 0 0 1-7.029 5.912c-.563-.097-1.159.026-1.563.43L10.5 17.25H8.25v2.25H6v2.25H2.25v-2.818c0-.597.237-1.17.659-1.591l6.499-6.499c.404-.404.527-1 .43-1.563A6 6 0 1 1 21.75 8.25Z" /></svg>
+        Cookie 池
+      </a>
+      <a class="nav-item" href="/api/monitor/settings/dashboard" onclick="return navigateToPage('/api/monitor/settings/dashboard')" title="调度配置">
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M9.594 3.94c.09-.542.56-.94 1.11-.94h2.593c.55 0 1.02.398 1.11.94l.213 1.281c.063.374.313.686.645.87.074.04.147.083.22.127.325.196.72.257 1.075.124l1.217-.456a1.125 1.125 0 0 1 1.37.49l1.296 2.247a1.125 1.125 0 0 1-.26 1.431l-1.003.827c-.293.241-.438.613-.43.992a7.723 7.723 0 0 1 0 .255c-.008.378.137.75.43.991l1.004.827c.424.35.534.955.26 1.43l-1.298 2.247a1.125 1.125 0 0 1-1.369.491l-1.217-.456c-.355-.133-.75-.072-1.076.124a6.47 6.47 0 0 1-.22.128c-.331.183-.581.495-.644.869l-.213 1.281c-.09.543-.56.94-1.11.94h-2.594c-.55 0-1.019-.398-1.11-.94l-.213-1.281c-.062-.374-.312-.686-.644-.87a6.52 6.52 0 0 1-.22-.127c-.325-.196-.72-.257-1.076-.124l-1.217.456a1.125 1.125 0 0 1-1.369-.49l-1.297-2.247a1.125 1.125 0 0 1 .26-1.431l1.004-.827c.292-.24.437-.613.43-.991a6.932 6.932 0 0 1 0-.255c.007-.38-.138-.751-.43-.992l-1.004-.827a1.125 1.125 0 0 1-.26-1.43l1.297-2.247a1.125 1.125 0 0 1 1.37-.491l1.216.456c.356.133.751.072 1.076-.124.072-.044.146-.086.22-.128.332-.183.582-.495.644-.869l.214-1.28Z" /><path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" /></svg>
+        调度配置
+      </a>
+      <a class="nav-item" href="/api/monitor/api/dashboard" onclick="return navigateToPage('/api/monitor/api/dashboard')" title="解析 API">
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M17.25 6.75 22.5 12l-5.25 5.25m-10.5 0L1.5 12l5.25-5.25m7.5-3-4.5 16.5" /></svg>
+        解析 API
+      </a>
+      <div class="nav-spacer"></div>
+      <a class="nav-item theme-toggle" onclick="return toggleTheme()" title="切换暗黑模式" aria-label="切换暗黑模式">
+        <svg class="theme-icon theme-icon-moon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.6" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79Z" /></svg>
+        <svg class="theme-icon theme-icon-sun" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.6" stroke="currentColor"><circle cx="12" cy="12" r="3.5" /><path stroke-linecap="round" d="M12 2v2m0 16v2M4.93 4.93l1.42 1.42m11.3 11.3 1.42 1.42M2 12h2m16 0h2M4.93 19.07l1.42-1.42m11.3-11.3 1.42-1.42" /></svg>
+        主题模式
+      </a>
+      <a class="nav-item" onclick="reloadWorks()" title="重新加载">
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0 3.181 3.183a8.25 8.25 0 0 0 13.803-3.7M4.031 9.865a8.25 8.25 0 0 1 13.803-3.7l3.181 3.182m0-4.991v4.99" /></svg>
+        重新加载
+      </a>
+    </nav>
+  </aside>
+  <div class="overlay" id="sidebarOverlay" onclick="toggleSidebar()"></div>
+
+  <div class="app-wrapper">
+    <header class="top-header">
+      <div style="display:flex;align-items:center;gap:12px;min-width:0;">
+        <button class="btn btn-secondary btn-sm mobile-sidebar-toggle" onclick="toggleSidebar()" aria-label="菜单">
+          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" style="width:22px;height:22px;"><path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5" /></svg>
+        </button>
+        <div class="title-with-orb">
+          <div class="title-orb">◉</div>
+          <div>
+            <div style="font-size:15px;font-weight:750;">作品</div>
+            <div style="font-size:11px;color:var(--text-muted);">实时列表</div>
+          </div>
+        </div>
+      </div>
+      <div class="header-right">
+        <a class="btn btn-secondary btn-sm" href="/api/monitor/statistics/dashboard" onclick="return navigateToPage('/api/monitor/statistics/dashboard')">返回用户列表</a>
+      </div>
+    </header>
+
+    <main class="main-content">
+      <div class="content-container">
+        <div class="page-header">
+          <div>
+            <h1 class="page-title">作品浏览</h1>
+            <p class="page-subtitle">
+              实时读取抖音端作品 · 图文与视频可直接预览
+              <span class="ui-build-chip" title="UI build">UI sky-20260809n</span>
+            </p>
+          </div>
+        </div>
+
+        <section class="owner-card" id="ownerCard">
+          <div class="owner-avatar" id="ownerAvatar">-</div>
+          <div class="owner-main">
+            <div class="owner-name" id="ownerName">加载中...</div>
+            <div class="owner-meta" id="ownerMeta"></div>
+            <div class="owner-aliases" id="ownerAliases" hidden></div>
+          </div>
+          <a class="btn btn-secondary btn-sm" id="ownerProfileLink" target="_blank" rel="noreferrer noopener" hidden>抖音主页</a>
+        </section>
+
+        <div class="card">
+          <div class="card-header">
+            <div class="card-title">作品列表 <span class="pill-count" id="worksCount">0</span></div>
+            <div class="card-header-actions">
+              <label class="help-text" style="display:flex;align-items:center;gap:6px;">
+                每页
+                <select class="input" id="worksPageSize" onchange="onPageSizeChange()" style="width:auto;padding:6px 8px;">
+                  <option value="20">20</option>
+                  <option value="50">50</option>
+                  <option value="100">100</option>
+                </select>
+              </label>
+              <span class="help-text" id="worksHint">点击封面快速播放，原片可单独下载</span>
+            </div>
+          </div>
+          <div class="card-body">
+            <div class="works-grid" id="worksGrid"></div>
+            <div class="empty-state" id="worksEmpty" hidden>暂无作品</div>
+          </div>
+          <div class="pagination-bar" id="worksPagination" hidden>
+            <div class="pagination-meta" id="worksPaginationMeta">暂无数据</div>
+            <div class="pagination-controls">
+              <button type="button" class="btn btn-secondary btn-sm" id="worksFirstBtn" onclick="goToPage(1)" title="首页">«</button>
+              <button type="button" class="btn btn-secondary btn-sm" id="worksPrevBtn" onclick="goToPage(state.page - 1)" title="上一页">‹</button>
+              <span class="page-indicator" id="worksPageIndicator"></span>
+              <button type="button" class="btn btn-secondary btn-sm" id="worksNextBtn" onclick="goToPage(state.page + 1)" title="下一页">›</button>
+              <button type="button" class="btn btn-secondary btn-sm" id="worksLastBtn" onclick="goToPage(state.totalPages)" title="末页">»</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <div class="viewer" id="viewer" onclick="onViewerBackdrop(event)">
+    <div class="viewer-box">
+      <div class="viewer-head">
+        <div class="viewer-title" id="viewerTitle">-</div>
+        <button class="btn-icon" onclick="closeViewer()" aria-label="关闭">
+          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.8" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" /></svg>
+        </button>
+      </div>
+      <div class="viewer-stage" id="viewerStage"></div>
+      <div class="viewer-foot">
+        <span id="viewerMeta">-</span>
+        <a class="btn btn-secondary btn-sm" id="viewerOriginalLink" download hidden>下载原片</a>
+        <a class="btn btn-secondary btn-sm" id="viewerShareLink" target="_blank" rel="noreferrer noopener">抖音打开</a>
+      </div>
+    </div>
+  </div>
+
+  <div class="toast-container" id="toast-container"></div>
+
+  <script src="/static/common.js?v=theme-20260920a"></script>
+  <script>
+    function isMobileViewport() { return window.innerWidth <= 1024; }
+
+    const PAGE_QUERY = new URLSearchParams(window.location.search);
+    const USER_ID = (PAGE_QUERY.get("user_id") || "").trim();
+    const EMBEDDED = PAGE_QUERY.get("embed") === "1";
+
+    if (EMBEDDED) document.body.classList.add("embed");
+
+    // 嵌入模式下由外层浮层负责关闭，这里只把意图传出去
+    function requestOverlayClose() {
+      if (!EMBEDDED) return;
+      window.parent.postMessage({ type: "works:close" }, window.location.origin);
+    }
+
+    // 列表只读本地 download_records，不打抖音接口（避免风控，且作品列表被隐藏的账号照样能看）。
+    // 本地列表是普通数组，所以是真 offset 分页：总数/总页数已知，可任意跳页。
+    const state = {
+      items: [],
+      page: 1,
+      pageSize: 20,
+      total: 0,
+      totalPages: 1,
+      mediaCounts: {},
+      archiveEnabled: true,
+      loading: false,
+      user: null,
+      viewerIndex: -1,
+      imageIndex: 0,
+    };
+
+    const PAGE_NUMBER_WINDOW = 3;
+
+    function archiveMediaUrl(awemeId, fileIndex) {
+      return `${API_BASE}/users/${encodeURIComponent(USER_ID)}/archive/${encodeURIComponent(awemeId)}/media/${Number(fileIndex)}`;
+    }
+
+    function coverImageUrl(item) {
+      const local = String(item.cover_url || "");
+      const prefix = `${API_BASE}/users/${encodeURIComponent(USER_ID)}/archive/${encodeURIComponent(item.aweme_id)}/cover?v=`;
+      if (local.startsWith(prefix) && /^[0-9a-f]{64}$/.test(local.slice(prefix.length))) return local;
+      return item.cover_index !== null && item.cover_index !== undefined
+        ? archiveMediaUrl(item.aweme_id, item.cover_index) : "";
+    }
+
+    function escapeHtml(value) {
+      return String(value ?? "")
+        .replaceAll("&", "&amp;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;")
+        .replaceAll('"', "&quot;")
+        .replaceAll("'", "&#39;");
+    }
+
+    // 作品数据来自抖音端，属不可信输入：URL 只放行 http(s)，杜绝 javascript: 之类协议
+    function safeMediaUrl(value) {
+      const text = String(value || "").trim();
+      return /^https?:\/\//i.test(text) ? text : "";
+    }
+
+    function showToast(message, type = "success") {
+      const container = document.getElementById("toast-container");
+      const toast = document.createElement("div");
+      toast.className = `toast toast-${type}`;
+      toast.textContent = String(message ?? "");
+      container.appendChild(toast);
+      requestAnimationFrame(() => requestAnimationFrame(() => toast.classList.add("show")));
+      setTimeout(() => {
+        toast.classList.remove("show");
+        setTimeout(() => toast.remove(), 300);
+      }, 3000);
+    }
+
+    function formatCount(value) {
+      const num = Number(value || 0);
+      if (num >= 10000) return `${(num / 10000).toFixed(1)}万`;
+      return String(num);
+    }
+
+    function formatDuration(ms) {
+      const total = Math.max(0, Math.round(Number(ms || 0) / 1000));
+      const minutes = Math.floor(total / 60);
+      const seconds = total % 60;
+      return `${minutes}:${String(seconds).padStart(2, "0")}`;
+    }
+
+    function renderOwner(user) {
+      if (!user) return;
+      state.user = user;
+      const nickname = String(user.nickname || user.id || "未知用户");
+      document.getElementById("ownerName").textContent = nickname;
+      document.title = `${nickname} 的作品 | Monitor`;
+
+      const avatarEl = document.getElementById("ownerAvatar");
+      const initial = nickname.charAt(0).toUpperCase() || "?";
+      if (String(user.avatar_url || "").trim() && String(user.id || "").trim()) {
+        const version = encodeURIComponent(String(user.avatar_url));
+        avatarEl.innerHTML = `<img src="${API_BASE}/users/${encodeURIComponent(user.id)}/avatar?v=${version}" alt="${escapeHtml(initial)}" referrerpolicy="no-referrer" onerror="this.remove();" />`;
+      } else {
+        avatarEl.textContent = initial;
+      }
+
+      const bits = [
+        `已下载 ${formatCount(user.downloaded_count)}`,
+        user.enabled ? "监控中" : "已暂停",
+        escapeHtml(String(user.account_status_label || "正常")),
+      ];
+      document.getElementById("ownerMeta").innerHTML = bits.map((bit) => `<span>${bit}</span>`).join("");
+
+      // 曾用名同时是网盘上历史归档目录的名字，便于对应散落的文件夹
+      const aliases = (Array.isArray(user.former_nicknames) ? user.former_nicknames : [])
+        .map((name) => String(name || "").trim())
+        .filter(Boolean);
+      const aliasEl = document.getElementById("ownerAliases");
+      if (aliases.length) {
+        aliasEl.innerHTML = `<span>曾用名 / 归档目录</span>${aliases
+          .map((name) => `<span class="alias-chip">${escapeHtml(name)}</span>`)
+          .join("")}`;
+        aliasEl.hidden = false;
+      } else {
+        aliasEl.innerHTML = "";
+        aliasEl.hidden = true;
+      }
+
+      const profileLink = document.getElementById("ownerProfileLink");
+      const profileUrl = safeMediaUrl(user.profile_url);
+      if (profileUrl) {
+        profileLink.href = profileUrl;
+        profileLink.hidden = false;
+      } else {
+        profileLink.hidden = true;
+      }
+    }
+
+    function renderCards() {
+      const grid = document.getElementById("worksGrid");
+      if (state.loading && !state.items.length) {
+        grid.innerHTML = "";
+        document.getElementById("worksEmpty").hidden = false;
+        document.getElementById("worksEmpty").textContent = "正在加载作品…";
+        document.getElementById("worksCount").textContent = "0";
+        return;
+      }
+      grid.innerHTML = state.items.map((item, index) => renderCard(item, index)).join("");
+      document.getElementById("worksCount").textContent = String(state.total);
+      const empty = document.getElementById("worksEmpty");
+      empty.textContent = "该用户还没有已下载的作品";
+      empty.hidden = state.items.length > 0;
+    }
+
+    function renderPageNumbers() {
+      const totalPages = Math.max(1, Number(state.totalPages || 1));
+      if (totalPages <= 1) return "";
+      const current = Math.min(Math.max(1, Number(state.page || 1)), totalPages);
+      const start = Math.max(1, current - PAGE_NUMBER_WINDOW);
+      const end = Math.min(totalPages, current + PAGE_NUMBER_WINDOW);
+      const parts = [];
+      if (start > 1) parts.push('<span class="page-ellipsis">…</span>');
+      for (let page = start; page <= end; page += 1) {
+        const active = page === current ? " active" : "";
+        parts.push(
+          `<button type="button" class="btn btn-secondary btn-sm page-num${active}" onclick="goToPage(${page})">${page}</button>`
+        );
+      }
+      if (end < totalPages) parts.push('<span class="page-ellipsis">…</span>');
+      return parts.join("");
+    }
+
+    function renderPagination() {
+      const totalPages = Math.max(1, Number(state.totalPages || 1));
+      const page = Math.min(Math.max(1, Number(state.page || 1)), totalPages);
+      const atFirst = page <= 1;
+      const atLast = page >= totalPages;
+
+      document.getElementById("worksPaginationMeta").textContent = state.total
+        ? `共 ${state.total} 个已下载作品 · 第 ${page} / ${totalPages} 页 · 每页 ${state.pageSize}`
+        : "暂无已下载作品";
+      document.getElementById("worksPageIndicator").innerHTML = renderPageNumbers();
+      document.getElementById("worksFirstBtn").disabled = atFirst || state.loading;
+      document.getElementById("worksPrevBtn").disabled = atFirst || state.loading;
+      document.getElementById("worksNextBtn").disabled = atLast || state.loading;
+      document.getElementById("worksLastBtn").disabled = atLast || state.loading;
+      document.getElementById("worksPagination").hidden = !state.total && !state.loading;
+    }
+
+    function renderAll() {
+      renderCards();
+      renderPagination();
+    }
+
+    const PLAY_ICON = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5.14v13.72a1 1 0 0 0 1.53.85l10.4-6.86a1 1 0 0 0 0-1.7L9.53 4.29A1 1 0 0 0 8 5.14Z"/></svg>';
+
+    function formatSize(bytes) {
+      const value = Number(bytes || 0);
+      if (value <= 0) return "-";
+      if (value >= 1024 * 1024 * 1024) return `${(value / 1024 / 1024 / 1024).toFixed(1)}GB`;
+      if (value >= 1024 * 1024) return `${(value / 1024 / 1024).toFixed(1)}MB`;
+      return `${Math.max(1, Math.round(value / 1024))}KB`;
+    }
+
+    function renderCard(item, index) {
+      const isImage = String(item.media_type) === "image";
+      const coverUrl = coverImageUrl(item);
+      const coverHtml = coverUrl
+        ? `<img src="${escapeHtml(coverUrl)}" alt="" loading="lazy" decoding="async" onerror="showCoverError(this)" />`
+        : `<div class="work-cover-empty">${isImage ? "封面缺失" : "视频"}</div>`;
+
+      const chips = [
+        `<span class="work-chip">${isImage ? `图文 ${Number(item.image_count || 0)} 张` : "视频"}</span>`,
+      ];
+
+      const timeTag = isImage
+        ? ""
+        : `<div class="work-time-tag">${escapeHtml(formatDuration(item.duration_ms))}</div>`;
+      const playHtml = isImage ? "" : `<div class="work-play">${PLAY_ICON}</div>`;
+      const desc = String(item.desc || "").trim() || "（无描述）";
+
+      return `
+        <article class="work-card" data-index="${index}" title="${escapeHtml(desc)}">
+          <div class="work-cover">
+            ${coverHtml}
+            ${playHtml}
+            <div class="work-chips">${chips.join("")}</div>
+            ${timeTag}
+          </div>
+          <div class="work-body">
+            <div class="work-desc">${escapeHtml(desc)}</div>
+            <div class="work-foot">
+              <span>${escapeHtml(formatTime(item.publish_time, "时间未知"))}</span>
+              <span>${escapeHtml(formatSize(item.total_size_bytes))}</span>
+            </div>
+          </div>
+        </article>`;
+    }
+
+    function scrollContentToTop() {
+      document.querySelector(".main-content")?.scrollTo({ top: 0, behavior: "smooth" });
+    }
+
+    function showCoverError(image) {
+      const message = document.createElement("div");
+      message.className = "work-cover-empty";
+      message.textContent = "封面加载失败";
+      image.replaceWith(message);
+    }
+
+    async function loadPage(page) {
+      if (state.loading) return;
+      state.loading = true;
+      renderPagination();
+      if (!state.items.length) renderCards();
+      try {
+        const query = new URLSearchParams({
+          page: String(Math.max(1, Number(page) || 1)),
+          page_size: String(state.pageSize),
+        });
+        const data = await api(`/users/${encodeURIComponent(USER_ID)}/archive?${query.toString()}`);
+        renderOwner(data.user);
+        state.items = Array.isArray(data.items) ? data.items : [];
+        state.page = Number(data.page || 1);
+        state.pageSize = Number(data.page_size || state.pageSize);
+        state.total = Number(data.total || 0);
+        state.totalPages = Number(data.total_pages || 1);
+        state.mediaCounts = data.media_counts || {};
+        state.archiveEnabled = data.archive_enabled !== false;
+      } catch (error) {
+        showToast(error.message || "加载作品失败", "error");
+      } finally {
+        state.loading = false;
+        renderAll();
+      }
+    }
+
+    function goToPage(page) {
+      if (state.loading) return;
+      const target = Math.min(Math.max(1, Number(page) || 1), Math.max(1, Number(state.totalPages || 1)));
+      if (target === state.page) return;
+      loadPage(target);
+      scrollContentToTop();
+    }
+
+    function onPageSizeChange() {
+      const el = document.getElementById("worksPageSize");
+      state.pageSize = Number(el?.value || 20);
+      loadPage(1);
+    }
+
+    function reloadWorks() {
+      if (state.loading) return false;
+      loadPage(state.page);
+      return false;
+    }
+
+    function openViewer(index) {
+      const item = state.items[index];
+      if (!item) return;
+      state.viewerIndex = index;
+      state.imageIndex = 0;
+
+      document.getElementById("viewerTitle").textContent = String(item.desc || "").trim() || item.aweme_id;
+      const shareLink = document.getElementById("viewerShareLink");
+      const shareUrl = safeMediaUrl(item.share_url);
+      shareLink.href = shareUrl || "#";
+      shareLink.hidden = !shareUrl;
+      const originalLink = document.getElementById("viewerOriginalLink");
+      const hasOriginal = item.media_type === "video" && item.archive_index !== null && item.archive_index !== undefined;
+      originalLink.hidden = !hasOriginal;
+      if (hasOriginal) originalLink.href = archiveMediaUrl(item.aweme_id, item.archive_index);
+      else originalLink.removeAttribute("href");
+
+      renderStage();
+      document.getElementById("viewer").classList.add("show");
+    }
+
+    function renderStage() {
+      const item = state.items[state.viewerIndex];
+      const stage = document.getElementById("viewerStage");
+      const meta = document.getElementById("viewerMeta");
+      if (!item) return;
+      stopViewerMedia();
+
+      if (String(item.media_type) === "image") {
+        // 服务端已排除单独存的封面，只展示内容图片。
+        const indices = Array.isArray(item.image_indices) ? item.image_indices : [];
+        const urls = indices.map((i) => archiveMediaUrl(item.aweme_id, i));
+        if (!urls.length) {
+          stage.innerHTML = '<div class="empty-state">该图文没有已归档的图片</div>';
+          meta.textContent = "图文 · 0 张";
+          return;
+        }
+        const clamped = Math.min(Math.max(state.imageIndex, 0), urls.length - 1);
+        state.imageIndex = clamped;
+        const navHtml = urls.length > 1
+          ? `<button class="viewer-nav prev" onclick="stepImage(-1)" aria-label="上一张"><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 19.5 8.25 12l7.5-7.5" /></svg></button>
+             <button class="viewer-nav next" onclick="stepImage(1)" aria-label="下一张"><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5" /></svg></button>`
+          : "";
+        stage.innerHTML = `<img src="${escapeHtml(urls[clamped])}" alt="" />${navHtml}`;
+        meta.textContent = `图文 · 第 ${clamped + 1} / ${urls.length} 张`;
+        return;
+      }
+
+      if (item.play_index === null || item.play_index === undefined) {
+        stage.innerHTML = '<div class="empty-state">该视频没有可播放文件</div>';
+        meta.textContent = "视频 · 无可播放文件";
+        return;
+      }
+      const coverUrl = coverImageUrl(item);
+      const poster = coverUrl ? ` poster="${escapeHtml(coverUrl)}"` : "";
+      // 通过服务端媒体代理播放：由服务端携带 OpenList/CDN 所需请求头并透传 Range，
+      // 避免浏览器直连短时签名 URL 后丢失鉴权或遇到跨域/Range 失败。
+      const playbackUrl = archiveMediaUrl(item.aweme_id, item.play_index);
+      stage.innerHTML = `<video controls autoplay playsinline preload="metadata"${poster} src="${escapeHtml(playbackUrl)}" onloadedmetadata="fitViewerVideo(this)" onerror="showVideoError()"></video>`;
+      const source = item.has_fast_play ? item.fast_play_source : item.video_source;
+      const quality = source && source.height ? ` · ${source.width}x${source.height}` : "";
+      const label = item.has_fast_play ? "流畅播放" : "原片";
+      meta.textContent = `视频 · ${label}${quality} · ${formatDuration(item.duration_ms)}`;
+    }
+
+    function stepImage(delta) {
+      if (state.items[state.viewerIndex]?.media_type !== "image") return;
+      state.imageIndex += Number(delta || 0);
+      renderStage();
+    }
+
+    function showVideoError() {
+      document.getElementById("viewerMeta").textContent = "视频加载失败，请重新打开重试";
+    }
+
+    function fitViewerVideo(video) {
+      if (!video.videoWidth || !video.videoHeight) return;
+      const stage = document.getElementById("viewerStage");
+      stage.style.aspectRatio = `${video.videoWidth} / ${video.videoHeight}`;
+    }
+
+    function stopViewerMedia() {
+      const video = document.querySelector("#viewerStage video");
+      if (!video) return;
+      video.pause();
+      video.removeAttribute("src");
+      video.load();
+    }
+
+    function closeViewer() {
+      const stage = document.getElementById("viewerStage");
+      stopViewerMedia();
+      stage.innerHTML = "";
+      state.viewerIndex = -1;
+      document.getElementById("viewer").classList.remove("show");
+    }
+
+    function onViewerBackdrop(event) {
+      if (event.target === document.getElementById("viewer")) closeViewer();
+    }
+
+    document.addEventListener("keydown", (event) => {
+      if (state.viewerIndex < 0) {
+        // 没开预览时，Esc 用来关掉外层浮层（焦点在 iframe 内，父页收不到按键）
+        if (event.key === "Escape") requestOverlayClose();
+        return;
+      }
+      if (event.key === "Escape") closeViewer();
+      if (event.key === "ArrowLeft") stepImage(-1);
+      if (event.key === "ArrowRight") stepImage(1);
+    });
+
+    document.getElementById("worksGrid").addEventListener("click", (event) => {
+      const card = event.target.closest(".work-card");
+      if (!card) return;
+      openViewer(Number(card.dataset.index));
+    });
+
+    function init() {
+      if (!USER_ID) {
+        document.getElementById("ownerName").textContent = "缺少 user_id";
+        document.getElementById("worksHint").textContent = "请从用户列表点击头像进入";
+        document.getElementById("worksEmpty").hidden = false;
+        renderAll();
+        return;
+      }
+      loadPage(1);
+    }
+
+    init();
+  </script>
+</body>
+</html>

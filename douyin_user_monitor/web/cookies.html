@@ -6,7 +6,7 @@
   <meta http-equiv="Pragma" content="no-cache" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
   <title>Cookie 池 | Monitor</title>
-  <link rel="stylesheet" href="/static/common.css?v=sky-20260809k" />
+  <link rel="stylesheet" href="/static/common.css?v=theme-20260920a" />
 </head>
 <body>
   <aside class="sidebar" id="sidebar">
@@ -36,6 +36,11 @@
         解析 API
       </a>
       <div class="nav-spacer"></div>
+      <a class="nav-item theme-toggle" onclick="return toggleTheme()" title="切换暗黑模式" aria-label="切换暗黑模式">
+        <svg class="theme-icon theme-icon-moon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.6" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79Z" /></svg>
+        <svg class="theme-icon theme-icon-sun" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.6" stroke="currentColor"><circle cx="12" cy="12" r="3.5" /><path stroke-linecap="round" d="M12 2v2m0 16v2M4.93 4.93l1.42 1.42m11.3 11.3 1.42 1.42M2 12h2m16 0h2M4.93 19.07l1.42-1.42m11.3-11.3 1.42-1.42" /></svg>
+        主题模式
+      </a>
       <a class="nav-item" onclick="refreshList()" title="刷新">
         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0 3.181 3.183a8.25 8.25 0 0 0 13.803-3.7M4.031 9.865a8.25 8.25 0 0 1 13.803-3.7l3.181 3.182m0-4.991v4.99" /></svg>
         刷新
@@ -102,7 +107,7 @@
 <div id="sidebarOverlay" class="overlay" onclick="toggleSidebar()"></div>
   <div id="toast-container" class="toast-container"></div>
 
-<script src="/static/common.js?v=sky-20260809h"></script>
+<script src="/static/common.js?v=theme-20260920a"></script>
   <script>
     // API_BASE、api()、时间格式化、侧栏函数（toggleSidebar 等）见 common.js。
     // isMobileViewport 各页断点不同（本页 1024），保留在本页由 common.js 在调用时引用。
@@ -162,7 +167,7 @@
             </div>
             <div class="cookie-actions">
               <button class="btn btn-secondary btn-sm" onclick="checkCookie('${id}')">测活</button>
-              <button class="btn btn-primary btn-sm" onclick="activateCookie('${id}')" ${active ? "disabled" : ""}>设为启用</button>
+              <button class="btn btn-primary btn-sm" onclick="activateCookie('${id}')" ${active ? "disabled aria-pressed='true'" : ""}>${active ? "已启用" : "设为启用"}</button>
               <button class="btn btn-danger btn-sm" onclick="deleteCookie('${id}')" ${active ? "disabled title='请先启用其他 Cookie'" : ""}>删除</button>
             </div>
           </div>
@@ -170,11 +175,16 @@
       }).join("");
     }
 
+    let refreshSeq = 0;
+
     async function refreshList() {
+      const seq = ++refreshSeq;
       try {
         const data = await api("/cookies");
+        if (seq !== refreshSeq) return;
         renderList(data.items || []);
       } catch (err) {
+        if (seq !== refreshSeq) return;
         showToast(err.message, "error");
       }
     }
@@ -205,6 +215,7 @@
     }
 
     async function checkCookie(id) {
+      setCookieActionsDisabled(true);
       try {
         showToast("正在测活...");
         const item = await api(`/cookies/${encodeURIComponent(id)}/check`, { method: "POST" });
@@ -212,28 +223,42 @@
         await refreshList();
       } catch (err) {
         showToast(err.message, "error");
+      } finally {
+        setCookieActionsDisabled(false);
       }
     }
 
     async function activateCookie(id) {
+      setCookieActionsDisabled(true);
       try {
         await api(`/cookies/${encodeURIComponent(id)}/activate`, { method: "POST" });
         showToast("已设为当前启用");
         await refreshList();
       } catch (err) {
         showToast(err.message, "error");
+      } finally {
+        setCookieActionsDisabled(false);
       }
     }
 
     async function deleteCookie(id) {
       if (!confirm("确认删除该 Cookie？")) return;
+      setCookieActionsDisabled(true);
       try {
         await api(`/cookies/${encodeURIComponent(id)}`, { method: "DELETE" });
         showToast("已删除");
         await refreshList();
       } catch (err) {
         showToast(err.message, "error");
+      } finally {
+        setCookieActionsDisabled(false);
       }
+    }
+
+    function setCookieActionsDisabled(disabled) {
+      document.querySelectorAll(".cookie-actions button").forEach((button) => {
+        button.disabled = disabled;
+      });
     }
 
     refreshList();

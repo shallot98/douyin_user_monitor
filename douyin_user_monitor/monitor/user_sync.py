@@ -8,6 +8,7 @@ from douyin_user_monitor.monitor.history_sync import (
     ACTIVE_HISTORY_SYNC_STATUSES,
     complete_history_sync,
     normalize_history_sync_state,
+    refresh_history_sync_status,
     update_history_sync_progress,
 )
 from douyin_user_monitor.monitor.notifier import MonitorNotifierProtocol
@@ -29,6 +30,7 @@ from douyin_user_monitor.monitor.sync_utils import (
 from douyin_user_monitor.monitor.timeutils import cn_now, safe_int
 
 INCREMENTAL_FETCH_POSTS = 20
+HISTORY_RETRY_LIMIT = 5
 
 
 class UserSyncService:
@@ -38,11 +40,14 @@ class UserSyncService:
         downloader: AwemeAssetDownloader,
         notifier: MonitorNotifierProtocol,
         cookie_rotation_session=None,
+        *,
+        cover_publisher=None,
     ):
         self._crawler = crawler
         self._downloader = downloader
         self._notifier = notifier
         self._cookie_rotation_session = cookie_rotation_session
+        self._cover_publisher = cover_publisher
 
     async def resolve_profile_snapshot(self, sec_user_id: str) -> UserProfileSnapshot:
         profile_data = await self._crawler.handler_user_profile(sec_user_id)
@@ -67,7 +72,17 @@ class UserSyncService:
         return summary
 
     async def sync_one_user(self, user: Dict[str, Any], summary: Dict[str, Any]) -> None:
-        await self.run_with_cookie_rotation(lambda: self._sync_user_with_summary(user, summary))
+        try:
+            await self.run_with_cookie_rotation(lambda: self._sync_user_with_summary(user, summary))
+        except Exception as exc:
+            safe_error = sanitize_public_error(exc)
+            user["last_error"] = safe_error
+            summary["errors"].append(
+                {"user_id": user["id"], "nickname": user["nickname"], "error": safe_error}
+            )
+        finally:
+            user["last_checked_at"] = cn_now()
+            user["updated_at"] = cn_now()
 
     async def run_with_cookie_rotation(self, operation):
         if self._cookie_rotation_session is None:
@@ -78,36 +93,25 @@ class UserSyncService:
     async def _sync_user_with_summary(self, user: Dict[str, Any], summary: Dict[str, Any]) -> None:
         old_status = str(user.get("account_status") or ACCOUNT_STATUS_NORMAL).strip()
         old_nickname = str(user.get("nickname") or "").strip()
-        try:
-            snapshot = await self.resolve_profile_snapshot(user["sec_user_id"])
-            user.update(
-                build_profile_snapshot_fields(
-                    snapshot,
-                    updated_at=cn_now(),
-                )
+        snapshot = await self.resolve_profile_snapshot(user["sec_user_id"])
+        user.update(
+            build_profile_snapshot_fields(
+                snapshot,
+                updated_at=cn_now(),
             )
-            # Preserve existing nickname when API returns empty (deleted/banned users)
-            # resolve_profile_snapshot falls back to sec_user_id[:12] when nickname is empty
-            if old_nickname and snapshot.nickname == user["sec_user_id"][:12]:
-                user["nickname"] = old_nickname
-            new_status = snapshot.account_status
-            await self._notify_if_status_changed(user, old_status, new_status, snapshot.account_status_reason)
-            # Auto-pause monitoring when account is deleted or banned
-            if old_status == ACCOUNT_STATUS_NORMAL and new_status in (ACCOUNT_STATUS_DELETED, ACCOUNT_STATUS_BANNED):
-                user["enabled"] = False
-            count = await self._sync_user_latest(user, summary)
-            count += await self.sync_history_backfill_step(user)
-            summary["downloaded_items"] += count
-            user["last_error"] = None
-        except Exception as exc:
-            safe_error = sanitize_public_error(exc)
-            user["last_error"] = safe_error
-            summary["errors"].append(
-                {"user_id": user["id"], "nickname": user["nickname"], "error": safe_error}
-            )
-        finally:
-            user["last_checked_at"] = cn_now()
-            user["updated_at"] = cn_now()
+        )
+        # Preserve existing nickname when API returns empty (deleted/banned users)
+        # resolve_profile_snapshot falls back to sec_user_id[:12] when nickname is empty
+        if old_nickname and snapshot.nickname == user["sec_user_id"][:12]:
+            user["nickname"] = old_nickname
+        new_status = snapshot.account_status
+        await self._notify_if_status_changed(user, old_status, new_status, snapshot.account_status_reason)
+        # Auto-pause monitoring when account is deleted or banned
+        if old_status == ACCOUNT_STATUS_NORMAL and new_status in (ACCOUNT_STATUS_DELETED, ACCOUNT_STATUS_BANNED):
+            user["enabled"] = False
+        summary["downloaded_items"] += await self._sync_user_latest(user, summary)
+        summary["downloaded_items"] += await self.sync_history_backfill_step(user)
+        user["last_error"] = None
 
     async def _notify_if_status_changed(
         self,
@@ -166,41 +170,56 @@ class UserSyncService:
 
     async def sync_history_backfill_step(self, user: Dict[str, Any]) -> int:
         history_sync = normalize_history_sync_state(user)
-        if history_sync["status"] not in ACTIVE_HISTORY_SYNC_STATUSES or not bool(history_sync["has_more"]):
+        if history_sync["status"] not in ACTIVE_HISTORY_SYNC_STATUSES:
             return 0
 
-        page = await self._fetch_posts_page(
-            user["sec_user_id"],
-            max_cursor=int(history_sync["next_cursor"]),
-            count=int(history_sync["page_size"]),
-        )
-        aweme_list = page["aweme_list"]
-        if not aweme_list:
-            complete_history_sync(history_sync, now=cn_now())
-            return 0
-
+        # Fetch before mutating progress: a page-level failure must retain its cursor and retry queue.
+        page = None
+        if history_sync["has_more"]:
+            page = await self._fetch_posts_page(
+                user["sec_user_id"],
+                max_cursor=int(history_sync["next_cursor"]),
+                count=int(history_sync["page_size"]),
+            )
+        aweme_list = page["aweme_list"] if page is not None else []
         downloaded_ids = set(user.get("downloaded_aweme_ids", []))
-        new_posts = self._select_new_posts(aweme_list, downloaded_ids)
+        pending = [item for item in history_sync["pending_awemes"] if item["aweme_id"] not in downloaded_ids]
+        retries = pending[:HISTORY_RETRY_LIMIT]
+        new_posts = self._select_new_posts(aweme_list, downloaded_ids | {item["aweme_id"] for item in pending})
+        posts = [{"aweme_id": item["aweme_id"]} for item in retries] + new_posts
         downloaded_records: List[Dict[str, Any]] = []
         errors: List[str] = []
-        if new_posts:
+        failed_posts: Dict[str, str] = {}
+        if posts:
             headers = (await self._crawler.get_douyin_headers())["headers"]
             downloaded_records, errors = await self._download_posts(
                 user=user,
-                posts=new_posts,
+                posts=posts,
                 headers=headers,
                 notify=False,
                 continue_on_error=True,
+                failed_posts=failed_posts,
             )
 
+        # Move attempted failures to the tail so permanently broken works cannot starve later retries.
+        history_sync["pending_awemes"] = pending[HISTORY_RETRY_LIMIT:] + [
+            {"aweme_id": aweme_id, "error": error} for aweme_id, error in failed_posts.items()
+        ]
         downloaded_count = self._apply_download_results(user, downloaded_records)
-        self._update_history_sync_progress(
-            page=page,
-            history_sync=history_sync,
-            scanned_count=len(aweme_list),
-            downloaded_count=downloaded_count,
-            errors=errors,
-        )
+        if page is not None and aweme_list:
+            self._update_history_sync_progress(
+                page=page,
+                history_sync=history_sync,
+                scanned_count=len(aweme_list),
+                downloaded_count=downloaded_count,
+                errors=errors,
+            )
+        else:
+            history_sync["downloaded_items"] += downloaded_count
+            if page is not None:
+                complete_history_sync(history_sync, now=cn_now())
+            else:
+                refresh_history_sync_status(history_sync, now=cn_now())
         return downloaded_count
 
     async def _download_posts(
@@ -211,6 +230,7 @@ class UserSyncService:
         *,
         notify: bool,
         continue_on_error: bool,
+        failed_posts: Dict[str, str] | None = None,
     ) -> tuple[List[Dict[str, Any]], List[str]]:
         downloaded_records: List[Dict[str, Any]] = []
         errors: List[str] = []
@@ -238,6 +258,8 @@ class UserSyncService:
                     asset_result,
                     source="incremental" if notify else "history",
                 )
+                if self._cover_publisher is not None:
+                    await self._cover_publisher(user, record)
                 if notify:
                     await self._notifier.notify_download_completed(
                         user_nickname=user["nickname"],
@@ -247,7 +269,10 @@ class UserSyncService:
             except Exception as exc:
                 if not continue_on_error:
                     raise
-                errors.append(f"{aweme_id or '-'}: {sanitize_public_error(exc)}")
+                safe_error = sanitize_public_error(exc)
+                errors.append(f"{aweme_id or '-'}: {safe_error}")
+                if failed_posts is not None:
+                    failed_posts[aweme_id] = safe_error
         return downloaded_records, errors
 
     async def _fetch_posts_page(
@@ -355,6 +380,14 @@ class UserSyncService:
             "total_size_bytes": safe_int(asset_result.get("total_size_bytes")),
             "files": [str(file_item) for file_item in files if str(file_item).strip()],
         }
+        # 网页展示用的角色文件：封面、快播版本。老记录没有这些键，展示层会回落。
+        for key in ("video_file", "fast_play_file", "cover_file"):
+            value = str(asset_result.get(key) or "").strip()
+            if value:
+                record[key] = value
+        fast_play_source = asset_result.get("fast_play_source")
+        if isinstance(fast_play_source, dict):
+            record["fast_play_source"] = dict(fast_play_source)
         if media_type == "video":
             video_info = aweme_detail.get("video", {})
             duration = video_info.get("duration") if isinstance(video_info, dict) else 0

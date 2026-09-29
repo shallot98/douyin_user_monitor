@@ -179,10 +179,18 @@ process_one_file() {
       ;;
   esac
 
+  # 先硬链接进备份暂存区并提交 copy，再让 move 去释放本地原路径。
+  # 暂存失败就本轮不动，本地文件留着下轮重试——绝不出现「本地已删、备份没有」。
+  if ! ensure_backup_copy "${token}" "${actual_file_path}" "${src_dir}" "${dst_dir}" "${file_name}"; then
+    emit_process_outcome "${ACTION_WAIT}"
+    return 0
+  fi
+
   handle_submitted_move "${token}" "${actual_file_path}" "${src_dir}" "${dst_dir}" "${file_name}"
 }
 
 process_files() {
+  assert_target_base_stable || return 1
   if batch_mode_enabled; then
     process_files_batched "$@"
   else
@@ -210,6 +218,10 @@ command_run() {
     token=$(get_dry_run_token)
   fi
 
+  if [[ "${DRY_RUN}" != "true" ]]; then
+    drain_backup_staging "${token}"
+  fi
+
   local run_epoch
   run_epoch=$(date +%s)
   process_files "${token}" "${run_epoch}"
@@ -217,7 +229,10 @@ command_run() {
   if [[ "${DRY_RUN}" == "true" ]]; then
     log "DRY_RUN 完成，计划处理 ${DRY_RUN_PLANNED_COUNT} 个文件；预测 completed=${DRY_RUN_COMPLETED_COUNT}, wait=${DRY_RUN_WAIT_COUNT}, continue=${DRY_RUN_CONTINUE_COUNT}, skip=${DRY_RUN_SKIP_COUNT}, unknown=${DRY_RUN_UNKNOWN_COUNT}"
   else
-    log "完成，本轮完成收口 ${PROCESS_MOVED_COUNT} 个文件，提交 ${PROCESS_SUBMITTED_COUNT} 个文件，跳过 ${PROCESS_SKIPPED_COUNT} 个文件，失败 ${PROCESS_ERROR_COUNT} 个文件${CAPACITY_LIMIT_HIT:+, capacity_limit=1}"
+    local capacity_note=""
+    # CAPACITY_LIMIT_HIT 初值是 "0"，用 ${VAR:+} 会因非空而恒为真，必须显式比较
+    [[ "${CAPACITY_LIMIT_HIT}" == "1" ]] && capacity_note=", capacity_limit=1"
+    log "完成，本轮完成收口 ${PROCESS_MOVED_COUNT} 个文件，提交 ${PROCESS_SUBMITTED_COUNT} 个文件，跳过 ${PROCESS_SKIPPED_COUNT} 个文件，失败 ${PROCESS_ERROR_COUNT} 个文件${capacity_note}"
   fi
   if [[ "${PROCESS_ERROR_COUNT}" -gt 0 ]]; then
     exit 1

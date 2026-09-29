@@ -26,6 +26,8 @@ load_lib api.sh
 load_lib remote_cache.sh
 load_lib remote.sh
 load_lib paths.sh
+load_lib backup.sh
+load_lib quota.sh
 load_lib reconcile.sh
 load_lib dryrun.sh
 load_lib runner.sh

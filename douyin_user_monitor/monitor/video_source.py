@@ -82,6 +82,58 @@ def select_highest_bit_rate_source(video_data: Dict[str, Any]) -> Optional[Video
     return select_clearest_video_source(video_data)
 
 
+FAST_PLAY_MIN_SHORT_SIDE = 480
+
+
+def select_fast_play_source(video_data: Dict[str, Any]) -> Optional[VideoSource]:
+    """Select a declared H.264 source; unlabelled/HEVC files require preparation."""
+    bit_rates = video_data.get("bit_rate", [])
+    if not isinstance(bit_rates, list):
+        bit_rates = []
+    candidates: List[VideoSource] = []
+    for item in bit_rates:
+        candidate = build_bit_rate_source(item)
+        if candidate and _is_h264_gear(item):
+            candidates.append(candidate)
+    h264_addr = video_data.get("play_addr_h264")
+    if isinstance(h264_addr, dict):
+        candidate = build_bit_rate_source({"play_addr": h264_addr, "gear_name": "play_addr_h264"})
+        if candidate:
+            candidates.append(candidate)
+    if not candidates:
+        return None
+
+    watchable = [
+        candidate
+        for candidate in candidates
+        if min(candidate.width, candidate.height) >= FAST_PLAY_MIN_SHORT_SIDE
+    ]
+    pool = watchable or candidates
+    # bit_rate 为 0（未标注）的排后面，避免把未知档误当成最小档
+    return min(pool, key=lambda source: (source.bit_rate <= 0, source.bit_rate or 0, _pixels(source)))
+
+
+def _is_h264_gear(item: Dict[str, Any]) -> bool:
+    flags = [item[key] for key in ("is_h265", "is_bytevc1") if key in item]
+    return bool(flags) and all(flag == 0 for flag in flags)
+
+
+def _pixels(source: VideoSource) -> int:
+    return (source.width or 0) * (source.height or 0)
+
+
+def extract_cover_url(aweme_detail: Dict[str, Any]) -> Optional[str]:
+    """Static cover for a work. Present on image posts too, so both媒体类型可用。"""
+    video_data = aweme_detail.get("video")
+    if not isinstance(video_data, dict):
+        return None
+    for key in ("cover", "origin_cover", "dynamic_cover"):
+        url = first_url(video_data.get(key) if isinstance(video_data.get(key), dict) else {})
+        if url:
+            return url
+    return None
+
+
 def build_bit_rate_source(item: Any) -> Optional[VideoSource]:
     if not isinstance(item, dict):
         return None

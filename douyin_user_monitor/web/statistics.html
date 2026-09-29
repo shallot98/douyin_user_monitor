@@ -6,9 +6,62 @@
   <meta http-equiv="Pragma" content="no-cache" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
   <title>用户统计中心 | Monitor</title>
-  <link rel="stylesheet" href="/static/common.css?v=sky-20260809n" />
+  <link rel="stylesheet" href="/static/common.css?v=theme-20260921b" />
   <style>
     /* statistics page-only styles; shell/sidebar/tabbar come from common.css */
+
+    /* 头像 → 作品列表入口 */
+    .user-avatar-link {
+      display: block;
+      flex-shrink: 0;
+      border-radius: 14px;
+      text-decoration: none;
+      transition: transform 0.15s ease, box-shadow 0.15s ease;
+    }
+    .user-avatar-link:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 6px 16px rgba(14, 165, 233, 0.28);
+    }
+
+    /* 作品浮层：盖在本页之上，不做页面跳转，返回时表格状态与滚动位置原样保留 */
+    .works-overlay {
+      position: fixed;
+      inset: 0;
+      z-index: 70;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+      background: rgba(15, 23, 42, 0.42);
+      backdrop-filter: blur(4px);
+    }
+    .works-overlay.show { display: flex; }
+    .works-overlay-panel {
+      display: flex;
+      flex-direction: column;
+      width: 100%;
+      max-width: 1180px;
+      height: 92vh;
+      overflow: hidden;
+      background: var(--bg-surface);
+      border-radius: var(--radius-lg);
+      box-shadow: 0 24px 60px rgba(15, 23, 42, 0.28);
+    }
+    .works-overlay-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      padding: 12px 16px;
+      border-bottom: 1px solid var(--border-color);
+      flex-shrink: 0;
+    }
+    .works-overlay-title { font-size: 14px; font-weight: 700; }
+    .works-overlay-frame { flex: 1; min-height: 0; width: 100%; border: 0; }
+    @media (max-width: 1024px) {
+      .works-overlay { padding: 0; }
+      .works-overlay-panel { height: 100%; border-radius: 0; }
+    }
 
     .summary-bar {
       display: grid;
@@ -20,6 +73,11 @@
       padding: 12px 8px;
       box-shadow: var(--shadow-sm);
       backdrop-filter: blur(8px);
+    }
+    body.theme-dark .summary-bar {
+      background: #172033;
+      -webkit-backdrop-filter: none;
+      backdrop-filter: none;
     }
     .summary-item {
       position: relative;
@@ -459,6 +517,11 @@
         解析 API
       </a>
       <div class="nav-spacer"></div>
+      <a class="nav-item theme-toggle" onclick="return toggleTheme()" title="切换暗黑模式" aria-label="切换暗黑模式">
+        <svg class="theme-icon theme-icon-moon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.6" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79Z" /></svg>
+        <svg class="theme-icon theme-icon-sun" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.6" stroke="currentColor"><circle cx="12" cy="12" r="3.5" /><path stroke-linecap="round" d="M12 2v2m0 16v2M4.93 4.93l1.42 1.42m11.3 11.3 1.42 1.42M2 12h2m16 0h2M4.93 19.07l1.42-1.42m11.3-11.3 1.42-1.42" /></svg>
+        主题模式
+      </a>
       <a class="nav-item" onclick="refreshAll()" title="刷新">
         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0 3.181 3.183a8.25 8.25 0 0 0 13.803-3.7M4.031 9.865a8.25 8.25 0 0 1 13.803-3.7l3.181 3.182m0-4.991v4.99" /></svg>
         刷新
@@ -499,7 +562,7 @@
             <h1 class="page-title">用户统计中心</h1>
             <p class="page-subtitle">
               统一用户表 · 摘要筛选 · 行内操作
-              <span class="ui-build-chip" title="UI build">UI sky-20260809n</span>
+              <span class="ui-build-chip" title="UI build">UI theme-20260921b</span>
             </p>
           </div>
           <div class="page-actions">
@@ -618,9 +681,21 @@
     </main>
   </div>
   <div id="sidebarOverlay" class="overlay" onclick="toggleSidebar()"></div>
+  <div class="works-overlay" id="worksOverlay" onclick="onWorksOverlayBackdrop(event)">
+    <div class="works-overlay-panel">
+      <div class="works-overlay-head">
+        <div class="works-overlay-title">作品浏览</div>
+        <button class="btn-icon" onclick="closeWorksOverlay()" aria-label="关闭作品浏览">
+          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.8" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" /></svg>
+        </button>
+      </div>
+      <iframe class="works-overlay-frame" id="worksFrame" title="用户作品列表"></iframe>
+    </div>
+  </div>
+
   <div id="toast-container" class="toast-container"></div>
 
-  <script src="/static/common.js?v=sky-20260809n"></script>
+  <script src="/static/common.js?v=theme-20260920a"></script>
   <script>
     const Icons = {
       play: `<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M5.25 5.653c0-.856.917-1.398 1.667-.986l11.54 6.347a1.125 1.125 0 0 1 0 1.972l-11.54 6.347a1.125 1.125 0 0 1-1.667-.986V5.653Z" /></svg>`,
@@ -694,16 +769,75 @@
       }, 3000);
     }
 
+    // 头像是作品列表的入口；user.id 是服务端 uuid，可安全插进 href
+    function worksPageUrl(userId) {
+      return `/api/monitor/works/dashboard?user_id=${encodeURIComponent(userId)}`;
+    }
+
+    function wrapAvatarWithWorksLink(user, innerHtml) {
+      const userId = String(user.id || "").trim();
+      if (!userId) return innerHtml;
+      // 保留 href：Ctrl/Cmd/中键仍可在新标签页打开独立作品页
+      return `<a class="user-avatar-link" href="${worksPageUrl(userId)}" onclick="return onAvatarClick(event, '${userId}')" title="查看作品列表">${innerHtml}</a>`;
+    }
+
+    // --- 作品浮层：不跳页，所以返回时筛选/页码/滚动位置都还在 ---
+    const worksOverlayState = { open: false };
+
+    function onAvatarClick(event, userId) {
+      // 带修饰键或非左键时交回浏览器，走原生新标签页行为
+      if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return true;
+      if (typeof event.button === "number" && event.button !== 0) return true;
+      event.preventDefault();
+      openWorksOverlay(userId);
+      return false;
+    }
+
+    function openWorksOverlay(userId) {
+      const id = String(userId || "").trim();
+      if (!id) return;
+      document.getElementById("worksFrame").src = `${worksPageUrl(id)}&embed=1`;
+      document.getElementById("worksOverlay").classList.add("show");
+      worksOverlayState.open = true;
+      // 压一个历史条目，让浏览器返回键关掉浮层而不是离开本页
+      history.pushState({ worksOverlay: id }, "");
+    }
+
+    function closeWorksOverlay(options = {}) {
+      if (!worksOverlayState.open) return;
+      worksOverlayState.open = false;
+      document.getElementById("worksOverlay").classList.remove("show");
+      // 清空 iframe 让里面的视频停止拉流，否则代理连接会挂着继续下载
+      document.getElementById("worksFrame").src = "about:blank";
+      if (!options.fromHistory) history.back();
+    }
+
+    function onWorksOverlayBackdrop(event) {
+      if (event.target === document.getElementById("worksOverlay")) closeWorksOverlay();
+    }
+
+    window.addEventListener("popstate", () => closeWorksOverlay({ fromHistory: true }));
+
+    window.addEventListener("message", (event) => {
+      if (event.origin !== window.location.origin) return;
+      if (event.data && event.data.type === "works:close") closeWorksOverlay();
+    });
+
+    document.addEventListener("keydown", (event) => {
+      if (event.key === "Escape") closeWorksOverlay();
+    });
+
     function renderUserAvatar(user) {
       const initial = escapeHtml((user.nickname || user.sec_user_id || "?").charAt(0).toUpperCase());
       const avatarUrl = String(user.avatar_url || "").trim();
-      if (!avatarUrl) return `<div class="user-avatar">${initial}</div>`;
+      if (!avatarUrl) return wrapAvatarWithWorksLink(user, `<div class="user-avatar">${initial}</div>`);
       const userId = encodeURIComponent(String(user.id || "").trim());
       if (!userId) return `<div class="user-avatar">${initial}</div>`;
       // 只随头像地址变化，巡检刷新 updated_at 不再让浏览器缓存失效
       const version = encodeURIComponent(avatarUrl);
       const safeUrl = `${API_BASE}/users/${userId}/avatar?v=${version}`;
-      return `<div class="user-avatar"><img src="${safeUrl}" alt="${initial}" loading="lazy" onerror="this.remove();this.parentElement.textContent=this.alt;" /></div>`;
+      const avatarHtml = `<div class="user-avatar"><img src="${safeUrl}" alt="${initial}" loading="lazy" onerror="this.remove();this.parentElement.textContent=this.alt;" /></div>`;
+      return wrapAvatarWithWorksLink(user, avatarHtml);
     }
 
     function getAccountStatusLabel(user) {
@@ -1196,7 +1330,10 @@
     syncToolbarControls();
     syncFilterChips();
     refreshAll();
-    setInterval(refreshAll, 15000);
+    // 浮层打开时表格不可见，跳过轮询：省掉无谓请求，也避免关掉浮层瞬间表格刚被重绘
+    setInterval(() => {
+      if (!worksOverlayState.open) refreshAll();
+    }, 15000);
   </script>
 </body>
 </html>

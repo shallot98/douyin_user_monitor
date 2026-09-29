@@ -5,7 +5,15 @@ from pathlib import Path
 from typing import Any, Dict
 
 from douyin_user_monitor.settings import (
+    ARCHIVE_TOKEN_ENV,
     CRAWLER_CONFIG_ENV,
+    DEFAULT_ARCHIVE_BACKUP_BASE,
+    DEFAULT_ARCHIVE_ENABLED,
+    DEFAULT_ARCHIVE_OPENLIST_BASE_URL,
+    DEFAULT_ARCHIVE_OPENLIST_DB_PATH,
+    DEFAULT_ARCHIVE_PRIMARY_BASE,
+    DEFAULT_ARCHIVE_SANITIZE_PRIMARY_DIRS,
+    DEFAULT_ARCHIVE_TIMEOUT_SECONDS,
     DEFAULT_AVATAR_TIMEOUT_SECONDS,
     DEFAULT_COOKIE_LIVENESS_ALERT_COOLDOWN_HOURS,
     DEFAULT_COOKIE_LIVENESS_ENABLED,
@@ -35,6 +43,7 @@ from douyin_user_monitor.settings import (
     TG_CHAT_ID_ENV,
     TG_ENABLED_ENV,
     TG_TIMEOUT_ENV,
+    ArchiveSettings,
     CookieLivenessSettings,
     CookieRotationSettings,
     CrawlerSettings,
@@ -63,6 +72,7 @@ def load_settings() -> Settings:
     hermes_raw = _ensure_dict(notification_raw.get("hermes_weixin", {}), "notifications.hermes_weixin")
     cookie_raw = _ensure_dict(raw.get("cookie_liveness", {}), "cookie_liveness")
     rotation_raw = _ensure_dict(raw.get("cookie_rotation", {}), "cookie_rotation")
+    archive_raw = _ensure_dict(raw.get("archive", {}), "archive")
     return Settings(
         project_root=project_root,
         crawler=_load_crawler_settings(project_root, crawler_raw),
@@ -73,6 +83,34 @@ def load_settings() -> Settings:
         ),
         cookie_liveness=_load_cookie_liveness_settings(cookie_raw),
         cookie_rotation=_load_cookie_rotation_settings(rotation_raw),
+        archive=_load_archive_settings(archive_raw),
+    )
+
+
+def _load_archive_settings(raw: Dict[str, Any]) -> ArchiveSettings:
+    token = os.getenv(ARCHIVE_TOKEN_ENV, "") or str(raw.get("openlist_token", "") or "").strip()
+    base_url = str(raw.get("openlist_base_url", DEFAULT_ARCHIVE_OPENLIST_BASE_URL) or "").strip()
+    db_path = str(raw.get("openlist_db_path", DEFAULT_ARCHIVE_OPENLIST_DB_PATH) or "").strip()
+    # 兼容旧配置的单个 remote_base：没写主/备时沿用它当备份盘
+    legacy_base = str(raw.get("remote_base", "") or "").strip()
+    primary_base = str(raw.get("primary_base", "") or "").strip() or DEFAULT_ARCHIVE_PRIMARY_BASE
+    backup_base = (
+        str(raw.get("backup_base", "") or "").strip() or legacy_base or DEFAULT_ARCHIVE_BACKUP_BASE
+    )
+    return ArchiveSettings(
+        enabled=_parse_bool(raw.get("enabled", DEFAULT_ARCHIVE_ENABLED)),
+        openlist_base_url=(base_url or DEFAULT_ARCHIVE_OPENLIST_BASE_URL).rstrip("/"),
+        openlist_db_path=Path(db_path or DEFAULT_ARCHIVE_OPENLIST_DB_PATH).expanduser(),
+        openlist_token=token,
+        primary_base="/" + primary_base.strip("/"),
+        backup_base="/" + backup_base.strip("/"),
+        timeout_seconds=_parse_positive_float(
+            raw.get("timeout_seconds", DEFAULT_ARCHIVE_TIMEOUT_SECONDS),
+            "archive.timeout_seconds",
+        ),
+        sanitize_primary_dirs=_parse_bool(
+            raw.get("sanitize_primary_dirs", DEFAULT_ARCHIVE_SANITIZE_PRIMARY_DIRS)
+        ),
     )
 
 

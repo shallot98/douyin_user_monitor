@@ -139,10 +139,12 @@ path_relative_to_root() {
   printf '/'
 }
 
+# OpenList 任务名格式：「<kind> [/src_root](src_file) to [/dst_root](dst_rel)」，kind 为 move 或 copy
 build_move_task_name() {
   local src_dir="$1"
   local dst_dir="$2"
   local file_name="$3"
+  local kind="${4:-move}"
   local src_root src_rel dst_root dst_rel src_file
 
   src_root=$(path_root_name "${src_dir}")
@@ -150,7 +152,7 @@ build_move_task_name() {
   dst_root=$(path_root_name "${dst_dir}")
   dst_rel=$(path_relative_to_root "${dst_dir}")
   src_file=$([[ "${src_rel}" == "/" ]] && printf '/%s' "${file_name}" || printf '%s/%s' "${src_rel}" "${file_name}")
-  printf 'move [/%s](%s) to [/%s](%s)' "${src_root}" "${src_file}" "${dst_root}" "${dst_rel}"
+  printf '%s [/%s](%s) to [/%s](%s)' "${kind}" "${src_root}" "${src_file}" "${dst_root}" "${dst_rel}"
 }
 
 find_matching_undone_move_task() {

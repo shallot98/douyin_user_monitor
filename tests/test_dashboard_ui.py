@@ -92,6 +92,18 @@ class DashboardUiTests(unittest.TestCase):
         self.assertNotIn('class="platform-tab', html)
         self.assertNotIn(">抖音</button>", html)
 
+    def test_statistics_summary_uses_dark_theme_surface(self):
+        response = self.client.get('/api/monitor/statistics/dashboard')
+
+        self.assertEqual(response.status_code, 200)
+        html = response.text
+        self.assertIn('body.theme-dark .summary-bar', html)
+        self.assertIn('background: #172033;', html)
+        self.assertIn('-webkit-backdrop-filter: none;', html)
+        self.assertIn('backdrop-filter: none;', html)
+        self.assertIn('/static/common.css?v=theme-20260921b', html)
+        self.assertIn('UI theme-20260921b', html)
+
     def test_cookies_dashboard_has_pool_controls(self):
         response = self.client.get('/api/monitor/cookies/dashboard')
 
@@ -102,6 +114,9 @@ class DashboardUiTests(unittest.TestCase):
         self.assertIn('id="btnAddCookie"', html)
         self.assertIn('function checkCookie(', html)
         self.assertIn('function activateCookie(', html)
+        self.assertIn('${active ? "已启用" : "设为启用"}', html)
+        self.assertIn('let refreshSeq = 0;', html)
+        self.assertIn('if (seq !== refreshSeq) return;', html)
         self.assertIn('Cookie 池', html)
         self._assert_loads_common_js(html)
         self.assertIn('const API_BASE = "/api/monitor";', self._common_js_text())
@@ -111,6 +126,10 @@ class DashboardUiTests(unittest.TestCase):
         self.assertIn('.sidebar.show', common_css)
         self.assertNotIn('.sidebar.open', html)
         self.assertNotIn('.sidebar.open', common_css)
+
+    def test_common_api_requests_bypass_browser_cache(self):
+        common_js = self._common_js_text()
+        self.assertIn('cache: "no-store"', common_js)
 
     def test_statistics_dashboard_uses_shanghai_timezone_formatter(self):
         response = self.client.get('/api/monitor/statistics/dashboard')

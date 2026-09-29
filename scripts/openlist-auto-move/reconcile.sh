@@ -76,6 +76,13 @@ reconcile_failed_task() {
   local now_epoch="$7"
   local attach_rc=1
 
+  if is_capacity_limit_error "${MOVE_TASK_ERROR}"; then
+    unmark_file_pending "${file_path}"
+    mark_capacity_limit_hit "${file_path}" "task=${PENDING_RECORD_TASK_ID:--}, error=${MOVE_TASK_ERROR}"
+    emit_reconcile_action "${ACTION_CAPACITY}"
+    return 0
+  fi
+
   set +e
   attach_existing_undone_move_task "${token}" "${file_path}" "${src_dir}" "${dst_dir}" "${file_name}" "${PENDING_RECORD_TASK_ID}"
   attach_rc=$?
@@ -95,14 +102,6 @@ reconcile_failed_task() {
       "${PENDING_RECORD_STALE_CHECKS}" \
       "${now_epoch}" \
       "查询同名未完成任务失败"
-    return 0
-  fi
-
-  # 容量不足：清掉这条 pending（便于空间恢复后重新提交），并熔断本轮，避免 500+ 次无效重试
-  if is_capacity_limit_error "${MOVE_TASK_ERROR}"; then
-    unmark_file_pending "${file_path}"
-    mark_capacity_limit_hit "${file_path}" "task=${PENDING_RECORD_TASK_ID:--}"
-    emit_reconcile_action "${ACTION_CAPACITY}"
     return 0
   fi
 

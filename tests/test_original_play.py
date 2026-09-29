@@ -15,6 +15,8 @@ from douyin_user_monitor.monitor.original_play import (
     looks_like_source_cdn,
     resolve_original_play_url,
 )
+from douyin_user_monitor.monitor.playback_media import PlaybackMedia
+from douyin_user_monitor.monitor.playback_prepare import PreparedPlayback
 from douyin_user_monitor.monitor.video_source import QUALITY_BIT_RATE, QUALITY_ORIGINAL
 
 
@@ -127,7 +129,22 @@ class DownloaderOriginalPreferenceTests(unittest.IsolatedAsyncioTestCase):
     def setUp(self):
         self.temp_dir = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp_dir.cleanup)
-        self.downloader = AwemeAssetDownloader(Path(self.temp_dir.name))
+        self.downloader = AwemeAssetDownloader(
+            Path(self.temp_dir.name), playback_preparer=self._prepared, cover_preparer=self._cover
+        )
+
+    async def _prepared(self, request):
+        target = request.target_path if request.candidate_path is not None else request.archive_path
+        return PreparedPlayback(
+            path=target, method="verified", created=target != request.archive_path,
+            media=PlaybackMedia(
+                width=540, height=960, bit_rate=900_000, duration=1,
+                video_codec="h264", pixel_format="yuv420p", audio_codecs=(), is_mp4=True, faststart=True,
+            ),
+        )
+
+    async def _cover(self, source, target):
+        target.write_bytes(b"cover")
 
     def _detail(self) -> Dict[str, Any]:
         return {
@@ -146,6 +163,7 @@ class DownloaderOriginalPreferenceTests(unittest.IsolatedAsyncioTestCase):
                     {
                         "bit_rate": 3_000_000,
                         "gear_name": "normal_1080",
+                        "is_h265": 0,
                         "play_addr": {
                             "url_list": ["https://cdn/1080.mp4"],
                             "width": 1080,
@@ -218,7 +236,13 @@ class DownloaderOriginalPreferenceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result["video_source"]["quality_source"], QUALITY_ORIGINAL)
         self.assertEqual(result["video_source"]["gear_name"], "original")
         download_mock.assert_awaited()
-        self.assertEqual(download_mock.await_args.args[0], original_url)
+        # 归档走原画：现在同一作品还会再下一个网页播放用的「快播」版本，
+        # 所以原画是第一次调用，快播是第二次。
+        self.assertEqual(download_mock.await_args_list[0].args[0], original_url)
+        self.assertGreaterEqual(len(download_mock.await_args_list), 2)
+        self.assertNotEqual(download_mock.await_args_list[1].args[0], original_url)
+        self.assertEqual(result["video_source"]["gear_name"], "original")
+        self.assertIn("fast_play_file", result)
 
     async def test_falls_back_to_bit_rate_when_original_fails(self):
         with patch(

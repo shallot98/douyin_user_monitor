@@ -1,4 +1,5 @@
 import asyncio
+import logging
 import os
 import re
 from datetime import datetime
@@ -8,15 +9,28 @@ from typing import Any, Awaitable, Callable, Dict, List, Optional
 import aiofiles
 import httpx
 
+from douyin_user_monitor.monitor.cover_image import normalize_cover
 from douyin_user_monitor.monitor.media_urls import extract_image_urls, is_image_post
 from douyin_user_monitor.monitor.original_play import (
     extract_video_id,
     resolve_original_play_url,
 )
+from douyin_user_monitor.monitor.playback_media import probe_playback_media
+from douyin_user_monitor.monitor.playback_prepare import (
+    ArchiveMediaInspectionError,
+    CoverPreparer,
+    PlaybackPreparer,
+    PlaybackRequest,
+    PreparedPlayback,
+    prepare_cover,
+    prepare_playback,
+)
 from douyin_user_monitor.monitor.video_source import (
     VideoSource,
     build_original_video_source,
+    extract_cover_url,
     extract_video_source,
+    select_fast_play_source,
 )
 
 DOWNLOAD_TIMEOUT_SECONDS = 30
@@ -24,8 +38,14 @@ VIDEO_DOWNLOAD_TIMEOUT_SECONDS = 300
 MAX_DESC_LENGTH = 48
 MAX_USER_FOLDER_LENGTH = 64
 IMAGE_ROOT_FOLDER = "图片"
+# 网页展示用附件：与归档原画同目录，靠后缀区分
+FAST_PLAY_SUFFIX = ".fast.mp4"
+COVER_SUFFIX = ".cover.jpg"
+COVER_FILE_NAME = "cover.jpg"
 MEDIA_TYPE_VIDEO = "video"
 MEDIA_TYPE_IMAGE = "image"
+
+logger = logging.getLogger(__name__)
 
 INVALID_FILENAME_CHARS = re.compile(r'[\\/:*?"<>|\r\n\t]+')
 
@@ -49,10 +69,30 @@ def sanitize_text(value: str, default_value: str, *, max_length: int = MAX_DESC_
     return cleaned[:max_length]
 
 
+async def _has_valid_image(target: Path) -> bool:
+    if not target.exists():
+        return False
+    try:
+        await asyncio.to_thread(normalize_cover, target)
+    except (OSError, SyntaxError, ValueError):
+        logger.warning("Existing image is invalid; preparing it again: %s", target, exc_info=True)
+        return False
+    return True
+
+
 class AwemeAssetDownloader:
-    def __init__(self, download_root: Path):
+    def __init__(
+        self,
+        download_root: Path,
+        *,
+        playback_preparer: PlaybackPreparer = prepare_playback,
+        cover_preparer: CoverPreparer = prepare_cover,
+    ):
         self._download_root = download_root
         self._download_root.mkdir(parents=True, exist_ok=True)
+        self._prepare_playback = playback_preparer
+        self._prepare_cover = cover_preparer
+        self._playback_preparation_lock = asyncio.Lock()
 
     async def download_aweme_assets(
         self,
@@ -65,34 +105,59 @@ class AwemeAssetDownloader:
     ) -> Dict[str, Any]:
         user_folder = self._resolve_user_folder(sec_user_id=sec_user_id, user_nickname=user_nickname)
         filename = self._build_aweme_filename(aweme_detail, aweme_id)
-        # 图文作品有时也会带 video/音乐 uri；优先按图片处理，禁止走原画 play。
         image_urls = extract_image_urls(aweme_detail)
-        # 作品级共享 client：原画探测与视频/图片下载复用同一连接池，省去重复 TCP/TLS 握手。
         async with self._create_shared_client() as client:
             if image_urls or is_image_post(aweme_detail):
-                if not image_urls:
-                    raise ValueError(f"作品 {aweme_id} 判定为图文但未解析到图片链接")
-                image_folder = user_folder / IMAGE_ROOT_FOLDER / filename
-                image_result = await self._download_images(image_urls, headers, image_folder, client=client)
-                return self._build_download_result(
-                    media_type=MEDIA_TYPE_IMAGE,
-                    files=image_result["files"],
-                    downloaded_file_count=image_result["downloaded_file_count"],
-                    existing_file_count=image_result["existing_file_count"],
-                    image_count=len(image_urls),
-                )
-            video_source = await self._resolve_video_source(aweme_detail, headers, client=client)
-            if video_source:
-                video_file = user_folder / f"{filename}.mp4"
-                is_downloaded = await self._download_video(video_source.url, headers, video_file, client=client)
-                return self._build_download_result(
-                    media_type=MEDIA_TYPE_VIDEO,
-                    files=[video_file],
-                    downloaded_file_count=1 if is_downloaded else 0,
-                    existing_file_count=0 if is_downloaded else 1,
-                    video_source=video_source,
-                )
-            raise ValueError(f"作品 {aweme_id} 未找到可下载的视频或图片链接")
+                result = await self._download_image_asset(image_urls, aweme_detail, headers, user_folder, filename, client)
+            else:
+                result = await self._download_video_asset(aweme_id, aweme_detail, headers, user_folder, filename, client)
+        return result
+
+    async def _download_image_asset(self, image_urls, aweme_detail, headers, user_folder, filename, client):
+        if not image_urls:
+            raise ValueError(f"图文作品 {filename} 未解析到图片链接")
+        folder = user_folder / IMAGE_ROOT_FOLDER / filename
+        images = await self._download_images(image_urls, headers, folder, client=client)
+        cover = await self._download_cover(aweme_detail, headers, folder / COVER_FILE_NAME, client=client,
+                                           fallback_source=images["files"][0])
+        files = [*images["files"], cover["file"]]
+        return self._build_download_result(media_type=MEDIA_TYPE_IMAGE, files=files,
+            downloaded_file_count=images["downloaded_file_count"] + cover["downloaded"],
+            existing_file_count=images["existing_file_count"] + cover["existing"], image_count=len(image_urls),
+            cover_file=cover["file"])
+
+    async def _download_video_asset(self, aweme_id, aweme_detail, headers, user_folder, filename, client):
+        source = await self._resolve_video_source(aweme_detail, headers, client=client)
+        if not source:
+            raise ValueError(f"作品 {aweme_id} 未找到可下载的视频链接")
+        video_file = user_folder / f"{filename}.mp4"
+        downloaded = await self._download_video(source.url, headers, video_file, client=client)
+        try:
+            extras = await self._download_playback_extras(aweme_detail, headers, user_folder=user_folder,
+                                                          filename=filename, archive_source=source, client=client)
+        except ArchiveMediaInspectionError:
+            if downloaded:
+                raise
+            logger.warning("Cached archive inspection failed; downloading its source again: %s", video_file,
+                           exc_info=True)
+            await self._refresh_rejected_archive(source.url, headers, video_file, client=client)
+            downloaded = True
+            extras = await self._download_playback_extras(aweme_detail, headers, user_folder=user_folder,
+                                                          filename=filename, archive_source=source, client=client)
+        return self._build_download_result(media_type=MEDIA_TYPE_VIDEO, files=[video_file, *extras["files"]],
+            downloaded_file_count=int(downloaded) + extras["downloaded_file_count"],
+            existing_file_count=int(not downloaded) + extras["existing_file_count"], video_source=source,
+            video_file=video_file, fast_play_file=extras["fast_play_file"], cover_file=extras["cover_file"],
+            fast_play_source=extras["fast_play_source"])
+
+    async def _refresh_rejected_archive(self, url, headers, target, *, client):
+        temporary = target.with_name(f"{target.name}.retry.part")
+        try:
+            await self._download_video(url, headers, temporary, client=client)
+            await probe_playback_media(temporary)
+            os.replace(temporary, target)
+        finally:
+            temporary.unlink(missing_ok=True)
 
     def _create_shared_client(self) -> httpx.AsyncClient:
         # 默认超时按图片档；视频下载在请求级覆盖为更长的 VIDEO_DOWNLOAD_TIMEOUT_SECONDS。
@@ -191,6 +256,96 @@ class AwemeAssetDownloader:
             # 每次尝试结束清理 .part：失败重试前从干净状态开始，成功后 replace 已移走原子写文件。
             part_path.unlink(missing_ok=True)
 
+    async def _download_playback_extras(
+        self,
+        aweme_detail: Dict[str, Any],
+        headers: Dict[str, str],
+        *,
+        user_folder: Path,
+        filename: str,
+        archive_source: Optional[VideoSource],
+        client: Optional[httpx.AsyncClient],
+    ) -> Dict[str, Any]:
+        """Publish verified playback and cover roles; failures leave the archive for retry."""
+        original = user_folder / f"{filename}.mp4"
+        prepared = await self._download_fast_play(
+            aweme_detail, headers, archive_path=original, archive_source=archive_source, client=client
+        )
+        separate_playback = prepared.path != original
+        files = [prepared.path] if separate_playback else []
+        cover = await self._download_cover(
+            aweme_detail, headers, user_folder / f"{filename}{COVER_SUFFIX}", client=client,
+            fallback_source=prepared.path,
+        )
+        files.append(cover["file"])
+        return {
+            "files": files,
+            "downloaded_file_count": int(separate_playback and prepared.created) + cover["downloaded"],
+            "existing_file_count": int(separate_playback and not prepared.created) + cover["existing"],
+            "fast_play_file": prepared.path,
+            "fast_play_source": prepared.to_video_source(),
+            "cover_file": cover["file"],
+        }
+
+    async def _download_fast_play(
+        self,
+        aweme_detail: Dict[str, Any],
+        headers: Dict[str, str],
+        *,
+        archive_path: Path,
+        archive_source: Optional[VideoSource],
+        client: Optional[httpx.AsyncClient],
+    ) -> PreparedPlayback:
+        target = archive_path.with_suffix(FAST_PLAY_SUFFIX)
+        candidate_path = target.with_name(f"{target.name}.source.part")
+        video_data = aweme_detail.get("video")
+        source = select_fast_play_source(video_data) if isinstance(video_data, dict) else None
+        if source and archive_source and source.url == archive_source.url:
+            source = None
+        candidate = None
+        try:
+            if source and not target.exists():
+                await self._download_video(source.url, headers, candidate_path, client=client)
+                candidate = candidate_path
+            request = PlaybackRequest(archive_path=archive_path, target_path=target, candidate_path=candidate)
+            # One preparation per downloader keeps concurrent user syncs from saturating this host.
+            async with self._playback_preparation_lock:
+                return await self._prepare_playback(request)
+        finally:
+            candidate_path.unlink(missing_ok=True)
+
+    async def _download_cover(
+        self,
+        aweme_detail: Dict[str, Any],
+        headers: Dict[str, str],
+        target: Path,
+        *,
+        client: Optional[httpx.AsyncClient],
+        fallback_source: Optional[Path] = None,
+    ) -> Dict[str, Any]:
+        cover_url = extract_cover_url(aweme_detail)
+        if await _has_valid_image(target):
+            return {"file": target, "downloaded": 0, "existing": 1}
+        target.parent.mkdir(parents=True, exist_ok=True)
+        if not cover_url:
+            if fallback_source is None:
+                raise ValueError(f"作品封面缺少上游链接或可用媒体源：{target.name}")
+            async with self._playback_preparation_lock:
+                await self._prepare_cover(fallback_source, target)
+            return {"file": target, "downloaded": 1, "existing": 0}
+        if client is None:
+            async with httpx.AsyncClient(
+                timeout=DOWNLOAD_TIMEOUT_SECONDS, follow_redirects=True
+            ) as owned:
+                await self._run_with_retry(
+                    lambda: self._download_image_once(owned, cover_url, headers, target)
+                )
+        else:
+            await self._run_with_retry(
+                lambda: self._download_image_once(client, cover_url, headers, target)
+            )
+        return {"file": target, "downloaded": 1, "existing": 0}
+
     async def _download_images(
         self,
         image_urls: List[str],
@@ -218,7 +373,7 @@ class AwemeAssetDownloader:
         for index, image_url in enumerate(image_urls, start=1):
             image_file = image_folder / f"{index}.jpg"
             files.append(image_file)
-            if image_file.exists():
+            if await _has_valid_image(image_file):
                 existing_file_count += 1
                 continue
             await self._run_with_retry(
@@ -288,6 +443,10 @@ class AwemeAssetDownloader:
         existing_file_count: int,
         image_count: int = 0,
         video_source: Optional[VideoSource] = None,
+        video_file: Optional[Path] = None,
+        fast_play_file: Optional[Path] = None,
+        cover_file: Optional[Path] = None,
+        fast_play_source: Optional[VideoSource] = None,
     ) -> Dict[str, Any]:
         result = {
             "media_type": media_type,
@@ -299,6 +458,15 @@ class AwemeAssetDownloader:
         }
         if video_source:
             result["video_source"] = video_source.to_record()
+        # 显式记录各角色文件，网页端不必靠文件名猜（老记录没有这些键，展示层回落 files）
+        if video_file is not None:
+            result["video_file"] = self._relative_record_path(video_file)
+        if fast_play_file is not None:
+            result["fast_play_file"] = self._relative_record_path(fast_play_file)
+        if cover_file is not None:
+            result["cover_file"] = self._relative_record_path(cover_file)
+        if fast_play_source:
+            result["fast_play_source"] = fast_play_source.to_record()
         return result
 
     def _relative_record_path(self, file_path: Path) -> str:

@@ -1,24 +1,54 @@
 from __future__ import annotations
 
+import asyncio
+import logging
+import mimetypes
+from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 
 import httpx
-from fastapi import APIRouter, HTTPException, Query, Request
-from fastapi.responses import HTMLResponse, Response
+from fastapi import APIRouter, BackgroundTasks, HTTPException, Query, Request
+from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, Response, StreamingResponse
 from pydantic import BaseModel, Field
 
+from douyin_user_monitor.api.covers import cover_response, with_cover_urls
+from douyin_user_monitor.api.media_proxy import (
+    MediaUpstreamError,
+    UnsatisfiableRangeError,
+    build_response_headers,
+    build_upstream_headers,
+    iter_file_range,
+    open_media_stream,
+    parse_byte_range,
+)
 from douyin_user_monitor.api.models import ErrorResponseModel, ResponseModel
 from douyin_user_monitor.crawler.inprocess_client import DEFAULT_HEADERS, InProcessDouyinClient
+from douyin_user_monitor.monitor.archive_feed import (
+    build_archive_page,
+    resolve_archive_file,
+)
+from douyin_user_monitor.monitor.archive_path_aliases import ArchivePathAliasError, load_archive_path_aliases
+from douyin_user_monitor.monitor.aweme_feed import (
+    DEFAULT_FEED_COUNT,
+    AwemeFeedService,
+    clamp_cursor,
+    clamp_feed_count,
+)
 from douyin_user_monitor.monitor.cookie_liveness import CookieLivenessConfig
 from douyin_user_monitor.monitor.cookie_liveness_service import CookieLivenessService
 from douyin_user_monitor.monitor.cookie_pool import CookiePoolService
+from douyin_user_monitor.monitor.cover_store import CoverStore
 from douyin_user_monitor.monitor.dashboard_payload import (
     DASHBOARD_ACTIVITY_LIMIT,
     build_recent_activity,
 )
+from douyin_user_monitor.monitor.errors import sanitize_public_error
 from douyin_user_monitor.monitor.hermes_weixin_sender import HermesWeixinConfig, HermesWeixinSender
+from douyin_user_monitor.monitor.new_work_cover import NewWorkCoverPublisher
+from douyin_user_monitor.monitor.nickname_history import build_former_nicknames
 from douyin_user_monitor.monitor.notifier import NoopMonitorNotifier
+from douyin_user_monitor.monitor.openlist_client import ArchiveUnavailableError, OpenListClient
 from douyin_user_monitor.monitor.parse_service import ParseService
 from douyin_user_monitor.monitor.schedule import MODE_COVERAGE, MODE_INTERVAL
 from douyin_user_monitor.monitor.service import (
@@ -26,17 +56,33 @@ from douyin_user_monitor.monitor.service import (
     MonitorService,
 )
 from douyin_user_monitor.monitor.statistics import build_user_statistics
-from douyin_user_monitor.monitor.storage import MonitorStorage
+from douyin_user_monitor.monitor.storage import FileStamp, MonitorStorage, file_stamp
 from douyin_user_monitor.monitor.telegram_notifier import TelegramNotifier
 from douyin_user_monitor.monitor.user_lookup import find_user_by_id
 from douyin_user_monitor.monitor.user_table import query_monitor_users, wants_paginated_users
 from douyin_user_monitor.settings_loaders import load_settings
 
 router = APIRouter()
+LOGGER = logging.getLogger(__name__)
 AVATAR_CACHE_SECONDS = 3600
 # 单张 ~3KB，2048 张 ≈6MB；超出按插入顺序淘汰最旧
 AVATAR_CACHE_MAX_ITEMS = 2048
 _AVATAR_CACHE: dict[str, tuple[bytes, str]] = {}
+# 签名 CDN 地址短时有效，代理响应不做长缓存
+MEDIA_CACHE_SECONDS = 300
+# 归档文件内容不会变，可以让浏览器多缓存一会儿
+ARCHIVE_MEDIA_CACHE_SECONDS = 86400
+ARCHIVE_STREAM_ATTEMPTS = 2
+ARCHIVE_PREFETCH_LIMIT = 6
+
+
+def _archive_media_type(relative_path: str, upstream_type: str | None) -> str:
+    """Prefer a concrete browser media type when OpenList reports octet-stream."""
+    content_type = str(upstream_type or "").split(";", 1)[0].strip().lower()
+    if content_type and content_type != "application/octet-stream":
+        return content_type
+    guessed, _ = mimetypes.guess_type(relative_path)
+    return guessed or content_type or "application/octet-stream"
 HTML_NO_CACHE_HEADERS = {
     "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
     "Pragma": "no-cache",
@@ -44,7 +90,7 @@ HTML_NO_CACHE_HEADERS = {
 
 # 统计接口短缓存：状态文件未变时避免反复扫 500+ 用户的 download_records
 _STATISTICS_CACHE: dict[str, Any] | None = None
-_STATISTICS_CACHE_MTIME_NS: int | None = None
+_STATISTICS_CACHE_STAMP: FileStamp | None = None
 
 SETTINGS = load_settings()
 DASHBOARD_PATH = SETTINGS.project_root / "douyin_user_monitor" / "web" / "dashboard.html"
@@ -52,9 +98,11 @@ STATISTICS_DASHBOARD_PATH = SETTINGS.project_root / "douyin_user_monitor" / "web
 COOKIES_DASHBOARD_PATH = SETTINGS.project_root / "douyin_user_monitor" / "web" / "cookies.html"
 SETTINGS_DASHBOARD_PATH = SETTINGS.project_root / "douyin_user_monitor" / "web" / "settings.html"
 API_DASHBOARD_PATH = SETTINGS.project_root / "douyin_user_monitor" / "web" / "api.html"
+WORKS_DASHBOARD_PATH = SETTINGS.project_root / "douyin_user_monitor" / "web" / "works.html"
 
 CRAWLER_CLIENT = InProcessDouyinClient(SETTINGS.crawler.config_path)
 MONITOR_STORAGE = MonitorStorage(SETTINGS.monitor.state_path)
+COVER_STORE = CoverStore(SETTINGS.monitor.state_path.parent / "covers")
 TG_SETTINGS = SETTINGS.notifications.telegram
 MONITOR_NOTIFIER = (
     TelegramNotifier(
@@ -114,7 +162,12 @@ monitor_service = MonitorService(
     notifier=MONITOR_NOTIFIER,
     cookie_liveness_service=COOKIE_LIVENESS_SERVICE,
     cookie_pool_service=COOKIE_POOL_SERVICE,
+    cover_publisher=NewWorkCoverPublisher(SETTINGS.monitor.download_root, COVER_STORE).publish,
 )
+
+AWEME_FEED_SERVICE = AwemeFeedService(CRAWLER_CLIENT)
+OPENLIST_CLIENT = OpenListClient(SETTINGS.archive)
+ARCHIVE_PATH_ALIASES = load_archive_path_aliases(SETTINGS.monitor.state_path)
 
 
 class AddUserPayload(BaseModel):
@@ -166,8 +219,8 @@ def _map_cookie_error(request: Request, exc: Exception) -> HTTPException:
         return _build_error(request, str(exc), status_code=400)
     return _build_error(request, str(exc), status_code=400)
 
-def _find_user_or_raise(user_id: str) -> dict[str, Any]:
-    user = find_user_by_id(monitor_service.list_users(), user_id)
+async def _find_user_or_raise(user_id: str) -> dict[str, Any]:
+    user = find_user_by_id(await monitor_service.list_users_async(), user_id)
     if user is None:
         raise HTTPException(status_code=404, detail="用户不存在")
     return user
@@ -246,6 +299,17 @@ async def api_dashboard() -> str:
         raise HTTPException(status_code=404, detail=f"API 页面不存在: {API_DASHBOARD_PATH}")
     return HTMLResponse(
         content=API_DASHBOARD_PATH.read_text(encoding="utf-8"),
+        headers=HTML_NO_CACHE_HEADERS,
+    )
+
+
+@router.get("/works/dashboard", response_class=HTMLResponse, summary="用户作品浏览页/User works browser page")
+async def works_dashboard() -> str:
+    """作品列表页，目标用户由查询串 ?user_id= 指定（页面侧读取）。"""
+    if not WORKS_DASHBOARD_PATH.exists():
+        raise HTTPException(status_code=404, detail=f"作品页面不存在: {WORKS_DASHBOARD_PATH}")
+    return HTMLResponse(
+        content=WORKS_DASHBOARD_PATH.read_text(encoding="utf-8"),
         headers=HTML_NO_CACHE_HEADERS,
     )
 
@@ -400,30 +464,29 @@ async def recent_activity(
 
 @router.get("/statistics", response_model=ResponseModel, summary="获取用户统计/Get user statistics")
 async def user_statistics(request: Request) -> ResponseModel:
-    global _STATISTICS_CACHE, _STATISTICS_CACHE_MTIME_NS
-    # 统计只读本地态，无需资料补全网络请求；并按状态文件 mtime 做短缓存。
-    mtime_ns = None
+    global _STATISTICS_CACHE, _STATISTICS_CACHE_STAMP
+    # 统计只读本地态；完整文件标识能识别 mtime 相同的原子替换。
     try:
-        mtime_ns = monitor_service._storage.state_file.stat().st_mtime_ns  # noqa: SLF001
+        stamp = file_stamp(monitor_service._storage.state_file.stat())  # noqa: SLF001
     except OSError:
-        mtime_ns = None
+        stamp = None
     if (
         _STATISTICS_CACHE is not None
-        and mtime_ns is not None
-        and _STATISTICS_CACHE_MTIME_NS == mtime_ns
+        and stamp is not None
+        and _STATISTICS_CACHE_STAMP == stamp
     ):
         return _build_success(request, _STATISTICS_CACHE)
 
     users = monitor_service.list_users()
     payload = build_user_statistics(users)
     _STATISTICS_CACHE = payload
-    _STATISTICS_CACHE_MTIME_NS = mtime_ns
+    _STATISTICS_CACHE_STAMP = stamp
     return _build_success(request, payload)
 
 
 @router.get("/users/{user_id}/avatar", summary="代理监控用户头像/Proxy monitor user avatar")
 async def proxy_user_avatar(user_id: str) -> Response:
-    user = _find_user_or_raise(user_id)
+    user = await _find_user_or_raise(user_id)
     avatar_url = _validate_avatar_url(user.get("avatar_url"))
     # 头像 URL 换图即换地址：按 URL 进程内缓存，避免统计页每次 20+ 个请求都回源抖音 CDN。
     cached = _AVATAR_CACHE.get(avatar_url)
@@ -441,6 +504,292 @@ async def proxy_user_avatar(user_id: str) -> Response:
         content=content,
         media_type=content_type,
         headers={"Cache-Control": f"public, max-age={AVATAR_CACHE_SECONDS}"},
+    )
+
+
+def _local_media_response(local_path: Path, range_header: str | None) -> Response:
+    """本地归档文件，自己处理 Range。
+
+    Starlette 0.37 的 FileResponse 不解析 Range（直接回 200 + 整份文件），
+    视频会退化成整包下载且拖不动进度条，所以这里显式实现 206。
+    """
+    media_type = mimetypes.guess_type(local_path.name)[0] or "application/octet-stream"
+    file_size = local_path.stat().st_size
+    try:
+        byte_range = parse_byte_range(range_header, file_size)
+    except UnsatisfiableRangeError:
+        return Response(
+            status_code=416,
+            headers={"Content-Range": f"bytes */{file_size}", "Accept-Ranges": "bytes"},
+        )
+
+    if byte_range is None:
+        return FileResponse(
+            local_path,
+            media_type=media_type,
+            headers={
+                "Accept-Ranges": "bytes",
+                "Cache-Control": f"private, max-age={ARCHIVE_MEDIA_CACHE_SECONDS}",
+            },
+        )
+
+    start, end = byte_range
+    return StreamingResponse(
+        iter_file_range(local_path, start, end),
+        status_code=206,
+        media_type=media_type,
+        headers={
+            "Content-Range": f"bytes {start}-{end}/{file_size}",
+            "Content-Length": str(end - start + 1),
+            "Accept-Ranges": "bytes",
+            "Cache-Control": f"private, max-age={ARCHIVE_MEDIA_CACHE_SECONDS}",
+        },
+    )
+
+
+def _feed_user_header(user: dict[str, Any]) -> dict[str, Any]:
+    """作品页头部展示所需的最小用户投影（不含 download_records 等大字段）。"""
+    return {
+        "id": str(user.get("id") or ""),
+        "nickname": str(user.get("nickname") or ""),
+        "avatar_url": user.get("avatar_url"),
+        "profile_url": str(user.get("profile_url") or ""),
+        "enabled": bool(user.get("enabled", True)),
+        "downloaded_count": int(user.get("downloaded_count", 0) or 0),
+        "account_status": str(user.get("account_status") or "normal"),
+        "account_status_label": str(user.get("account_status_label") or "正常"),
+        "last_checked_at": user.get("last_checked_at"),
+        # 改名后归档会散在多个昵称目录下，带上曾用名便于认出网盘上的历史目录
+        "former_nicknames": build_former_nicknames(user),
+    }
+
+
+@router.get(
+    "/users/{user_id}/archive",
+    response_model=ResponseModel,
+    summary="获取用户已归档作品列表/List archived works from local records",
+)
+async def list_user_archive(
+    request: Request,
+    user_id: str,
+    background_tasks: BackgroundTasks,
+    page: int | None = Query(None, description="1-based 页码"),
+    page_size: int | None = Query(None, description="每页条数 20|50|100"),
+) -> ResponseModel:
+    """只读本地 download_records，不发起任何抖音请求。
+
+    抖音端实时拉列表容易触发风控，且作品列表被隐藏的账号会直接 403；
+    已下载的作品元数据本地都有，够渲染列表，只有媒体字节需要走归档。
+    """
+    user = await _find_user_or_raise(user_id)
+    payload = build_archive_page(user, page=page, page_size=page_size)
+    payload["items"] = await with_cover_urls(COVER_STORE, user_id, payload["items"])
+    payload["user"] = _feed_user_header(user)
+    payload["archive_enabled"] = OPENLIST_CLIENT.enabled
+    background_tasks.add_task(_prefetch_archive_urls, user, payload["items"])
+    return _build_success(request, payload)
+
+
+@router.get(
+    "/users/{user_id}/archive/{aweme_id}/cover",
+    summary="读取独立封面/Read a verified local cover",
+)
+async def read_archive_cover(
+    request: Request, user_id: str, aweme_id: str, *,
+    v: str | None = Query(None, pattern=r"^[0-9a-f]{64}$"),
+) -> Response:
+    user = await _find_user_or_raise(user_id)
+    return await cover_response(request, user, COVER_STORE, aweme_id=aweme_id, version=v)
+
+
+async def _open_archived_cloud_stream(
+    relative_path: str, sec_user_id: str | None, range_header: str | None, *, verified_paths: tuple[str, ...]
+) -> tuple[int, dict[str, str], Any]:
+    upstream_headers = build_upstream_headers(None, range_header)
+    try:
+        candidates = OPENLIST_CLIENT.remote_paths_for(
+            relative_path, sec_user_id=sec_user_id, verified_paths=verified_paths
+        )
+    except ArchiveUnavailableError as exc:
+        raise HTTPException(status_code=404, detail=sanitize_public_error(exc)) from exc
+    last_metadata_error: Exception | None = None
+    last_media_error: Exception | None = None
+    for remote_path in candidates:
+        # Retry an expired URL on this exact replica before trying the next one.
+        for attempt in range(ARCHIVE_STREAM_ATTEMPTS):
+            try:
+                stream_url = await OPENLIST_CLIENT.resolve_candidate_url(remote_path, refresh=bool(attempt))
+            except ArchiveUnavailableError as exc:
+                last_metadata_error = exc
+                break
+            try:
+                return await open_media_stream(
+                    stream_url,
+                    headers=upstream_headers,
+                    timeout_seconds=SETTINGS.archive.timeout_seconds,
+                )
+            except MediaUpstreamError as exc:
+                last_media_error = exc
+    last_error = last_media_error or last_metadata_error
+    raise HTTPException(
+        status_code=502 if last_media_error else 404,
+        detail=sanitize_public_error(last_error),
+    ) from last_error
+
+
+async def _prefetch_archive_urls(user: dict[str, Any], items: list[dict[str, Any]]) -> None:
+    jobs = []
+    for item in items[:ARCHIVE_PREFETCH_LIMIT]:
+        play_index = item.get("play_index")
+        if play_index is None:
+            continue
+        try:
+            aweme_id = str(item["aweme_id"])
+            relative_path = resolve_archive_file(user, aweme_id, play_index)
+            verified = ARCHIVE_PATH_ALIASES.paths_for(user, aweme_id, relative_path)
+        except (KeyError, IndexError, ArchivePathAliasError) as exc:
+            LOGGER.warning("archive playback prefetch skipped aweme=%s: %s", item.get("aweme_id"), exc)
+            continue
+        jobs.append(
+            OPENLIST_CLIENT.resolve_stream_url(
+                relative_path, sec_user_id=user.get("sec_user_id"), verified_paths=verified
+            )
+        )
+    if not jobs:
+        return
+    results = await asyncio.gather(*jobs, return_exceptions=True)
+    for result in results:
+        if isinstance(result, Exception):
+            LOGGER.info("archive playback prefetch unavailable: %s", result)
+
+
+@router.get(
+    "/users/{user_id}/archive/{aweme_id}/media/{file_index}",
+    summary="播放/查看已归档作品文件/Stream archived work file",
+)
+async def stream_archived_media(
+    request: Request,
+    user_id: str,
+    aweme_id: str,
+    file_index: int,
+    direct: bool = Query(False, description="重定向到短时直链，不经本服务转发"),
+) -> Response:
+    """按记录从 OpenList 云端流式读取归档媒体。
+
+    媒体不从项目本机读取；本机只保留状态和路径元数据。
+    路径来自服务端记录，不接受调用方传路径，避免变成任意文件读取。
+    """
+    user = await _find_user_or_raise(user_id)
+    try:
+        relative_path = resolve_archive_file(user, aweme_id, file_index)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except IndexError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    try:
+        verified_paths = ARCHIVE_PATH_ALIASES.paths_for(user, aweme_id, relative_path)
+    except ArchivePathAliasError as exc:
+        raise HTTPException(status_code=409, detail=sanitize_public_error(exc)) from exc
+    if direct:
+        try:
+            stream_url = await OPENLIST_CLIENT.resolve_stream_url(
+                relative_path, sec_user_id=user.get("sec_user_id"), verified_paths=verified_paths
+            )
+        except ArchiveUnavailableError as exc:
+            raise HTTPException(status_code=404, detail=sanitize_public_error(exc)) from exc
+        # OpenList may return its own loopback /p URL for providers without a
+        # public raw URL (for example Quark). That address is valid only on the
+        # server, so keep proxying instead of redirecting the browser to 127.0.0.1.
+        if not stream_url.startswith(OPENLIST_CLIENT._self_proxy_prefix()):  # noqa: SLF001
+            return RedirectResponse(stream_url, status_code=307, headers={"Cache-Control": "no-store"})
+    status_code, upstream_response_headers, body = await _open_archived_cloud_stream(
+        relative_path, user.get("sec_user_id"), request.headers.get("range"), verified_paths=verified_paths
+    )
+
+    response_headers = build_response_headers(
+        upstream_response_headers,
+        cache_seconds=0 if status_code == 416 else ARCHIVE_MEDIA_CACHE_SECONDS,
+    )
+    media_type = _archive_media_type(relative_path, response_headers.get("Content-Type"))
+    response_headers["Content-Type"] = media_type
+    return StreamingResponse(
+        body,
+        status_code=status_code,
+        media_type=media_type,
+        headers=response_headers,
+    )
+
+
+@router.get(
+    "/users/{user_id}/awemes",
+    response_model=ResponseModel,
+    summary="获取监控用户作品列表(实时抖音)/List monitor user works from Douyin",
+)
+async def list_user_awemes(
+    request: Request,
+    user_id: str,
+    cursor: int | None = Query(None, description="翻页游标，首页留空；取上一页 next_cursor"),
+    count: int | None = Query(None, description=f"每页条数，1..20，默认 {DEFAULT_FEED_COUNT}"),
+) -> ResponseModel:
+    """实时拉取抖音端作品列表；只读，不写监控状态。
+
+    每次调用都是一次真实抖音请求，前端按需翻页，避免无谓消耗 Cookie 配额。
+    """
+    user = await _find_user_or_raise(user_id)
+    sec_user_id = str(user.get("sec_user_id") or "").strip()
+    if not sec_user_id:
+        raise _build_error(request, "该用户缺少 sec_user_id，无法拉取作品列表")
+    try:
+        payload = await AWEME_FEED_SERVICE.list_user_awemes(
+            sec_user_id,
+            cursor=clamp_cursor(cursor),
+            count=clamp_feed_count(count),
+            downloaded_ids=user.get("downloaded_aweme_ids", []),
+        )
+    except Exception as exc:  # noqa: BLE001
+        raise _build_error(request, sanitize_public_error(exc), status_code=502)
+    payload["user"] = _feed_user_header(user)
+    return _build_success(request, payload)
+
+
+@router.get(
+    "/users/{user_id}/awemes/{aweme_id}/video",
+    summary="代理作品视频流/Proxy aweme video stream",
+)
+async def proxy_aweme_video(request: Request, user_id: str, aweme_id: str) -> Response:
+    """透传 Range 的视频代理。
+
+    浏览器直连抖音 CDN 会带上本面板的 Referer 而被 403，且直连会把签名地址暴露在
+    页面里；这里改用爬虫请求头代理，并双向透传 Range 以支持拖动进度条。
+    地址由服务端按 aweme_id 解析（不接受调用方传 URL），避免变成开放代理。
+    """
+    await _find_user_or_raise(user_id)
+    try:
+        play_url = await AWEME_FEED_SERVICE.resolve_play_url(aweme_id)
+    except Exception as exc:  # noqa: BLE001
+        raise _build_error(request, sanitize_public_error(exc), status_code=502)
+
+    crawler_headers = (await CRAWLER_CLIENT.get_douyin_headers())["headers"]
+    upstream_headers = build_upstream_headers(crawler_headers, request.headers.get("range"))
+    try:
+        status_code, upstream_response_headers, body = await open_media_stream(
+            play_url,
+            headers=upstream_headers,
+            timeout_seconds=SETTINGS.crawler.timeout_seconds,
+        )
+    except MediaUpstreamError as exc:
+        raise HTTPException(status_code=502, detail=sanitize_public_error(exc)) from exc
+
+    response_headers = build_response_headers(
+        upstream_response_headers,
+        cache_seconds=0 if status_code == 416 else MEDIA_CACHE_SECONDS,
+    )
+    return StreamingResponse(
+        body,
+        status_code=status_code,
+        media_type=response_headers.get("Content-Type", "video/mp4"),
+        headers=response_headers,
     )
 
 

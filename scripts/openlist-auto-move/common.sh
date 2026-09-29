@@ -23,6 +23,9 @@ STRIP_PREFIX_DIR=""
 MIN_AGE_SECONDS=120
 DRY_RUN="false"
 SANITIZE_EMOJI="false"
+# 只清洗主力盘目标目录名（不重命名本地文件、不影响备份盘）。
+# wopan 拒绝含 emoji 的目录名，报误导性的「8005 登录失败」。
+PRIMARY_SANITIZE_EMOJI="false"
 FILE_PATTERN="*.mp4"
 PROCESS_MOVED_COUNT=0
 PROCESS_ERROR_COUNT=0
@@ -57,12 +60,13 @@ ACTION_UNKNOWN="unknown"
 # process_one_file 在 $() 子 shell 中运行，容量熔断通过该 action 回传给父进程
 ACTION_CAPACITY="capacity_limit"
 
-# 目标盘容量不足时置位，本轮停止继续对账/提交，避免空转数十分钟
+# 目标盘存储或上传配额不足时置位，停止主力盘操作，备份盘仍可继续复制
 CAPACITY_LIMIT_HIT=0
+CAPACITY_ERROR_PATTERN='capacity limit|USER_DAILY_UPLOAD_QUOTA_EXCEEDED'
 
 is_capacity_limit_error() {
   local err="${1:-${MOVE_TASK_ERROR:-}}"
-  [[ "${err}" == *"capacity limit"* ]]
+  [[ "${err}" =~ ${CAPACITY_ERROR_PATTERN} ]]
 }
 
 mark_capacity_limit_hit() {
@@ -70,9 +74,9 @@ mark_capacity_limit_hit() {
   local detail="${2:-}"
   CAPACITY_LIMIT_HIT=1
   if [[ -n "${file_path}" ]]; then
-    log "目标盘容量不足(capacity limit)，本轮停止后续对账/提交以免空转: file=${file_path}${detail:+, ${detail}}"
+    log "目标盘存储或上传配额不足，本轮停止主力盘对账/提交: file=${file_path}${detail:+, ${detail}}"
   else
-    log "目标盘容量不足(capacity limit)，本轮停止后续对账/提交以免空转${detail:+: ${detail}}"
+    log "目标盘存储或上传配额不足，本轮停止主力盘对账/提交${detail:+: ${detail}}"
   fi
 }
 

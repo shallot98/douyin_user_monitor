@@ -8,7 +8,9 @@ OPENLIST_MOVER_PATHS_LOADED=1
 sanitize_component() {
   local text="$1"
   local sanitized
-  sanitized=$(printf '%s' "${text}" | perl -CSDA -Mutf8 -pe 's/\p{Extended_Pictographic}//g; s/[\x{FE0F}\x{200D}]//g;')
+  # \p{Extended_Pictographic} 不含肤色修饰符(1F3FB-1F3FF)与键帽符(20E3)，但 wopan 拒收残留，需显式补剥；
+  # 另按实测补剥数学字母区(1D400-1D7FF)与 CJK 扩展 B-F 之外的星球面（python 侧 WOPAN_STRIP_RANGES 同源）
+  sanitized=$(printf '%s' "${text}" | perl -CSDA -Mutf8 -pe 's/[\p{Extended_Pictographic}\x{1F3FB}-\x{1F3FF}]//g; s/[\x{FE0F}\x{200D}\x{20E3}]//g; s/[\x{1D400}-\x{1D7FF}\x{10000}-\x{1FFFF}\x{323B0}-\x{10FFFF}]//g;')
   sanitized=$(printf '%s' "${sanitized}" | sed -E 's/[[:space:]]+/ /g; s/^[[:space:]]+//; s/[[:space:]]+$//')
   printf '%s' "${sanitized}"
 }
@@ -132,8 +134,11 @@ build_remote_paths() {
   local relative_dir
   relative_dir=$(dirname -- "${relative_path}")
 
+  # 主力盘（wopan）拒绝含 emoji 的目录名，报误导性的「8005 登录失败」。
+  # 这里只清洗目标目录名：文件名与本地文件都不动，备份盘另算（见 backup.sh），
+  # 这样 download_records 里存的相对路径依然有效，网页侧做同样变换即可命中。
   local effective_relative_dir="${relative_dir}"
-  if [[ "${SANITIZE_EMOJI}" == "true" ]]; then
+  if [[ "${SANITIZE_EMOJI}" == "true" || "${PRIMARY_SANITIZE_EMOJI}" == "true" ]]; then
     effective_relative_dir=$(sanitize_relative_dir "${relative_dir}") || return 1
   fi
 
@@ -149,11 +154,13 @@ build_remote_paths() {
   printf '%s\n%s\n%s\n' "${src_dir}" "${dst_dir}" "${file_name}"
 }
 
+# 备份暂存区（backup.sh）里是硬链接副本，不是待搬运文件，必须跳过
 list_source_files() {
+  local staging_root="${SOURCE_ROOT}/${BACKUP_STAGING_DIR_NAME:-.backup-staging}"
   if [[ "${FILE_PATTERN}" == "*" ]]; then
-    find "${SOURCE_ROOT}" -type f -print0
+    find "${SOURCE_ROOT}" -path "${staging_root}" -prune -o -type f -print0
     return 0
   fi
 
-  find "${SOURCE_ROOT}" -type f -name "${FILE_PATTERN}" -print0
+  find "${SOURCE_ROOT}" -path "${staging_root}" -prune -o -type f -name "${FILE_PATTERN}" -print0
 }
