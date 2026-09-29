@@ -26,7 +26,10 @@ from douyin_user_monitor.api.media_proxy import (
 from douyin_user_monitor.api.models import ErrorResponseModel, ResponseModel
 from douyin_user_monitor.crawler.inprocess_client import DEFAULT_HEADERS, InProcessDouyinClient
 from douyin_user_monitor.monitor.archive_feed import (
+    build_archive_item,
     build_archive_page,
+    find_record,
+    neighbor_items,
     resolve_archive_file,
 )
 from douyin_user_monitor.monitor.archive_path_aliases import ArchivePathAliasError, load_archive_path_aliases
@@ -76,6 +79,14 @@ MEDIA_CACHE_SECONDS = 300
 ARCHIVE_MEDIA_CACHE_SECONDS = 86400
 ARCHIVE_STREAM_ATTEMPTS = 2
 ARCHIVE_PREFETCH_LIMIT = 6
+# 播放器里预取当前作品的后 2 个、前 1 个，切换上/下一个时直接命中本机缓存
+ARCHIVE_NEIGHBOR_PREFETCH_AFTER = 2
+ARCHIVE_NEIGHBOR_PREFETCH_BEFORE = 1
+# 浏览器直连归档 CDN 的直链。wopan/D2 签名实测约 4 小时有效，本服务还可能缓存 5 分钟，
+# 告诉前端 30 分钟内可用，留足余量；过期或播放失败时前端重新取或改走代理。
+ARCHIVE_DIRECT_URL_CLIENT_TTL_SECONDS = 1800
+# 一页最多 100 条同时解析，限并发，别把 OpenList 连接池占满（见 openlist_client 的池泄漏事故）
+ARCHIVE_DIRECT_URL_CONCURRENCY = 8
 # 播放文件中位数 2~4MB；超过 10MB 的等整份落盘反而比流式代理慢，继续直接代理
 ARCHIVE_MEDIA_CACHE_MAX_FILE_BYTES = 10 * 1024 * 1024
 # 缓存只为一次观看内的多次 Range 请求和列表预取服务，不求长期命中，留最近几十个即可
@@ -206,6 +217,10 @@ class StartMonitorPayload(BaseModel):
     mode: str = Field(default=MODE_INTERVAL, description=f"监控模式: {MODE_INTERVAL} | {MODE_COVERAGE}")
     interval_hours: float = Field(default=0.05, ge=MIN_INTERVAL_HOURS, description="定时模式轮询间隔(小时)")
     coverage_hours: float = Field(default=24.0, gt=0, description="覆盖模式下，全量用户完成一轮的目标小时数")
+
+
+class PlaybackUrlsPayload(BaseModel):
+    aweme_ids: list[str] = Field(min_length=1, max_length=100, description="要取直链的作品 ID，最多 100 个")
 
 
 class ParseBody(BaseModel):
@@ -697,6 +712,105 @@ async def _prefetch_archive_urls(user: dict[str, Any], items: list[dict[str, Any
     for result in results:
         if isinstance(result, Exception):
             LOGGER.info("archive playback prefetch unavailable: %s", result)
+
+
+@router.post(
+    "/users/{user_id}/archive/{aweme_id}/prefetch",
+    response_model=ResponseModel,
+    summary="预取相邻作品到本机缓存/Prefetch neighbouring archived works",
+)
+async def prefetch_archive_neighbors(
+    request: Request, user_id: str, aweme_id: str, background_tasks: BackgroundTasks
+) -> ResponseModel:
+    """播放器打开某个作品后调用：按列表顺序（跨分页）预取前后相邻作品的播放文件。"""
+    user = await _find_user_with_records_or_raise(user_id)
+    items = neighbor_items(
+        user, aweme_id, before=ARCHIVE_NEIGHBOR_PREFETCH_BEFORE, after=ARCHIVE_NEIGHBOR_PREFETCH_AFTER
+    )
+    background_tasks.add_task(_prefetch_archive_urls, user, items)
+    return _build_success(request, {"queued": [item["aweme_id"] for item in items]})
+
+
+async def _direct_file_url(
+    user: dict[str, Any], aweme_id: str, file_index: int, semaphore: asyncio.Semaphore
+) -> str | None:
+    """单个归档文件的 CDN 直链；只能经 OpenList 自代理（夸克）时返回 None。"""
+    relative_path = resolve_archive_file(user, aweme_id, file_index)
+    verified_paths = ARCHIVE_PATH_ALIASES.paths_for(user, aweme_id, relative_path)
+    async with semaphore:
+        stream_url = await OPENLIST_CLIENT.resolve_stream_url(
+            relative_path, sec_user_id=user.get("sec_user_id"), verified_paths=verified_paths
+        )
+    # 自代理地址指向本机 OpenList（127.0.0.1），浏览器访问不到
+    if stream_url.startswith(OPENLIST_CLIENT._self_proxy_prefix()):  # noqa: SLF001
+        return None
+    return stream_url
+
+
+async def _direct_work_urls(
+    user: dict[str, Any], aweme_id: str, semaphore: asyncio.Semaphore
+) -> tuple[str | None, list[str | None] | None]:
+    """(视频播放文件直链, 图文各张图片直链)；视频作品图片为 None，图文作品视频为 None。"""
+    record = find_record(user, aweme_id)
+    item = build_archive_item(record) if record is not None else None
+    if item is None:
+        raise KeyError(f"作品 {aweme_id} 不在下载记录中")
+    if item["media_type"] == "image":
+        images = await asyncio.gather(
+            *(_direct_file_url(user, aweme_id, index, semaphore) for index in item["image_indices"])
+        )
+        return None, list(images)
+    if item["play_index"] is None:
+        return None, None
+    return await _direct_file_url(user, aweme_id, item["play_index"], semaphore), None
+
+
+@router.post(
+    "/users/{user_id}/archive/playback-urls",
+    response_model=ResponseModel,
+    summary="批量获取作品播放直链/Resolve direct CDN playback URLs",
+)
+async def resolve_archive_playback_urls(
+    request: Request, user_id: str, payload: PlaybackUrlsPayload
+) -> ResponseModel:
+    """归档源站在国内，本服务在美国：经代理播放要来回跨两次太平洋（冷启动 4~5 秒/请求）。
+    把直链交给浏览器直连国内 CDN（实测 0.4~0.9 秒）。浏览器直连时不能带 Referer，否则网关 403。
+
+    urls：视频作品的播放直链；image_urls：图文作品按 image_indices 顺序的各张直链。
+    None 表示该文件只能走代理；解析失败的作品放进 errors，不混进结果。
+    """
+    user = await _find_user_with_records_or_raise(user_id)
+    # 信号量只包住 OpenList 查询：图文作品内部还会并发解析多张图
+    semaphore = asyncio.Semaphore(ARCHIVE_DIRECT_URL_CONCURRENCY)
+    aweme_ids = list(dict.fromkeys(str(aweme_id) for aweme_id in payload.aweme_ids))
+
+    async def resolve(aweme_id: str) -> tuple[str, tuple[str | None, list[str | None] | None] | None, str | None]:
+        try:
+            return aweme_id, await _direct_work_urls(user, aweme_id, semaphore), None
+        except (KeyError, IndexError, ArchivePathAliasError, ArchiveUnavailableError) as exc:
+            return aweme_id, None, sanitize_public_error(exc)
+
+    urls: dict[str, str | None] = {}
+    image_urls: dict[str, list[str | None]] = {}
+    errors: dict[str, str] = {}
+    for aweme_id, result, error in await asyncio.gather(*(resolve(aweme_id) for aweme_id in aweme_ids)):
+        if error is not None or result is None:
+            errors[aweme_id] = error or "unknown"
+            continue
+        video_url, images = result
+        if images is not None:
+            image_urls[aweme_id] = images
+        else:
+            urls[aweme_id] = video_url
+    return _build_success(
+        request,
+        {
+            "urls": urls,
+            "image_urls": image_urls,
+            "errors": errors,
+            "ttl_seconds": ARCHIVE_DIRECT_URL_CLIENT_TTL_SECONDS,
+        },
+    )
 
 
 @router.get(

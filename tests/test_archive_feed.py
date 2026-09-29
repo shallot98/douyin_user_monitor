@@ -12,6 +12,7 @@ from douyin_user_monitor.monitor.archive_feed import (
     clamp_page_size,
     find_record,
     list_archive_files,
+    neighbor_items,
     resolve_archive_file,
 )
 
@@ -178,6 +179,30 @@ class ResolveFileTests(unittest.TestCase):
         self.assertIsNone(find_record(self.user, "  "))
         self.assertEqual(len(list_archive_files(self.user, "7002")), 4)
         self.assertEqual(list_archive_files(self.user, "nope"), [])
+
+
+class NeighborItemsTests(unittest.TestCase):
+    def setUp(self):
+        # 按发布时间倒序：7005(最新) 7004 7003 7002 7001
+        self.user = {
+            "download_records": [
+                video_record(aweme_id=f"700{n}", publish=f"2026-08-0{n}T12:00:00+08:00") for n in range(1, 6)
+            ]
+        }
+
+    def ids(self, aweme_id: str, **kwargs: Any) -> List[str]:
+        return [item["aweme_id"] for item in neighbor_items(self.user, aweme_id, **kwargs)]
+
+    def test_following_first_then_preceding_nearest_first(self):
+        self.assertEqual(self.ids("7003", before=1, after=2), ["7002", "7001", "7004"])
+
+    def test_edges_are_truncated(self):
+        self.assertEqual(self.ids("7005", before=1, after=2), ["7004", "7003"])
+        self.assertEqual(self.ids("7001", before=1, after=2), ["7002"])
+
+    def test_unknown_aweme_returns_empty(self):
+        self.assertEqual(self.ids("nope"), [])
+        self.assertEqual(neighbor_items({}, "7001"), [])
 
 
 if __name__ == "__main__":

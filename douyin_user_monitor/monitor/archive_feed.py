@@ -208,6 +208,24 @@ def build_archive_page(user: Dict[str, Any], *, page: Any = 1, page_size: Any = 
     }
 
 
+def neighbor_items(
+    user: Dict[str, Any], aweme_id: str, *, before: int = 1, after: int = 2
+) -> List[Dict[str, Any]]:
+    """列表顺序里 aweme_id 前后的作品（不含自己，跨分页）；找不到返回空列表。
+
+    after 在前、离当前近的在前：预取时优先「下一个」。
+    """
+    records = user.get("download_records")
+    items = _sorted_items(records if isinstance(records, list) else [])
+    wanted = str(aweme_id or "").strip()
+    position = next((i for i, item in enumerate(items) if item["aweme_id"] == wanted), None)
+    if position is None:
+        return []
+    following = items[position + 1 : position + 1 + max(0, after)]
+    preceding = items[max(0, position - max(0, before)) : position][::-1]
+    return following + preceding
+
+
 def find_record(user: Dict[str, Any], aweme_id: str) -> Optional[Dict[str, Any]]:
     wanted = str(aweme_id or "").strip()
     if not wanted:

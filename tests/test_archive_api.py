@@ -97,6 +97,84 @@ class ArchiveListRouteTests(unittest.TestCase):
             response = self.client.get("/api/monitor/users/user-1/archive")
         self.assertIn("archive_enabled", response.json()["data"])
 
+    def test_prefetch_neighbors_queues_adjacent_works(self):
+        with (
+            patch_monitor_users([archive_user()]),
+            patch.object(monitor_api, "_prefetch_archive_urls", new=AsyncMock()) as prefetch_mock,
+        ):
+            response = self.client.post("/api/monitor/users/user-1/archive/7001/prefetch")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["data"]["queued"], ["7002"])
+        prefetch_mock.assert_awaited_once()
+        user, items = prefetch_mock.await_args.args
+        self.assertEqual(user["id"], "user-1")
+        self.assertEqual([item["aweme_id"] for item in items], ["7002"])
+
+    def test_playback_urls_returns_direct_links_and_separates_failures(self):
+        user = archive_user()
+        user["download_records"].append(
+            {
+                "aweme_id": "7003",
+                "publish_time": "2026-04-01T10:00:00+08:00",
+                "media_type": "video",
+                "files": ["CutE1n/20260401_100000_7003_aweme.mp4"],
+            }
+        )
+        user["download_records"].append(
+            {
+                "aweme_id": "7004",
+                "publish_time": "2026-03-01T10:00:00+08:00",
+                "media_type": "video",
+                "files": ["CutE1n/20260301_100000_7004_aweme.mp4"],
+            }
+        )
+        self_proxy = f"{monitor_api.OPENLIST_CLIENT._self_proxy_prefix()}/kuake/x.mp4?sign=s"  # noqa: SLF001
+
+        async def fake_resolve(relative_path: str, **_: Any) -> str:
+            if "7001" in relative_path:
+                return "https://cdn.example/file/abc?auth_key=k"
+            if "7003" in relative_path:
+                return self_proxy
+            if relative_path.endswith("/1.jpg"):
+                return "https://cdn.example/file/img1"
+            if relative_path.endswith("/2.jpg"):
+                return self_proxy
+            raise ArchiveUnavailableError("归档文件在主力盘与备份盘均不可用")
+
+        with (
+            patch_monitor_users([user]),
+            patch.object(monitor_api.OPENLIST_CLIENT, "resolve_stream_url", new=AsyncMock(side_effect=fake_resolve)),
+        ):
+            response = self.client.post(
+                "/api/monitor/users/user-1/archive/playback-urls",
+                json={"aweme_ids": ["7001", "7002", "7003", "7004", "nope", "7001"]},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        data = response.json()["data"]
+        # 7003 只能经本机 OpenList 自代理：None 让前端走代理
+        self.assertEqual(data["urls"], {"7001": "https://cdn.example/file/abc?auth_key=k", "7003": None})
+        # 图文按张给直链，自代理的那张同样为 None
+        self.assertEqual(data["image_urls"], {"7002": ["https://cdn.example/file/img1", None]})
+        self.assertEqual(set(data["errors"]), {"7004", "nope"})
+        self.assertEqual(data["ttl_seconds"], monitor_api.ARCHIVE_DIRECT_URL_CLIENT_TTL_SECONDS)
+
+    def test_playback_urls_rejects_empty_and_oversized_batches(self):
+        with patch_monitor_users([archive_user()]):
+            empty = self.client.post("/api/monitor/users/user-1/archive/playback-urls", json={"aweme_ids": []})
+            huge = self.client.post(
+                "/api/monitor/users/user-1/archive/playback-urls",
+                json={"aweme_ids": [str(i) for i in range(101)]},
+            )
+        self.assertEqual(empty.status_code, 422)
+        self.assertEqual(huge.status_code, 422)
+
+    def test_prefetch_neighbors_unknown_user_is_404(self):
+        with patch_monitor_users([]):
+            response = self.client.post("/api/monitor/users/nope/archive/7001/prefetch")
+        self.assertEqual(response.status_code, 404)
+
 
 class ArchiveMediaRouteTests(unittest.TestCase):
     def setUp(self):
