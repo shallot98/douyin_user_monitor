@@ -34,6 +34,9 @@ from douyin_user_monitor.settings_loaders import load_settings
 
 router = APIRouter()
 AVATAR_CACHE_SECONDS = 3600
+# 单张 ~3KB，2048 张 ≈6MB；超出按插入顺序淘汰最旧
+AVATAR_CACHE_MAX_ITEMS = 2048
+_AVATAR_CACHE: dict[str, tuple[bytes, str]] = {}
 HTML_NO_CACHE_HEADERS = {
     "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
     "Pragma": "no-cache",
@@ -422,10 +425,20 @@ async def user_statistics(request: Request) -> ResponseModel:
 async def proxy_user_avatar(user_id: str) -> Response:
     user = _find_user_or_raise(user_id)
     avatar_url = _validate_avatar_url(user.get("avatar_url"))
-    upstream_response = await _download_avatar(avatar_url)
-    content_type = upstream_response.headers.get("Content-Type", "image/jpeg")
+    # 头像 URL 换图即换地址：按 URL 进程内缓存，避免统计页每次 20+ 个请求都回源抖音 CDN。
+    cached = _AVATAR_CACHE.get(avatar_url)
+    if cached is None:
+        upstream_response = await _download_avatar(avatar_url)
+        cached = (
+            upstream_response.content,
+            upstream_response.headers.get("Content-Type", "image/jpeg"),
+        )
+        if len(_AVATAR_CACHE) >= AVATAR_CACHE_MAX_ITEMS:
+            _AVATAR_CACHE.pop(next(iter(_AVATAR_CACHE)))
+        _AVATAR_CACHE[avatar_url] = cached
+    content, content_type = cached
     return Response(
-        content=upstream_response.content,
+        content=content,
         media_type=content_type,
         headers={"Cache-Control": f"public, max-age={AVATAR_CACHE_SECONDS}"},
     )

@@ -700,7 +700,8 @@
       if (!avatarUrl) return `<div class="user-avatar">${initial}</div>`;
       const userId = encodeURIComponent(String(user.id || "").trim());
       if (!userId) return `<div class="user-avatar">${initial}</div>`;
-      const version = encodeURIComponent(String(user.updated_at || user.last_publish_at || user.last_download_at || avatarUrl));
+      // 只随头像地址变化，巡检刷新 updated_at 不再让浏览器缓存失效
+      const version = encodeURIComponent(avatarUrl);
       const safeUrl = `${API_BASE}/users/${userId}/avatar?v=${version}`;
       return `<div class="user-avatar"><img src="${safeUrl}" alt="${initial}" loading="lazy" onerror="this.remove();this.parentElement.textContent=this.alt;" /></div>`;
     }
@@ -1108,6 +1109,8 @@
 
     async function refreshAll() {
       const seq = ++refreshSeq;
+      // 用户表不依赖汇总，和 status/statistics 并行发起，少一轮串行往返
+      const tableTask = loadUserTable();
       try {
         const [status, statistics] = await Promise.all([
           api("/status"),
@@ -1118,11 +1121,11 @@
         cachedGeneratedAt = statistics.generated_at;
         renderStatus(status, cachedSummary);
         renderSummary(cachedSummary, cachedGeneratedAt);
-        await loadUserTable();
       } catch (error) {
         if (seq !== refreshSeq) return;
         showToast(error.message, "error");
       }
+      await tableTask;
     }
 
     async function toggleUser(userId, enabled) {
