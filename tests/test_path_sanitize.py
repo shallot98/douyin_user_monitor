@@ -9,13 +9,13 @@ download_records 保留原名。网页播放要用同一套变换才能在主力
 
 from __future__ import annotations
 
-import json
 import shutil
 import subprocess
 import unittest
 from pathlib import Path
 from typing import List
 
+from douyin_user_monitor.monitor.record_store import load_state_with_records, record_db_path
 from douyin_user_monitor.monitor.path_sanitize import (
     FALLBACK_DIR_PREFIX,
     fallback_dir_for,
@@ -189,9 +189,10 @@ class SanitizeRelativePathTests(unittest.TestCase):
 
 def _real_corpus() -> List[str]:
     """仓库真实数据里的账号目录名与图文标题目录名。"""
-    if not STATE_FILE.is_file():
+    if not STATE_FILE.is_file() or not record_db_path(STATE_FILE).is_file():
         return []
-    state = json.loads(STATE_FILE.read_text(encoding="utf-8"))
+    # 目录名语料主要来自作品记录，拆分后记录在旁边的 monitor_records.db
+    state = load_state_with_records(STATE_FILE)
     names = set()
     for user in state.get("users", []):
         nickname = str(user.get("nickname") or "").strip()

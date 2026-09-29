@@ -3,6 +3,7 @@ from datetime import datetime, timedelta, timezone
 from unittest.mock import patch
 
 from fastapi.testclient import TestClient
+from record_helpers import patch_monitor_users
 
 from douyin_user_monitor.api import monitor as monitor_api
 from douyin_user_monitor.main import app
@@ -291,6 +292,18 @@ class UsersRoutePaginationTests(unittest.TestCase):
         self.assertEqual(len(data["items"]), 2)
         self.assertEqual(data["items"][0]["id"], "user-4")
         self.assertEqual(data["applied"]["monitor"], "enabled")
+
+    def test_paginated_users_route_derives_counts_from_record_store(self):
+        # 拆分后 list_users 不带记录：视频/图集数、最近发布必须来自 RecordStore
+        with patch_monitor_users(self.users, method="list_users"):
+            response = self.client.get(
+                "/api/monitor/users",
+                params={"page": 1, "page_size": 20, "search": "user-1"},
+            )
+        self.assertEqual(response.status_code, 200)
+        row = next(item for item in response.json()["data"]["items"] if item["id"] == "user-1")
+        self.assertEqual((row["known_video_posts"], row["known_image_posts"]), (1, 1))
+        self.assertTrue(row["activity_known"])
 
     def test_paginated_users_route_sort_by_created(self):
         seen = {}

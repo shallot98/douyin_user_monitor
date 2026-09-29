@@ -433,7 +433,8 @@ async def list_users(
     # Compat A: no page/page_size/view=table → legacy dashboard full projection.
     # With pagination params → filter/sort/page table for statistics unified list.
     if wants_paginated_users(page=page, page_size=page_size, view=view):
-        users = monitor_service.list_users()
+        # 视频/图集数、最近发布、活跃筛选都由作品记录派生（statistics._build_user_row）
+        users = _records().attach_all(monitor_service.list_users())
         payload = query_monitor_users(
             users,
             search=search or "",
