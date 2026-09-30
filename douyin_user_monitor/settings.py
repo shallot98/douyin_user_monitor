@@ -111,6 +111,24 @@ class ArchiveSettings:
 
 
 @dataclass(frozen=True)
+class ContentFilterSettings:
+    """新作品 AI 内容筛选（广告 / 纯文字图片 / 截图）。"""
+
+    enabled: bool
+    # shadow：只把结论写进下载记录，不动文件
+    mode: str
+    api_base: str
+    api_key: str
+    model: str
+    timeout_seconds: float
+    max_frames: int
+    reject_categories: tuple[str, ...]
+    min_confidence: float
+    # 历史回补下载的作品是否也检测
+    include_history: bool
+
+
+@dataclass(frozen=True)
 class Settings:
     project_root: Path
     crawler: CrawlerSettings
@@ -119,6 +137,19 @@ class Settings:
     cookie_liveness: CookieLivenessSettings
     cookie_rotation: CookieRotationSettings
     archive: ArchiveSettings
+    content_filter: ContentFilterSettings
+
+
+CONTENT_FILTER_API_KEY_ENV = "DYMON_FILTER_API_KEY"
+DEFAULT_CONTENT_FILTER_ENABLED = False
+DEFAULT_CONTENT_FILTER_MODE = "shadow"
+DEFAULT_CONTENT_FILTER_API_BASE = "http://127.0.0.1:18082/v1"
+DEFAULT_CONTENT_FILTER_MODEL = "grok-4.20-0309-non-reasoning"
+DEFAULT_CONTENT_FILTER_TIMEOUT_SECONDS = 45.0
+DEFAULT_CONTENT_FILTER_MAX_FRAMES = 6
+DEFAULT_CONTENT_FILTER_REJECT_CATEGORIES = ("ad", "text_only", "screenshot")
+DEFAULT_CONTENT_FILTER_MIN_CONFIDENCE = 0.8
+DEFAULT_CONTENT_FILTER_INCLUDE_HISTORY = True
 
 
 DEFAULT_COOKIE_LIVENESS_ENABLED = True

@@ -61,11 +61,70 @@ async function api(path, options = {}) {
     cache: "no-store",
     ...options,
   });
+  if (res.status === 401) {
+    // 会话过期 / 未登录：回登录页，登录后回到当前页面
+    redirectToLogin();
+    throw new Error("登录已过期，正在跳转登录页");
+  }
   const data = await res.json().catch(() => ({}));
   if (!res.ok || data.code !== 200) {
     throw new Error(data?.detail?.message || data?.detail || data?.message || "请求失败");
   }
   return data.data;
+}
+
+// --- 登录 / 退出 ---
+function redirectToLogin() {
+  const next = window.location.pathname + window.location.search;
+  window.location.assign(`/login?next=${encodeURIComponent(next)}`);
+}
+
+async function logout() {
+  await fetch("/auth/logout", { method: "POST", credentials: "same-origin" }).catch(() => {});
+  redirectToLogin();
+  return false;
+}
+
+// 启用了登录才在侧栏末尾加“退出登录”，免得每个页面各写一份
+async function mountLogoutNav() {
+  const nav = document.querySelector(".sidebar-nav");
+  if (!nav) return;
+  const res = await fetch("/auth/status", { cache: "no-store", credentials: "same-origin" }).catch(() => null);
+  const status = res?.ok ? (await res.json().catch(() => ({})))?.data : null;
+  if (!status?.login_enabled) return;
+  const item = document.createElement("a");
+  item.className = "nav-item";
+  item.href = "#";
+  item.title = "退出登录";
+  item.setAttribute("aria-label", "退出登录");
+  item.addEventListener("click", (event) => {
+    event.preventDefault();
+    logout();
+  });
+  item.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 9V5.25A2.25 2.25 0 0 0 13.5 3h-6a2.25 2.25 0 0 0-2.25 2.25v13.5A2.25 2.25 0 0 0 7.5 21h6a2.25 2.25 0 0 0 2.25-2.25V15m3 0 3-3m0 0-3-3m3 3H9" /></svg>退出登录';
+  nav.appendChild(item);
+}
+
+if (document.readyState === "loading") {
+  document.addEventListener("DOMContentLoaded", mountLogoutNav);
+} else {
+  mountLogoutNav();
+}
+
+// --- 热更新：定时轮询 + 切回标签页 / bfcache 返回时立即重拉 ---
+// 后台（轮换、测活、调度、其他标签页）产生的变化不依赖手动刷新就能出现。
+// 标签页隐藏时跳过轮询；fn 自己负责并发去重（各页已有 seq 防回写）。
+function startLiveRefresh(fn, intervalMs = 15000) {
+  setInterval(() => {
+    if (!document.hidden) fn();
+  }, intervalMs);
+  document.addEventListener("visibilitychange", () => {
+    if (!document.hidden) fn();
+  });
+  // 浏览器前进/后退从 bfcache 还原时，页面脚本不重新执行，DOM 是离开时的旧快照
+  window.addEventListener("pageshow", (event) => {
+    if (event.persisted) fn();
+  });
 }
 
 // --- 时间格式化：统一到上海时区（修正 cookies 原先裸 new Date 解析的时区 bug）---

@@ -170,7 +170,17 @@ def build_archive_item(record: Dict[str, Any]) -> Optional[Dict[str, Any]]:
             dict(record["fast_play_source"]) if isinstance(record.get("fast_play_source"), dict) else None
         ),
         "share_url": f"https://www.douyin.com/video/{aweme_id}",
+        "content_filter": _content_filter_summary(record.get("content_filter")),
     }
+
+
+def _content_filter_summary(value: Any) -> Optional[Dict[str, Any]]:
+    """作品页只需要结论，不下发 signals/motion 等调试细节。"""
+    if not isinstance(value, dict):
+        return None
+    keys = ("status", "verdict", "category", "ad_type", "confidence", "reason", "error", "mode", "tags",
+            "appearance", "summary")
+    return {key: value.get(key) for key in keys if value.get(key) is not None}
 
 
 def _sorted_items(records: Iterable[Any]) -> List[Dict[str, Any]]:
@@ -184,9 +194,37 @@ def _sorted_items(records: Iterable[Any]) -> List[Dict[str, Any]]:
     return items
 
 
-def build_archive_page(user: Dict[str, Any], *, page: Any = 1, page_size: Any = DEFAULT_PAGE_SIZE) -> Dict[str, Any]:
+AI_FILTER_VIEWS = ("", "flagged", "error", "borderline3", "borderline4")
+
+
+def borderline_score(item: Dict[str, Any]) -> Optional[int]:
+    appearance = (item.get("content_filter") or {}).get("appearance") or {}
+    borderline = appearance.get("borderline") if isinstance(appearance, dict) else None
+    score = borderline.get("score") if isinstance(borderline, dict) else None
+    return score if isinstance(score, int) else None
+
+
+def _matches_ai_filter(item: Dict[str, Any], view: str) -> bool:
+    summary = item.get("content_filter") or {}
+    if view == "flagged":
+        return summary.get("verdict") == "reject"
+    if view == "error":
+        return summary.get("status") == "error"
+    if view.startswith("borderline"):
+        score = borderline_score(item)
+        return score is not None and score >= int(view.removeprefix("borderline"))
+    return True
+
+
+def build_archive_page(
+    user: Dict[str, Any], *, page: Any = 1, page_size: Any = DEFAULT_PAGE_SIZE, ai_filter: str = ""
+) -> Dict[str, Any]:
+    if ai_filter not in AI_FILTER_VIEWS:
+        raise ValueError(f"未知的 AI 筛选视图：{ai_filter!r}")
     records = user.get("download_records")
     items = _sorted_items(records if isinstance(records, list) else [])
+    if ai_filter:
+        items = [item for item in items if _matches_ai_filter(item, ai_filter)]
 
     size = clamp_page_size(page_size)
     total = len(items)

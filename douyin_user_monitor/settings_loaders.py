@@ -6,7 +6,17 @@ from typing import Any, Dict
 
 from douyin_user_monitor.settings import (
     ARCHIVE_TOKEN_ENV,
+    CONTENT_FILTER_API_KEY_ENV,
     CRAWLER_CONFIG_ENV,
+    DEFAULT_CONTENT_FILTER_API_BASE,
+    DEFAULT_CONTENT_FILTER_ENABLED,
+    DEFAULT_CONTENT_FILTER_INCLUDE_HISTORY,
+    DEFAULT_CONTENT_FILTER_MAX_FRAMES,
+    DEFAULT_CONTENT_FILTER_MIN_CONFIDENCE,
+    DEFAULT_CONTENT_FILTER_MODE,
+    DEFAULT_CONTENT_FILTER_MODEL,
+    DEFAULT_CONTENT_FILTER_REJECT_CATEGORIES,
+    DEFAULT_CONTENT_FILTER_TIMEOUT_SECONDS,
     DEFAULT_ARCHIVE_BACKUP_BASE,
     DEFAULT_ARCHIVE_ENABLED,
     DEFAULT_ARCHIVE_OPENLIST_BASE_URL,
@@ -44,6 +54,7 @@ from douyin_user_monitor.settings import (
     TG_ENABLED_ENV,
     TG_TIMEOUT_ENV,
     ArchiveSettings,
+    ContentFilterSettings,
     CookieLivenessSettings,
     CookieRotationSettings,
     CrawlerSettings,
@@ -73,6 +84,7 @@ def load_settings() -> Settings:
     cookie_raw = _ensure_dict(raw.get("cookie_liveness", {}), "cookie_liveness")
     rotation_raw = _ensure_dict(raw.get("cookie_rotation", {}), "cookie_rotation")
     archive_raw = _ensure_dict(raw.get("archive", {}), "archive")
+    content_filter_raw = _ensure_dict(raw.get("content_filter", {}), "content_filter")
     return Settings(
         project_root=project_root,
         crawler=_load_crawler_settings(project_root, crawler_raw),
@@ -84,6 +96,42 @@ def load_settings() -> Settings:
         cookie_liveness=_load_cookie_liveness_settings(cookie_raw),
         cookie_rotation=_load_cookie_rotation_settings(rotation_raw),
         archive=_load_archive_settings(archive_raw),
+        content_filter=_load_content_filter_settings(content_filter_raw),
+    )
+
+
+def _load_content_filter_settings(raw: Dict[str, Any]) -> ContentFilterSettings:
+    mode = str(raw.get("mode", DEFAULT_CONTENT_FILTER_MODE) or "").strip()
+    if mode != "shadow":
+        # enforce（隔离/隐藏）属于第二阶段，尚未实现：宁可启动失败也不假装生效
+        raise ValueError(f"content_filter.mode 目前只支持 shadow，收到 {mode!r}")
+    categories = raw.get("reject_categories", list(DEFAULT_CONTENT_FILTER_REJECT_CATEGORIES))
+    if not isinstance(categories, list) or not categories:
+        raise ValueError("content_filter.reject_categories 必须是非空列表")
+    unknown = [item for item in categories if item not in ("ad", "text_only", "screenshot")]
+    if unknown:
+        raise ValueError(f"content_filter.reject_categories 含未知分类: {unknown}")
+    min_confidence = _parse_positive_float(
+        raw.get("min_confidence", DEFAULT_CONTENT_FILTER_MIN_CONFIDENCE), "content_filter.min_confidence"
+    )
+    if min_confidence > 1:
+        raise ValueError("content_filter.min_confidence 不能大于 1")
+    return ContentFilterSettings(
+        enabled=_parse_bool(raw.get("enabled", DEFAULT_CONTENT_FILTER_ENABLED)),
+        mode=mode,
+        api_base=str(raw.get("api_base", DEFAULT_CONTENT_FILTER_API_BASE) or "").strip(),
+        # 密钥只从环境变量读，不写进 config.yaml
+        api_key=os.getenv(CONTENT_FILTER_API_KEY_ENV, "").strip(),
+        model=str(raw.get("model", DEFAULT_CONTENT_FILTER_MODEL) or "").strip(),
+        timeout_seconds=_parse_positive_float(
+            raw.get("timeout_seconds", DEFAULT_CONTENT_FILTER_TIMEOUT_SECONDS), "content_filter.timeout_seconds"
+        ),
+        max_frames=_parse_positive_int(
+            raw.get("max_frames", DEFAULT_CONTENT_FILTER_MAX_FRAMES), "content_filter.max_frames"
+        ),
+        reject_categories=tuple(categories),
+        min_confidence=min_confidence,
+        include_history=_parse_bool(raw.get("include_history", DEFAULT_CONTENT_FILTER_INCLUDE_HISTORY)),
     )
 
 

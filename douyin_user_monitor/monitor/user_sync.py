@@ -42,12 +42,14 @@ class UserSyncService:
         cookie_rotation_session=None,
         *,
         cover_publisher=None,
+        content_filter=None,
     ):
         self._crawler = crawler
         self._downloader = downloader
         self._notifier = notifier
         self._cookie_rotation_session = cookie_rotation_session
         self._cover_publisher = cover_publisher
+        self._content_filter = content_filter
 
     async def resolve_profile_snapshot(self, sec_user_id: str) -> UserProfileSnapshot:
         profile_data = await self._crawler.handler_user_profile(sec_user_id)
@@ -260,6 +262,9 @@ class UserSyncService:
                 )
                 if self._cover_publisher is not None:
                     await self._cover_publisher(user, record)
+                if self._content_filter is not None:
+                    # 自身吞掉并记录失败，结论写进 record["content_filter"]
+                    await self._content_filter(user, aweme_detail, record)
                 if notify:
                     await self._notifier.notify_download_completed(
                         user_nickname=user["nickname"],

@@ -131,6 +131,7 @@ class MonitorService:
         cookie_pool_service: Optional[Any] = None,
         *,
         cover_publisher=None,
+        content_filter=None,
     ):
         self._crawler = crawler
         self._storage = storage
@@ -147,6 +148,7 @@ class MonitorService:
             notifier=self._notifier,
             cookie_rotation_session=rotation_session,
             cover_publisher=cover_publisher,
+            content_filter=content_filter,
         )
 
         self._run_lock = asyncio.Lock()

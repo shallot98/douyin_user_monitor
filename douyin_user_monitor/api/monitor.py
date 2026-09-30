@@ -39,6 +39,7 @@ from douyin_user_monitor.monitor.aweme_feed import (
     clamp_cursor,
     clamp_feed_count,
 )
+from douyin_user_monitor.monitor.content_filter import ContentFilter
 from douyin_user_monitor.monitor.cookie_liveness import CookieLivenessConfig
 from douyin_user_monitor.monitor.cookie_liveness_service import CookieLivenessService
 from douyin_user_monitor.monitor.cookie_pool import CookiePoolService
@@ -49,6 +50,12 @@ from douyin_user_monitor.monitor.dashboard_payload import (
 )
 from douyin_user_monitor.monitor.errors import sanitize_public_error
 from douyin_user_monitor.monitor.hermes_weixin_sender import HermesWeixinConfig, HermesWeixinSender
+from douyin_user_monitor.monitor.library import (
+    LibraryEntry,
+    build_library_index,
+    parse_library_query,
+    query_library,
+)
 from douyin_user_monitor.monitor.new_work_cover import NewWorkCoverPublisher
 from douyin_user_monitor.monitor.nickname_history import build_former_nicknames
 from douyin_user_monitor.monitor.notifier import NoopMonitorNotifier
@@ -111,6 +118,14 @@ HTML_NO_CACHE_HEADERS = {
 _STATISTICS_CACHE: dict[str, Any] | None = None
 _STATISTICS_CACHE_STAMP: tuple[FileStamp, int] | None = None
 
+# 作品库索引：记录修订号或用户列表（id/昵称）变化才重建；状态文件戳只做快速命中
+_LIBRARY_INDEX: list[LibraryEntry] | None = None
+_LIBRARY_INDEX_STAMP: tuple[FileStamp, int] | None = None
+_LIBRARY_INDEX_KEY: tuple[int, tuple[tuple[str, str], ...]] | None = None
+_LIBRARY_INDEX_LOCK = asyncio.Lock()
+# 按用户复用已解析条目（见 build_library_index 的 user_cache）
+_LIBRARY_USER_CACHE: dict[str, Any] = {}
+
 SETTINGS = load_settings()
 DASHBOARD_PATH = SETTINGS.project_root / "douyin_user_monitor" / "web" / "dashboard.html"
 STATISTICS_DASHBOARD_PATH = SETTINGS.project_root / "douyin_user_monitor" / "web" / "statistics.html"
@@ -118,6 +133,7 @@ COOKIES_DASHBOARD_PATH = SETTINGS.project_root / "douyin_user_monitor" / "web" /
 SETTINGS_DASHBOARD_PATH = SETTINGS.project_root / "douyin_user_monitor" / "web" / "settings.html"
 API_DASHBOARD_PATH = SETTINGS.project_root / "douyin_user_monitor" / "web" / "api.html"
 WORKS_DASHBOARD_PATH = SETTINGS.project_root / "douyin_user_monitor" / "web" / "works.html"
+LIBRARY_DASHBOARD_PATH = SETTINGS.project_root / "douyin_user_monitor" / "web" / "library.html"
 
 CRAWLER_CLIENT = InProcessDouyinClient(SETTINGS.crawler.config_path)
 MONITOR_STORAGE = MonitorStorage(SETTINGS.monitor.state_path)
@@ -182,6 +198,11 @@ monitor_service = MonitorService(
     cookie_liveness_service=COOKIE_LIVENESS_SERVICE,
     cookie_pool_service=COOKIE_POOL_SERVICE,
     cover_publisher=NewWorkCoverPublisher(SETTINGS.monitor.download_root, COVER_STORE).publish,
+    content_filter=(
+        ContentFilter(SETTINGS.content_filter, SETTINGS.monitor.download_root)
+        if SETTINGS.content_filter.enabled
+        else None
+    ),
 )
 
 AWEME_FEED_SERVICE = AwemeFeedService(CRAWLER_CLIENT)
@@ -352,6 +373,77 @@ async def works_dashboard() -> str:
         headers=HTML_NO_CACHE_HEADERS,
     )
 
+
+
+@router.get("/library/dashboard", response_class=HTMLResponse, summary="作品库页面/Works library page")
+async def library_dashboard() -> str:
+    if not LIBRARY_DASHBOARD_PATH.exists():
+        raise HTTPException(status_code=404, detail=f"作品库页面不存在: {LIBRARY_DASHBOARD_PATH}")
+    return HTMLResponse(
+        content=LIBRARY_DASHBOARD_PATH.read_text(encoding="utf-8"),
+        headers=HTML_NO_CACHE_HEADERS,
+    )
+
+
+def _library_users_key(users: list[dict[str, Any]]) -> tuple[tuple[str, str], ...]:
+    return tuple((str(user.get("id") or ""), str(user.get("nickname") or "")) for user in users)
+
+
+def _refresh_library_index() -> list[LibraryEntry]:
+    """在线程里跑：状态文件戳没变直接命中；变了再比对记录修订号 + 用户 id/昵称。"""
+    global _LIBRARY_INDEX, _LIBRARY_INDEX_STAMP, _LIBRARY_INDEX_KEY
+    records = _records()
+    # 先取修订号再取快照：中途有写入时修订号偏旧，下次请求会再重建，不会漏
+    revision = records.current_revision()
+    try:
+        stamp = (file_stamp(monitor_service._storage.state_file.stat()), revision)  # noqa: SLF001
+    except OSError:
+        stamp = None
+    if _LIBRARY_INDEX is not None and stamp is not None and stamp == _LIBRARY_INDEX_STAMP:
+        return _LIBRARY_INDEX
+    users = monitor_service.list_users()
+    key = (revision, _library_users_key(users))
+    if _LIBRARY_INDEX is None or key != _LIBRARY_INDEX_KEY:
+        _LIBRARY_INDEX = build_library_index(users, records.snapshot(), _LIBRARY_USER_CACHE)
+        _LIBRARY_INDEX_KEY = key
+    _LIBRARY_INDEX_STAMP = stamp
+    return _LIBRARY_INDEX
+
+
+async def _library_page_items(entries: list[LibraryEntry]) -> list[dict[str, Any]]:
+    """当前页作品：归档条目 + 用户字段；封面按用户分组查，顺序保持排序结果。"""
+    items: list[dict[str, Any]] = []
+    for entry in entries:
+        item = build_archive_item(entry.record)
+        if item is None:
+            raise RuntimeError(f"作品库索引条目无法生成作品：{entry.user_id}/{entry.aweme_id}")
+        item["user_id"] = entry.user_id
+        item["nickname"] = entry.nickname
+        item["avatar_url"] = f"/api/monitor/users/{entry.user_id}/avatar"
+        items.append(item)
+    by_user: dict[str, list[int]] = {}
+    for position, item in enumerate(items):
+        by_user.setdefault(item["user_id"], []).append(position)
+    for user_id, positions in by_user.items():
+        covered = await with_cover_urls(COVER_STORE, user_id, [items[position] for position in positions])
+        for position, item in zip(positions, covered):
+            items[position] = item
+    return items
+
+
+@router.get("/library", response_model=ResponseModel, summary="作品库：跨用户浏览已评分作品/Works library")
+async def list_library(request: Request) -> ResponseModel:
+    """只收已打擦边分（score>=1）的作品；参数见 monitor/library.py，非法参数 400。"""
+    try:
+        query = parse_library_query(request.query_params)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    async with _LIBRARY_INDEX_LOCK:
+        index = await asyncio.to_thread(_refresh_library_index)
+    result = await asyncio.to_thread(query_library, index, query)
+    payload = {key: value for key, value in result.items() if key != "entries"}
+    payload["items"] = await _library_page_items(result["entries"])
+    return _build_success(request, payload)
 
 PARSE_SERVICE = ParseService(CRAWLER_CLIENT)
 
@@ -615,6 +707,7 @@ async def list_user_archive(
     background_tasks: BackgroundTasks,
     page: int | None = Query(None, description="1-based 页码"),
     page_size: int | None = Query(None, description="每页条数 20|50|100"),
+    ai_filter: str = Query("", description="AI 筛选视图：空=全部 | flagged=判为筛掉 | error=检测失败"),
 ) -> ResponseModel:
     """只读本地 download_records，不发起任何抖音请求。
 
@@ -622,7 +715,10 @@ async def list_user_archive(
     已下载的作品元数据本地都有，够渲染列表，只有媒体字节需要走归档。
     """
     user = await _find_user_with_records_or_raise(user_id)
-    payload = build_archive_page(user, page=page, page_size=page_size)
+    try:
+        payload = build_archive_page(user, page=page, page_size=page_size, ai_filter=ai_filter)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     payload["items"] = await with_cover_urls(COVER_STORE, user_id, payload["items"])
     payload["user"] = _feed_user_header(user)
     payload["archive_enabled"] = OPENLIST_CLIENT.enabled

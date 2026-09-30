@@ -258,7 +258,12 @@ class WorksPageTests(unittest.TestCase):
         html = self.client.get("/api/monitor/works/dashboard").text
         # 列表只走本地归档端点；实时抖音端点不应出现在页面里
         self.assertIn("/archive?", html)
-        self.assertIn("/archive/${encodeURIComponent(awemeId)}/media/", html)
+        # 媒体地址拼接已抽到共享播放器模块
+        self.assertIn('src="/static/works-viewer.js', html)
+        viewer_js = self.client.get("/static/works-viewer.js").text
+        self.assertIn("/archive`", viewer_js)
+        self.assertIn("${encodeURIComponent(item.aweme_id)}/media/", viewer_js)
+        self.assertNotIn("/awemes", viewer_js)
         self.assertNotIn("/awemes?", html)
         self.assertNotIn("/awemes/", html)
         self.assertIn('src="/static/common.js', html)
@@ -266,8 +271,10 @@ class WorksPageTests(unittest.TestCase):
 
     def test_video_cards_use_placeholder_since_archive_has_no_cover(self):
         html = self.client.get("/api/monitor/works/dashboard").text
-        self.assertIn("item.cover_index", html)
         self.assertIn("work-cover-empty", html)
+        # 封面地址回退到归档封面文件的逻辑在共享播放器模块里
+        viewer_js = self.client.get("/static/works-viewer.js").text
+        self.assertIn("item.cover_index", viewer_js)
 
     def test_page_escapes_untrusted_desc_and_restricts_media_urls(self):
         html = self.client.get("/api/monitor/works/dashboard").text

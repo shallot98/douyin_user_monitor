@@ -4,54 +4,120 @@ const path = require("node:path");
 const test = require("node:test");
 const vm = require("node:vm");
 
-const html = fs.readFileSync(path.join(__dirname, "../douyin_user_monitor/web/works.html"), "utf8");
-const inline = html.match(/<script>([\s\S]*?)<\/script>/)[1].replace(/\n\s*init\(\);\s*$/, "");
+const WEB = path.join(__dirname, "../douyin_user_monitor/web");
+const html = fs.readFileSync(path.join(WEB, "works.html"), "utf8");
+const viewerJs = fs.readFileSync(path.join(WEB, "static/works-viewer.js"), "utf8");
+// 去掉末尾的 init()（它会立刻加载第 1 页），测试里只挂播放器
+const inline = html.match(/<script>([\s\S]*?)<\/script>/)[1].replace(/\n\s*init\(\);\s*$/, "\n    initViewer();\n");
 const videoItem = Object.freeze({
   aweme_id: "7001", media_type: "video", desc: "video", file_count: 3,
   cover_index: 0, play_index: 1, archive_index: 2, has_fast_play: true,
   duration_ms: 10000, total_size_bytes: 1000, share_url: "https://example.test/video",
 });
 
-function element() {
-  return {
-    innerHTML: "", textContent: "", href: "", hidden: false,
-    classList: { add() {}, remove() {} },
-    addEventListener() {},
-    removeAttribute(name) { delete this[name]; },
+// 极简 DOM：只实现播放器与作品页用到的那部分
+function element(tagName = "div") {
+  const node = {
+    tagName: tagName.toUpperCase(), id: "", className: "", textContent: "", title: "", href: "",
+    hidden: false, disabled: false, src: "", poster: "", style: {}, dataset: {}, attributes: {},
+    children: [], parentElement: null, listeners: {}, events: [], isConnected: true,
+    classList: {
+      set: new Set(),
+      add(name) { this.set.add(name); }, remove(name) { this.set.delete(name); },
+      contains(name) { return this.set.has(name); },
+    },
+    get innerHTML() { return this._html || ""; },
+    set innerHTML(value) {
+      this.children.forEach((child) => { child.isConnected = false; });
+      this.children = [];
+      this._html = String(value);
+    },
+    addEventListener(name, handler) { (this.listeners[name] ||= []).push(handler); },
+    dispatch(name, event = {}) { (this.listeners[name] || []).forEach((handler) => handler(event)); },
+    setAttribute(name, value) { this.attributes[name] = String(value); },
+    removeAttribute(name) { this.events.push(`remove:${name}`); delete this.attributes[name]; delete this[name]; },
+    appendChild(child) { child.parentElement = node; child.isConnected = true; node.children.push(child); return child; },
+    insertBefore(child, ref) {
+      if (!ref) return node.appendChild(child);
+      child.parentElement = node;
+      node.children.splice(node.children.indexOf(ref), 0, child);
+      return child;
+    },
+    querySelector(selector) {
+      return node.children.find((child) => child.tagName === selector.toUpperCase()) || null;
+    },
+    remove() {},
+    closest() { return null; },
+    pause() { node.events.push("pause"); },
+    load() { node.events.push("load"); },
+    play() { node.events.push("play"); return Promise.resolve(); },
+    scrollIntoView() {},
+    getBoundingClientRect() { return { left: 0, top: 0 }; },
+    offsetWidth: 360, offsetHeight: 700,
   };
+  return node;
 }
 
-function pageContext() {
+function defaultResponse(apiPath) {
+  if (apiPath.includes("/playback-urls")) return { urls: {}, image_urls: {}, ttl_seconds: 600 };
+  if (apiPath.includes("/prefetch")) return {};
+  return { items: [], page: 1, total: 0, total_pages: 1 };
+}
+
+function pageContext(search = "?user_id=user-1") {
   const nodes = new Map();
   const handlers = {};
-  const page = { video: null };
+  const calls = [];
+  const lazyIds = new Set(["viewer", "works-viewer-style"]);
+  const register = (node) => { if (node.id) nodes.set(node.id, node); return node; };
   const get = (id) => {
-    if (!nodes.has(id)) nodes.set(id, element());
+    if (!nodes.has(id)) {
+      if (lazyIds.has(id)) return null;
+      nodes.set(id, Object.assign(element(), { id }));
+    }
     return nodes.get(id);
   };
+  const body = Object.assign(element("body"), { appendChild: (node) => register(node) });
+  const head = Object.assign(element("head"), { appendChild: (node) => register(node) });
+  const page = { respond: defaultResponse, calls };
   const context = vm.createContext({
-    URLSearchParams,
+    URLSearchParams, console, setTimeout, clearTimeout, requestAnimationFrame: (fn) => fn(),
     API_BASE: "/api/monitor",
-    window: { location: { search: "?user_id=user-1" }, innerWidth: 1000 },
+    location: { search, origin: "https://monitor.test" },
+    innerWidth: 1000, innerHeight: 900,
+    parent: { postMessage(message) { calls.push({ postMessage: message }); } },
+    addEventListener(name, handler) { handlers[`window:${name}`] = handler; },
+    Image: function Image() {},
     document: {
-      body: get("body"), getElementById: get,
+      body, head, getElementById: get,
       addEventListener(name, handler) { handlers[name] = handler; },
-      querySelector(selector) { return selector === "#viewerStage video" ? page.video : null; },
+      querySelector() { return null; },
+      querySelectorAll() { return []; },
       createElement: element,
     },
     formatTime: (value) => value || "unknown",
-    api() { throw new Error("unexpected API request"); },
+    api(apiPath, options) {
+      calls.push({ path: apiPath, options });
+      return Promise.resolve(page.respond(apiPath, options));
+    },
   });
+  context.window = context;
+  vm.runInContext(viewerJs, context);
   vm.runInContext(inline, context);
+  const stage = () => get("viewerStage");
   return Object.assign(page, {
-    context, get, handlers,
+    context, get, handlers, stage,
+    video: () => stage().querySelector("video"),
+    image: () => stage().querySelector("img"),
     run: (code) => vm.runInContext(code, context),
     show(item) {
       context.testItem = item;
-      vm.runInContext("state.items = [testItem]; openViewer(0);", context);
+      vm.runInContext("state.items = [testItem]; WorksViewer.open(0);", context);
     },
   });
 }
+
+const flush = async () => { for (let i = 0; i < 5; i += 1) await new Promise((resolve) => setImmediate(resolve)); };
 
 test("gallery fetches the cover image without creating video elements", () => {
   const page = pageContext();
@@ -62,20 +128,78 @@ test("gallery fetches the cover image without creating video elements", () => {
   assert.doesNotMatch(card, /<video|media\/1|media\/2/);
 });
 
-test("viewer uses the selected playback index and poster, with original as separate download", () => {
+test("viewer DOM is injected by the shared module, not duplicated in the page", () => {
+  assert.doesNotMatch(html, /id="viewer"/);
+  assert.match(html, /<script src="\/static\/works-viewer\.js\?v=lib-20260930a"><\/script>/);
   const page = pageContext();
-  page.show(videoItem);
-  const stage = page.get("viewerStage").innerHTML;
-  assert.match(stage, /<video[^>]+src="[^"]+\/media\/1"/);
-  assert.doesNotMatch(stage, /direct=1/);
-  assert.match(stage, /poster="[^"]+\/media\/0"/);
-  assert.doesNotMatch(stage, /media\/2/);
-  assert.equal(page.get("viewerOriginalLink").href, "/api/monitor/users/user-1/archive/7001/media/2");
-  assert.equal(page.get("viewerOriginalLink").hidden, false);
-  assert.match(html, /id="viewerOriginalLink" download/);
+  assert.ok(page.get("viewer"));
+  assert.match(page.get("viewer").innerHTML, /id="viewerOriginalLink" download/);
+  assert.ok(page.get("works-viewer-style"));
 });
 
-test("card and video poster prefer the independent cover URL", () => {
+test("viewer falls back to the proxy playback index with poster; original is a separate download", async () => {
+  const page = pageContext();
+  page.show(videoItem);
+  await flush();
+  const video = page.video();
+  assert.equal(video.src, "/api/monitor/users/user-1/archive/7001/media/1");
+  assert.equal(video.dataset.mode, "proxy");
+  assert.equal(video.poster, "/api/monitor/users/user-1/archive/7001/media/0");
+  assert.equal(page.get("viewerOriginalLink").href, "/api/monitor/users/user-1/archive/7001/media/2");
+  assert.equal(page.get("viewerOriginalLink").hidden, false);
+  assert.match(page.get("viewerMeta").textContent, /代理$/);
+});
+
+test("direct CDN url is used first and disabled after two failures", async () => {
+  const page = pageContext();
+  page.respond = (apiPath) => (apiPath.includes("/playback-urls")
+    ? { urls: { 7001: "https://cdn.test/a.mp4", 7002: "https://cdn.test/b.mp4" }, ttl_seconds: 600 }
+    : {});
+  page.context.list = [videoItem, { ...videoItem, aweme_id: "7002" }];
+  page.run("state.items = list; WorksViewer.prefetchDirectUrls(state.items);");
+  await flush();
+  page.run("WorksViewer.open(0)");
+  let video = page.video();
+  assert.equal(video.src, "https://cdn.test/a.mp4");
+  video.dispatch("error");
+  assert.equal(video.src, "/api/monitor/users/user-1/archive/7001/media/1");
+  assert.match(page.get("viewerMeta").textContent, /代理（直连失败）/);
+  page.run("WorksViewer.open(1)");
+  video = page.video();
+  assert.equal(video.src, "https://cdn.test/b.mp4");
+  video.dispatch("error");
+  assert.match(page.get("viewerMeta").textContent, /已停用/);
+  // 停用后再次打开直接走代理，并在出画面后预取相邻作品
+  page.run("WorksViewer.open(1)");
+  video = page.video();
+  assert.equal(video.dataset.mode, "proxy");
+  video.dispatch("loadeddata");
+  assert.ok(page.calls.some((call) => call.path === "/users/user-1/archive/7002/prefetch"));
+});
+
+test("direct-url batches and media urls follow each item's user_id", async () => {
+  const page = pageContext();
+  page.context.list = [
+    { ...videoItem, aweme_id: "a1", user_id: "u-a" },
+    { ...videoItem, aweme_id: "b1", user_id: "u-b" },
+    { ...videoItem, aweme_id: "a2", user_id: "u-a" },
+    { ...videoItem, aweme_id: "d1" },
+  ];
+  page.run("WorksViewer.prefetchDirectUrls(list)");
+  const batches = page.calls.filter((call) => call.path.includes("/playback-urls"))
+    .map((call) => [call.path, JSON.parse(call.options.body).aweme_ids]);
+  assert.deepEqual(batches, [
+    ["/users/u-a/archive/playback-urls", ["a1", "a2"]],
+    ["/users/u-b/archive/playback-urls", ["b1"]],
+    ["/users/user-1/archive/playback-urls", ["d1"]],
+  ]);
+  assert.equal(page.run("WorksViewer.archiveMediaUrl(list[1], 3)"), "/api/monitor/users/u-b/archive/b1/media/3");
+  await flush();
+  page.show(page.context.list[1]);
+  assert.equal(page.video().src, "/api/monitor/users/u-b/archive/b1/media/1");
+});
+
+test("card and video poster prefer the independent cover URL", async () => {
   const page = pageContext();
   const coverUrl = `/api/monitor/users/user-1/archive/7001/cover?v=${"a".repeat(64)}`;
   page.context.testItem = { ...videoItem, cover_url: coverUrl };
@@ -83,11 +207,9 @@ test("card and video poster prefer the independent cover URL", () => {
   assert.ok(card.includes(`src="${coverUrl}"`));
   assert.doesNotMatch(card, /\/media\/0|<video/);
   page.show(page.context.testItem);
-  const stage = page.get("viewerStage").innerHTML;
-  assert.ok(stage.includes(`poster="${coverUrl}"`));
-  assert.match(stage, /src="[^"]+\/media\/1"/);
-  assert.doesNotMatch(stage, /direct=1/);
-  assert.doesNotMatch(stage, /\/media\/0/);
+  await flush();
+  assert.equal(page.video().poster, coverUrl);
+  assert.match(page.video().src, /\/media\/1$/);
 });
 
 test("independent covers work when legacy cover indices are absent", () => {
@@ -96,7 +218,7 @@ test("independent covers work when legacy cover indices are absent", () => {
   page.context.testItem = { ...videoItem, cover_index: null, cover_url: coverUrl };
   assert.ok(page.run("renderCard(testItem, 0)").includes(`src="${coverUrl}"`));
   page.show(page.context.testItem);
-  assert.ok(page.get("viewerStage").innerHTML.includes(`poster="${coverUrl}"`));
+  assert.equal(page.video().poster, coverUrl);
 });
 
 test("cover URLs only accept the current work's local versioned endpoint", () => {
@@ -109,59 +231,110 @@ test("cover URLs only accept the current work's local versioned endpoint", () =>
   }
 });
 
-test("video arrow keys leave the current player in place", () => {
+test("video arrow keys leave the current player in place", async () => {
   const page = pageContext();
   page.show(videoItem);
-  let restarts = 0;
-  page.video = { pause() { restarts += 1; }, removeAttribute() {}, load() {} };
-  const stage = page.get("viewerStage").innerHTML;
+  await flush();
+  const video = page.video();
   page.handlers.keydown({ key: "ArrowRight" });
   page.handlers.keydown({ key: "ArrowLeft" });
-  assert.equal(restarts, 0);
-  assert.equal(page.get("viewerStage").innerHTML, stage);
+  assert.equal(page.video(), video);
+  assert.doesNotMatch(video.events.join(","), /pause/);
 });
 
-test("closing the viewer explicitly aborts the current media source", () => {
+test("closing the viewer explicitly aborts the current media source", async () => {
   const page = pageContext();
   page.show(videoItem);
-  const events = [];
-  page.video = {
-    pause() { events.push("pause"); },
-    removeAttribute(name) { events.push(`remove:${name}`); },
-    load() { events.push("load"); },
-  };
-  page.context.closeViewer();
-  assert.deepEqual(events, ["pause", "remove:src", "load"]);
-  assert.equal(page.get("viewerStage").innerHTML, "");
-  assert.equal(page.run("state.viewerIndex"), -1);
+  await flush();
+  const video = page.video();
+  video.events.length = 0;
+  page.handlers.keydown({ key: "Escape" });
+  assert.deepEqual(video.events, ["pause", "remove:src", "load"]);
+  assert.equal(page.stage().innerHTML, "");
+  assert.equal(page.run("WorksViewer.isOpen()"), false);
+  assert.equal(page.run("state.playingIndex"), -1);
+});
+
+test("Esc with the viewer closed asks the embedding overlay to close", () => {
+  const page = pageContext("?user_id=user-1&embed=1");
+  page.handlers.keydown({ key: "Escape" });
+  const messages = page.calls.filter((call) => call.postMessage).map((call) => JSON.stringify(call.postMessage));
+  assert.deepEqual(messages, ['{"type":"works:close"}']);
 });
 
 test("missing or failing playback never substitutes the original video", () => {
   const page = pageContext();
   page.show({ ...videoItem, play_index: null });
-  assert.doesNotMatch(page.get("viewerStage").innerHTML, /<video/);
-  assert.match(page.get("viewerStage").innerHTML, /没有可播放文件/);
+  assert.equal(page.video(), null);
+  assert.match(page.stage().innerHTML, /没有可播放文件/);
   page.show(videoItem);
-  const source = page.get("viewerStage").innerHTML;
-  page.context.showVideoError();
-  assert.equal(page.get("viewerStage").innerHTML, source);
+  const video = page.video();
+  page.run("WorksViewer.showVideoError()");
+  assert.equal(page.video(), video);
   assert.match(page.get("viewerMeta").textContent, /加载失败/);
 });
 
-test("image navigation uses only content indices and excludes cover", () => {
+test("image navigation uses only content indices and excludes cover", async () => {
   const page = pageContext();
   page.show({ ...videoItem, media_type: "image", image_indices: [2, 4], file_count: 5 });
-  assert.match(page.get("viewerStage").innerHTML, /media\/2/);
+  await flush();
+  assert.match(page.image().src, /media\/2$/);
   assert.equal(page.get("viewerOriginalLink").hidden, true);
-  page.context.stepImage(1);
-  assert.match(page.get("viewerStage").innerHTML, /media\/4/);
-  assert.doesNotMatch(page.get("viewerStage").innerHTML, /media\/0/);
+  page.run("WorksViewer.stepImage(1)");
+  assert.match(page.image().src, /media\/4$/);
+  assert.match(page.stage().innerHTML, /2 \/ 2/);
   page.show({ ...videoItem, media_type: "image", image_indices: [], file_count: 1 });
-  assert.doesNotMatch(page.get("viewerStage").innerHTML, /<img/);
+  assert.equal(page.image(), null);
+});
+
+test("per-image direct urls are used and fall back to the proxy on error", async () => {
+  const page = pageContext();
+  page.respond = () => ({ image_urls: { 7001: ["https://cdn.test/1.jpg", "javascript:alert(1)"] }, ttl_seconds: 600 });
+  page.show({ ...videoItem, media_type: "image", image_indices: [2, 4] });
+  await flush();
+  const image = page.image();
+  assert.equal(image.src, "https://cdn.test/1.jpg");
+  image.dispatch("error");
+  assert.equal(image.src, "/api/monitor/users/user-1/archive/7001/media/2");
+  page.run("WorksViewer.stepImage(1)");
+  await flush();
+  assert.match(page.image().src, /\/media\/4$/);
+});
+
+test("content label panel never shows the letters AI", () => {
+  const page = pageContext();
+  page.show({ ...videoItem, content_filter: { status: "error", error: "timeout" } });
+  assert.match(page.get("viewerContentLabels").innerHTML, /未检测：timeout/);
+  page.show({ ...videoItem, content_filter: {
+    status: "ok", verdict: "reject", category: "ad", ad_type: "selling", confidence: 0.9, summary: "s",
+    tags: { content: ["舞蹈"] }, appearance: { borderline: { score: 3, chest: 1, hip: 1, figure: 1, overall: 1, camera: 0, motion: 0 } },
+  } });
+  const panel = page.get("viewerContentLabels").innerHTML;
+  assert.match(panel, /广告·带货 90%/);
+  assert.match(panel, /擦边 3\/5/);
+  assert.doesNotMatch(panel, /AI/);
+});
+
+test("stepping past the page end loads the next page and plays its first work", async () => {
+  const page = pageContext();
+  page.context.list = [videoItem];
+  page.run("state.items = list; state.page = 1; state.pageSize = 1; state.total = 2; state.totalPages = 2; WorksViewer.open(0);");
+  assert.equal(page.get("viewerCounter").textContent, "1 / 2");
+  assert.equal(page.get("viewerNextWork").disabled, false);
+  page.respond = (apiPath) => (apiPath.includes("/archive?")
+    ? { items: [{ ...videoItem, aweme_id: "7002" }], page: 2, page_size: 1, total: 2, total_pages: 2 }
+    : defaultResponse(apiPath));
+  page.handlers.keydown({ key: "ArrowDown", preventDefault() {} });
+  await flush();
+  assert.equal(page.run("WorksViewer.currentAwemeId()"), "7002");
+  assert.equal(page.get("viewerCounter").textContent, "2 / 2");
+  assert.equal(page.get("viewerNextWork").disabled, true);
+  assert.equal(page.run("state.playingIndex"), 0);
 });
 
 test("loading another page retains existing cover elements until the response arrives", async () => {
   const page = pageContext();
+  await flush();
   page.context.testItem = videoItem;
   page.run("state.items = [testItem]; state.total = 2; state.totalPages = 2; renderAll();");
   const grid = page.get("worksGrid");
@@ -186,4 +359,16 @@ test("a failed cover request displays an error without requesting video", () => 
   page.context.showCoverError({ replaceWith(value) { replacement = value; } });
   assert.equal(replacement.textContent, "封面加载失败");
   assert.equal(replacement.className, "work-cover-empty");
+});
+
+test("syncAfterReload keeps the same user's work when aweme_id repeats across users", () => {
+  const page = pageContext();
+  page.context.list = [
+    { ...videoItem, aweme_id: "same", user_id: "u-a" },
+    { ...videoItem, aweme_id: "same", user_id: "u-b" },
+  ];
+  page.run("state.items = list; WorksViewer.open(1);");
+  // 列表重新加载后，正在播的仍是 u-b 那一条（只比 aweme_id 会错认成 u-a）
+  page.run("state.items = list.map((item) => ({ ...item })); WorksViewer.syncAfterReload();");
+  assert.equal(page.run("state.playingIndex"), 1);
 });
