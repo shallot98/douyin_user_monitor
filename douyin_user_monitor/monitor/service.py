@@ -640,6 +640,8 @@ class MonitorService:
                 self._persist_runtime_checkpoint()
                 raise
             except Exception as exc:
+                # loop_error 会被下一次成功运行的汇总覆盖，堆栈只能靠日志保留
+                LOGGER.warning("监控循环异常，%ss 后重试", LOOP_ERROR_RETRY_SECONDS, exc_info=True)
                 self._save_loop_error(sanitize_public_error(exc))
                 await asyncio.sleep(LOOP_ERROR_RETRY_SECONDS)
 

@@ -143,7 +143,9 @@ class UserSyncService:
                     reason=reason,
                 )
             except Exception:
-                pass
+                # 不中断同步，但这是封号/注销唯一的主动提醒，失败必须留痕
+                LOGGER.warning("账号状态变更通知发送失败 user=%s %s->%s", user.get("id"), old_status, new_status,
+                               exc_info=True)
 
     async def _sync_user_latest(self, user: Dict[str, Any], summary: Dict[str, Any]) -> int:
         account_status = str(user.get("account_status") or ACCOUNT_STATUS_NORMAL).strip()

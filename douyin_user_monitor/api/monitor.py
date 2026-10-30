@@ -297,6 +297,8 @@ def _map_cookie_error(request: Request, exc: Exception) -> HTTPException:
         return _build_error(request, str(exc) or "Cookie 不存在", status_code=404)
     if isinstance(exc, ValueError):
         return _build_error(request, str(exc), status_code=400)
+    # 非预期异常类型多半是代码问题，客户端只看到 400，服务端要留堆栈
+    LOGGER.warning("Cookie 接口异常 %s", request.url.path, exc_info=exc)
     return _build_error(request, str(exc), status_code=400)
 
 async def _find_user_or_raise(user_id: str) -> dict[str, Any]:

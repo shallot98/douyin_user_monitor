@@ -27,7 +27,7 @@ Updated: 2026-10-30（只读盘点；仅记录事实，修复与否未定）
 
 ## 错误处理
 
-`except Exception`：`api/monitor.py` 23 处、`service.py` 6、`inprocess_client.py` 6、`user_sync.py` 4。`user_sync.py` 约 142 行通知失败静默吞掉；`content_filter` 吞全部异常（结论写 error 状态，算显式记录）。
+`except Exception` 共 52 处（2026-10-31 审计）：静默 1（已修）、已记录 17、重抛或转换 34。`api/monitor.py` 23 处多数转成 4xx/5xx 返回客户端，服务端只在 Cookie 接口兜底分支记堆栈。日志注意：应用不配置 logging，只有 `"uvicorn.error"` logger 的 INFO 会输出；`__name__` logger 只有 WARNING 以上经 lastResort 裸输出到 stderr。
 
 ## 运维
 
