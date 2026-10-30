@@ -522,3 +522,42 @@ def test_trailing_space_dir_is_trimmed_for_targets_but_source_keeps_original(tmp
         tmp_path,
     )
     assert "moved=1 errors=0" in result.stdout
+
+
+def test_d2_transient_5xx_is_retried_without_counting_as_error_until_limit(tmp_path: Path) -> None:
+    """D2 网关间歇 500：本地文件保留、不计失败；同一文件连续达到上限才计为失败。
+
+    也锁住：一次失败不会让整轮 mover 因 set -e 提前退出。
+    """
+    result = run_bash(
+        PRELUDE
+        + r'''
+        TARGET_BASE="/d2/target"
+        D2_DIRECT_UPLOAD="true"
+        D2_TRANSIENT_MAX_ATTEMPTS=3
+        D2_DIRECT_PYTHON="${TMP_ROOT}/fake-python"
+        printf '#!/usr/bin/env bash\nprintf %s\nexit 1\n' "'{\"error\":\"D2 block upload: HTTP 500\"}'" > "${D2_DIRECT_PYTHON}"
+        chmod +x "${D2_DIRECT_PYTHON}"
+        OPENLIST_DB="${TMP_ROOT}/none.db"
+
+        api_post_json() {
+          local path="$2"
+          case "${path}" in
+            "/api/fs/mkdir") printf '{"code":200}' ;;
+            "/api/fs/list") jq -cn '{code:200,data:{total:0,content:[]}}' ;;
+            "/api/fs/copy") jq -cn '{code:200,data:{tasks:[{id:"copy-1"}]}}' ;;
+            *) printf 'unexpected: %s\n' "${path}" >&2; return 1 ;;
+          esac
+        }
+
+        for round in 1 2 3; do
+          process_files_batched "token" "$(date +%s)"
+          printf 'round%s errors=%s\n' "${round}" "${PROCESS_ERROR_COUNT}"
+        done
+        [[ -f "${SOURCE_ROOT}/acct/a.mp4" ]]
+        ''',
+        tmp_path,
+    )
+    assert "round1 errors=0" in result.stdout
+    assert "round2 errors=0" in result.stdout
+    assert "round3 errors=1" in result.stdout

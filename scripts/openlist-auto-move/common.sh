@@ -65,6 +65,10 @@ ACTION_CAPACITY="capacity_limit"
 # 目标盘存储或上传配额不足时置位，停止主力盘操作，备份盘仍可继续复制
 CAPACITY_LIMIT_HIT=0
 CAPACITY_ERROR_PATTERN='capacity limit|USER_DAILY_UPLOAD_QUOTA_EXCEEDED'
+# D2 网关间歇 5xx / 超时：本地文件保留、下轮重试，不计入本轮失败；
+# 同一文件连续这么多轮仍失败才算真失败（10 分钟一轮约 1 小时）。
+D2_TRANSIENT_ERROR_PATTERN='HTTP 5[0-9][0-9]|transport failed'
+D2_TRANSIENT_MAX_ATTEMPTS=6
 
 is_capacity_limit_error() {
   local err="${1:-${MOVE_TASK_ERROR:-}}"

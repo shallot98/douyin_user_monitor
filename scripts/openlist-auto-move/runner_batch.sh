@@ -164,10 +164,9 @@ flush_batch_d2_direct() {
     [[ "${CAPACITY_LIMIT_HIT}" == "1" ]] && break
     [[ -n "${file_path}" ]] || continue
     file_name="${file_path##*/}"
-    set +e
-    d2_direct_upload_file "${file_path}" "${dst_dir}" "${file_name}"
-    move_rc=$?
-    set -e
+    # d2_direct_upload_file 内部会重开 set -e，外层 set +e 兜不住，用 || 取返回码
+    move_rc=0
+    d2_direct_upload_file "${file_path}" "${dst_dir}" "${file_name}" || move_rc=$?
 
     case "${move_rc}" in
       0)
@@ -184,6 +183,7 @@ flush_batch_d2_direct() {
         CAPACITY_LIMIT_HIT=1
         break
         ;;
+      4) ;;
       *)
         PROCESS_ERROR_COUNT=$((PROCESS_ERROR_COUNT + 1))
         ;;

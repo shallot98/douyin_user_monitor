@@ -95,10 +95,9 @@ handle_submitted_move() {
   local move_rc=0
 
   if is_d2_direct_upload_target "${dst_dir}"; then
-    set +e
-    d2_direct_upload_file "${file_path}" "${dst_dir}" "${file_name}"
-    move_rc=$?
-    set -e
+    # d2_direct_upload_file 内部会重开 set -e，外层 set +e 兜不住，用 || 取返回码
+    move_rc=0
+    d2_direct_upload_file "${file_path}" "${dst_dir}" "${file_name}" || move_rc=$?
 
     invalidate_remote_dir_cache "${dst_dir}"
     if [[ "${move_rc}" -eq 0 ]]; then
@@ -113,6 +112,10 @@ handle_submitted_move() {
     fi
     if [[ "${move_rc}" -eq 3 ]]; then
       emit_process_outcome "${ACTION_CAPACITY}"
+      return 0
+    fi
+    if [[ "${move_rc}" -eq 4 ]]; then
+      emit_process_outcome "${ACTION_WAIT}"
       return 0
     fi
     emit_process_outcome "${ACTION_ERROR}"
