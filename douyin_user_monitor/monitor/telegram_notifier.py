@@ -1,13 +1,12 @@
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import datetime
 from typing import Any, Dict
 
 import httpx
 
 from douyin_user_monitor.monitor.notifier import MonitorNotifierProtocol
-
-CHINA_TZ = timezone(timedelta(hours=8))
+from douyin_user_monitor.monitor.timeutils import CHINA_TZ, safe_int
 
 
 class TelegramNotifier(MonitorNotifierProtocol):
@@ -89,10 +88,10 @@ class TelegramNotifier(MonitorNotifierProtocol):
 
     def _build_completed_message(self, *, user_nickname: str, record: Dict[str, Any]) -> str:
         media_type = str(record.get("media_type", "unknown")).strip()
-        image_count = self._safe_int(record.get("image_count"))
+        image_count = safe_int(record.get("image_count"))
         media_label = self._format_media_label(media_type, image_count)
         desc = str(record.get("desc", "")).strip() or "-"
-        size_text = self._format_size_mb(self._safe_int(record.get("total_size_bytes")))
+        size_text = self._format_size_mb(safe_int(record.get("total_size_bytes")))
         downloaded_at = self._format_iso_time(str(record.get("downloaded_at", "")))
         lines = [
             "✅ 下载完成",
@@ -168,9 +167,3 @@ class TelegramNotifier(MonitorNotifierProtocol):
 
     def _format_size_mb(self, bytes_size: int) -> str:
         return f"{bytes_size / (1024 * 1024):.2f} MB"
-
-    def _safe_int(self, value: Any) -> int:
-        try:
-            return int(value)
-        except (TypeError, ValueError):
-            return 0

@@ -40,6 +40,8 @@ handle_pending_reconcile() {
     "${ACTION_COMPLETED}") emit_process_outcome "${ACTION_COMPLETED}" ;;
     "${ACTION_WAIT}") emit_process_outcome "${ACTION_WAIT}" ;;
     "${ACTION_SKIP}") emit_process_outcome "${ACTION_SKIP}" ;;
+    "${ACTION_CAPACITY}") emit_process_outcome "${ACTION_CAPACITY}" ;;
+    "${ACTION_ERROR}") emit_process_outcome "${ACTION_ERROR}" ;;
     *) emit_process_outcome "${ACTION_CONTINUE}" ;;
   esac
 }
@@ -91,6 +93,34 @@ handle_submitted_move() {
   local dst_dir="$4"
   local file_name="$5"
   local move_rc=0
+
+  if is_d2_direct_upload_target "${dst_dir}"; then
+    # d2_direct_upload_file 内部会重开 set -e，外层 set +e 兜不住，用 || 取返回码
+    move_rc=0
+    d2_direct_upload_file "${file_path}" "${dst_dir}" "${file_name}" || move_rc=$?
+
+    invalidate_remote_dir_cache "${dst_dir}"
+    if [[ "${move_rc}" -eq 0 ]]; then
+      api_post_json "${token}" "/api/fs/list" "$(jq -cn --arg p "${dst_dir}" '{path:$p,refresh:true,page:1,per_page:1}')" >/dev/null 2>&1 || true
+      emit_process_outcome "${ACTION_COMPLETED}"
+      return 0
+    fi
+    if [[ "${move_rc}" -eq 2 ]]; then
+      api_post_json "${token}" "/api/fs/list" "$(jq -cn --arg p "${dst_dir}" '{path:$p,refresh:true,page:1,per_page:1}')" >/dev/null 2>&1 || true
+      finalize_move_file "${token}" "${file_path}" "${src_dir}" "${dst_dir}" "${file_name}" "D2直传检测到目标端已存在同名文件" "${ACTION_WAIT}"
+      return 0
+    fi
+    if [[ "${move_rc}" -eq 3 ]]; then
+      emit_process_outcome "${ACTION_CAPACITY}"
+      return 0
+    fi
+    if [[ "${move_rc}" -eq 4 ]]; then
+      emit_process_outcome "${ACTION_WAIT}"
+      return 0
+    fi
+    emit_process_outcome "${ACTION_ERROR}"
+    return 0
+  fi
 
   set +e
   move_remote_file "${token}" "${src_dir}" "${dst_dir}" "${file_name}"
@@ -158,7 +188,7 @@ process_one_file() {
   fi
 
   case "${action}" in
-    "${ACTION_COMPLETED}"|"${ACTION_WAIT}"|"${ACTION_SKIP}"|"${ACTION_ERROR}")
+    "${ACTION_COMPLETED}"|"${ACTION_WAIT}"|"${ACTION_SKIP}"|"${ACTION_ERROR}"|"${ACTION_CAPACITY}")
       emit_process_outcome "${action}"
       return 0
       ;;
@@ -171,16 +201,24 @@ process_one_file() {
 
   action=$(handle_existing_target "${token}" "${actual_file_path}" "${src_dir}" "${dst_dir}" "${file_name}")
   case "${action}" in
-    "${ACTION_COMPLETED}"|"${ACTION_WAIT}"|"${ACTION_SKIP}"|"${ACTION_ERROR}")
+    "${ACTION_COMPLETED}"|"${ACTION_WAIT}"|"${ACTION_SKIP}"|"${ACTION_ERROR}"|"${ACTION_CAPACITY}")
       emit_process_outcome "${action}"
       return 0
       ;;
   esac
 
+  # 先硬链接进备份暂存区并提交 copy，再让 move 去释放本地原路径。
+  # 暂存失败就本轮不动，本地文件留着下轮重试——绝不出现「本地已删、备份没有」。
+  if ! ensure_backup_copy "${token}" "${actual_file_path}" "${src_dir}" "${dst_dir}" "${file_name}"; then
+    emit_process_outcome "${ACTION_WAIT}"
+    return 0
+  fi
+
   handle_submitted_move "${token}" "${actual_file_path}" "${src_dir}" "${dst_dir}" "${file_name}"
 }
 
 process_files() {
+  assert_target_base_stable || return 1
   if batch_mode_enabled; then
     process_files_batched "$@"
   else
@@ -208,6 +246,10 @@ command_run() {
     token=$(get_dry_run_token)
   fi
 
+  if [[ "${DRY_RUN}" != "true" ]]; then
+    drain_backup_staging "${token}"
+  fi
+
   local run_epoch
   run_epoch=$(date +%s)
   process_files "${token}" "${run_epoch}"
@@ -215,7 +257,10 @@ command_run() {
   if [[ "${DRY_RUN}" == "true" ]]; then
     log "DRY_RUN 完成，计划处理 ${DRY_RUN_PLANNED_COUNT} 个文件；预测 completed=${DRY_RUN_COMPLETED_COUNT}, wait=${DRY_RUN_WAIT_COUNT}, continue=${DRY_RUN_CONTINUE_COUNT}, skip=${DRY_RUN_SKIP_COUNT}, unknown=${DRY_RUN_UNKNOWN_COUNT}"
   else
-    log "完成，本轮完成收口 ${PROCESS_MOVED_COUNT} 个文件，提交 ${PROCESS_SUBMITTED_COUNT} 个文件，跳过 ${PROCESS_SKIPPED_COUNT} 个文件，失败 ${PROCESS_ERROR_COUNT} 个文件"
+    local capacity_note=""
+    # CAPACITY_LIMIT_HIT 初值是 "0"，用 ${VAR:+} 会因非空而恒为真，必须显式比较
+    [[ "${CAPACITY_LIMIT_HIT}" == "1" ]] && capacity_note=", capacity_limit=1"
+    log "完成，本轮完成收口 ${PROCESS_MOVED_COUNT} 个文件，提交 ${PROCESS_SUBMITTED_COUNT} 个文件，跳过 ${PROCESS_SKIPPED_COUNT} 个文件，失败 ${PROCESS_ERROR_COUNT} 个文件${capacity_note}"
   fi
   if [[ "${PROCESS_ERROR_COUNT}" -gt 0 ]]; then
     exit 1

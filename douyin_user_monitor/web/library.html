@@ -1,0 +1,1934 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
+  <meta http-equiv="Pragma" content="no-cache" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <!-- 视频直连归档 CDN 时网关带 Referer 就 403（实测），整页不发 Referer -->
+  <meta name="referrer" content="no-referrer" />
+  <title>作品库 | Monitor</title>
+  <link rel="stylesheet" href="/static/common.css?v=theme-20261006a" />
+  <style>
+    /* 作品库页面样式；外壳/侧栏/按钮来自 common.css */
+    .lib-container { max-width:1640px; gap:14px; }
+    .s1 { --score:#0ea5e9; } .s2 { --score:#6366f1; } .s3 { --score:#d97706; } .s4 { --score:#ea580c; } .s5 { --score:#dc2626; }
+
+    /* ---- 顶部统计 ---- */
+    .lib-hero { display:flex; align-items:flex-end; justify-content:space-between; gap:16px; flex-wrap:wrap; }
+    .lib-stats { display:flex; align-items:center; flex-wrap:wrap; gap:6px 10px; margin-top:4px; font-size:13px; color:var(--text-muted); }
+    .lib-stats b { color:var(--text-main); font-variant-numeric:tabular-nums; }
+    .lib-stats .muted { color:var(--text-lighter); font-size:12px; }
+    .hist { display:flex; align-items:flex-end; gap:6px; height:52px; padding:6px 10px; border-radius:12px; background:var(--bg-surface); border:1px solid var(--border-color); box-shadow:var(--shadow-sm); }
+    .hist-label { align-self:center; margin-right:4px; font-size:11px; font-weight:700; color:var(--text-muted); writing-mode:horizontal-tb; }
+    .hist-col { display:flex; flex-direction:column; align-items:center; justify-content:flex-end; gap:3px; width:26px; height:100%; border:0; padding:0; background:transparent; cursor:pointer; color:var(--text-lighter); font-size:10px; font-weight:700; }
+    .hist-bar { width:100%; min-height:3px; border-radius:5px 5px 2px 2px; background:var(--score); transition:height .25s ease, opacity .2s ease; }
+    .hist-col.off .hist-bar { opacity:.25; }
+    .hist-col:hover .hist-bar { filter:brightness(1.12); }
+
+    /* ---- 吸顶工具栏 ---- */
+    .lib-toolbar { position:sticky; top:-20px; z-index:20; margin:0 -4px; padding:10px 12px; display:flex; flex-direction:column; gap:10px; background:color-mix(in srgb, var(--bg-surface) 88%, transparent); backdrop-filter:blur(14px); -webkit-backdrop-filter:blur(14px); border:1px solid var(--border-color); border-radius:16px; box-shadow:var(--shadow); }
+    /* 跟手收起：滚动中由脚本逐帧写 --tb-shift（0=完整显示，正数=向上藏起的像素），不加过渡，1:1 跟随手指；
+       停下后加 .tb-snapping 用短过渡吸附到完全显示/完全藏起。只动 transform，不改布局，所以不会抖 */
+    .lib-toolbar { transform:translate3d(0, calc(var(--tb-shift, 0px) * -1), 0); will-change:transform; }
+    .lib-toolbar.tb-snapping { transition:transform .26s cubic-bezier(.22,1,.36,1); }
+    .lib-toolbar.tb-gone { pointer-events:none; }
+    /* 侧栏面板跟着工具栏一起上移，不留空档（只在桌面有吸顶侧栏时生效） */
+    .filter-panel { transform:translate3d(0, calc(var(--panel-shift, 0px) * -1), 0); }
+    .lib-toolbar.tb-snapping ~ .lib-body .filter-panel { transition:transform .26s cubic-bezier(.22,1,.36,1); }
+    .lib-fab { position:fixed; right:20px; bottom:calc(20px + env(safe-area-inset-bottom, 0px)); z-index:40; display:flex; align-items:center; padding:4px; border-radius:999px; background:color-mix(in srgb, var(--bg-surface) 80%, transparent); backdrop-filter:blur(16px) saturate(1.4); -webkit-backdrop-filter:blur(16px) saturate(1.4); border:1px solid var(--border-color); box-shadow:0 10px 30px rgba(15,23,42,.18); transform:translate3d(0, 14px, 0) scale(.92); opacity:0; pointer-events:none; transition:transform .24s cubic-bezier(.22,1,.36,1), opacity .18s ease; }
+    .lib-fab.show { transform:none; opacity:1; pointer-events:auto; }
+    .lib-fab button { border:0; background:transparent; color:var(--text-main); font:inherit; font-size:13px; font-weight:700; height:38px; padding:0 16px; border-radius:999px; cursor:pointer; display:inline-flex; align-items:center; gap:6px; -webkit-tap-highlight-color:transparent; }
+    .lib-fab button:hover { background:var(--bg-elevated); }
+    .lib-fab button:active { transform:scale(.96); }
+    .lib-fab button svg { width:17px; height:17px; }
+    /* 播放器打开时让位，避免和悬浮播放器叠在一起 */
+    body:has(.viewer.show) .lib-fab { opacity:0; pointer-events:none; }
+    @media (prefers-reduced-motion: reduce) { .lib-toolbar.tb-snapping, .lib-fab { transition:none; } }
+    .tb-row { display:flex; align-items:center; gap:8px 10px; flex-wrap:wrap; }
+    .tb-search { position:relative; flex:1 1 260px; min-width:0; }
+    .tb-search svg { position:absolute; left:11px; top:50%; width:16px; height:16px; transform:translateY(-50%); color:var(--text-lighter); pointer-events:none; }
+    .tb-search .input { width:100%; padding-left:34px; border-radius:11px; }
+    .tb-group { display:flex; align-items:center; gap:6px; flex-shrink:0; }
+    .tb-label { font-size:12px; font-weight:700; color:var(--text-muted); white-space:nowrap; }
+    .tb-select { width:auto; padding:6px 8px; border-radius:10px; font-size:12.5px; }
+    .tb-date { width:136px; padding:5px 8px; border-radius:10px; font-size:12.5px; }
+    .seg { display:inline-flex; padding:3px; gap:2px; border-radius:11px; background:var(--bg-elevated); border:1px solid var(--border-color); }
+    .seg button { border:0; background:transparent; color:var(--text-muted); font:inherit; font-size:12.5px; font-weight:650; padding:5px 11px; border-radius:8px; cursor:pointer; display:inline-flex; align-items:center; gap:5px; transition:background .15s ease, color .15s ease; }
+    .seg button svg { width:16px; height:16px; }
+    .seg button[aria-pressed="true"] { background:var(--bg-surface); color:var(--accent); box-shadow:0 1px 3px rgba(15,23,42,.12); }
+    .seg button:hover:not([aria-pressed="true"]) { color:var(--text-main); }
+    .chip-toggle { border:1px solid var(--border-color); background:var(--bg-surface); color:var(--text-muted); font:inherit; font-size:12px; font-weight:650; padding:4px 11px; border-radius:999px; cursor:pointer; transition:all .15s ease; }
+    .chip-toggle[aria-pressed="true"] { background:var(--primary-light); color:var(--accent); border-color:var(--primary); }
+    .chip-toggle.excluded { color:var(--danger); border-color:var(--danger); background:var(--danger-light); text-decoration:line-through; }
+    .tb-spacer { flex:1; }
+    .filter-btn { position:relative; }
+    .filter-btn .badge-dot { min-width:18px; height:18px; padding:0 5px; border-radius:999px; background:var(--primary); color:var(--on-primary); font-size:11px; line-height:18px; font-weight:750; }
+    /* 擦边评分双滑块：两个 range 叠在一条轨道上，只有滑块本身响应指针 */
+    .dual { position:relative; width:120px; height:26px; }
+    .dual-track { position:absolute; left:8px; right:8px; top:50%; height:5px; margin-top:-2.5px; border-radius:999px; background:var(--border-color); }
+    .dual-fill { position:absolute; top:0; bottom:0; border-radius:999px; background:var(--primary); }
+    .dual input[type="range"] { position:absolute; inset:0; width:100%; margin:0; background:transparent; pointer-events:none; -webkit-appearance:none; appearance:none; }
+    .dual input[type="range"]::-webkit-slider-runnable-track { background:transparent; height:26px; }
+    .dual input[type="range"]::-moz-range-track { background:transparent; }
+    .dual input[type="range"]::-webkit-slider-thumb { -webkit-appearance:none; pointer-events:auto; width:16px; height:16px; margin-top:5px; border-radius:50%; background:var(--bg-surface); border:2px solid var(--primary); box-shadow:0 1px 4px rgba(15,23,42,.25); cursor:grab; }
+    .dual input[type="range"]::-moz-range-thumb { pointer-events:auto; width:12px; height:12px; border-radius:50%; background:var(--bg-surface); border:2px solid var(--primary); cursor:grab; }
+    .dual input[type="range"]:focus-visible::-webkit-slider-thumb { outline:2px solid var(--primary); outline-offset:2px; }
+    .score-readout { min-width:34px; font-size:12.5px; font-weight:750; color:var(--text-main); font-variant-numeric:tabular-nums; }
+    .size-range { width:74px; accent-color:var(--primary); }
+
+    /* ---- 已选条件 / 收藏的筛选 ---- */
+    .chip-row { display:flex; align-items:center; flex-wrap:wrap; gap:6px; }
+    .chip-row:empty { display:none; }
+    .chip-row-label { font-size:12px; font-weight:700; color:var(--text-lighter); margin-right:2px; }
+    .fchip { display:inline-flex; align-items:center; gap:4px; max-width:260px; padding:3px 4px 3px 10px; border-radius:999px; font-size:12px; font-weight:650; background:var(--primary-light); color:var(--accent); border:1px solid transparent; }
+    .fchip span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    .fchip.ex { background:var(--danger-light); color:var(--danger); }
+    .fchip.ex span { text-decoration:line-through; }
+    .fchip button, .saved-chip button { border:0; background:transparent; color:inherit; width:20px; height:20px; border-radius:50%; cursor:pointer; font-size:14px; line-height:1; display:grid; place-items:center; opacity:.7; }
+    .fchip button:hover, .saved-chip button:hover { opacity:1; background:rgba(15,23,42,.1); }
+    .fchip.more { cursor:pointer; padding:3px 10px; background:var(--bg-elevated); color:var(--text-muted); border-color:var(--border-color); }
+    .link-btn { border:0; background:transparent; color:var(--text-muted); font:inherit; font-size:12px; font-weight:700; cursor:pointer; padding:3px 6px; border-radius:6px; }
+    .link-btn:hover { color:var(--danger); }
+    .link-btn.primary:hover { color:var(--accent); }
+    .saved-chip { display:inline-flex; align-items:center; gap:2px; border-radius:999px; border:1px dashed var(--border-strong); background:var(--bg-surface); font-size:12px; font-weight:650; color:var(--text-main); padding:2px 4px 2px 0; }
+    .saved-chip .saved-apply { width:auto; height:auto; border-radius:999px; padding:1px 4px 1px 10px; font-size:12px; opacity:1; }
+    .saved-chip .saved-apply:hover { background:transparent; color:var(--accent); }
+
+    /* ---- 主体：侧边筛选 + 结果 ---- */
+    .lib-body { display:flex; align-items:flex-start; gap:16px; }
+    .lib-results { flex:1; min-width:0; }
+    /* --tb-h 由脚本按吸顶工具栏实际高度写入：面板紧贴工具栏下方吸顶 */
+    .filter-panel { position:sticky; top:calc(var(--tb-h, 140px) - 6px); width:280px; flex-shrink:0; max-height:calc(100vh - var(--header-height) - var(--tb-h, 140px) - 24px); display:flex; flex-direction:column; background:var(--bg-surface); border:1px solid var(--border-color); border-radius:16px; box-shadow:var(--shadow-sm); overflow:hidden; }
+    .filter-panel[hidden] { display:none; }
+    .fp-head { display:flex; align-items:center; justify-content:space-between; gap:8px; padding:12px 14px; border-bottom:1px solid var(--border-color); }
+    .fp-title { font-size:14px; font-weight:750; }
+    .fp-handle { display:none; }
+    .fp-body { overflow-y:auto; overscroll-behavior:contain; padding:4px 0 10px; }
+    .fp-group { border-bottom:1px solid var(--border-color); }
+    .fp-group:last-child { border-bottom:0; }
+    .fp-group > summary { list-style:none; display:flex; align-items:center; gap:8px; padding:11px 14px; cursor:pointer; font-size:13px; font-weight:700; user-select:none; }
+    .fp-group > summary::-webkit-details-marker { display:none; }
+    .fp-group > summary::after { content:""; margin-left:auto; width:7px; height:7px; border-right:2px solid var(--text-lighter); border-bottom:2px solid var(--text-lighter); transform:rotate(45deg); transition:transform .2s ease; }
+    .fp-group[open] > summary::after { transform:rotate(225deg); }
+    .fp-count { min-width:18px; height:18px; padding:0 6px; border-radius:999px; background:var(--primary); color:var(--on-primary); font-size:11px; line-height:18px; font-weight:750; }
+    .fp-content { padding:0 14px 12px; display:flex; flex-direction:column; gap:8px; }
+    .facet-list { display:flex; flex-wrap:wrap; gap:6px; }
+    .facet { display:inline-flex; align-items:stretch; border-radius:999px; border:1px solid var(--border-color); background:var(--bg-elevated); overflow:hidden; font-size:12px; transition:border-color .15s ease; }
+    .facet:hover { border-color:var(--border-strong); }
+    .facet button { border:0; background:transparent; color:var(--text-main); font:inherit; cursor:pointer; }
+    .facet-inc { display:inline-flex; align-items:center; gap:5px; padding:3px 4px 3px 10px; font-weight:600; }
+    .facet-inc .count { font-size:10.5px; font-weight:700; color:var(--text-lighter); font-variant-numeric:tabular-nums; }
+    .facet-ex { width:22px; color:var(--text-lighter) !important; font-size:12px; opacity:.55; }
+    .facet-ex:hover { opacity:1; color:var(--danger) !important; }
+    .facet.on { border-color:var(--primary); background:var(--primary-light); }
+    .facet.on .facet-inc, .facet.on .count { color:var(--accent); }
+    .facet.ex { border-color:var(--danger); background:var(--danger-light); }
+    .facet.ex .facet-inc { color:var(--danger); text-decoration:line-through; }
+    .facet.ex .facet-ex { opacity:1; color:var(--danger) !important; }
+    .facet.zero:not(.on):not(.ex) { opacity:.5; }
+    .fp-empty { font-size:12px; color:var(--text-lighter); }
+    .sub-row { display:flex; align-items:center; justify-content:space-between; gap:8px; }
+    .sub-row .tb-label { min-width:34px; }
+    .sub-row .seg button { padding:3px 8px; font-size:11.5px; }
+    .user-facets { display:flex; flex-direction:column; gap:2px; max-height:260px; overflow-y:auto; margin:0 -6px; }
+    .user-facet { display:flex; align-items:center; gap:8px; width:100%; border:0; background:transparent; color:var(--text-main); font:inherit; font-size:12.5px; text-align:left; padding:5px 6px; border-radius:9px; cursor:pointer; }
+    .user-facet:hover { background:var(--bg-elevated); }
+    .user-facet.on { background:var(--primary-light); color:var(--accent); font-weight:700; }
+    .user-facet .name { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    .user-facet .count { font-size:11px; color:var(--text-lighter); font-variant-numeric:tabular-nums; }
+    .switch-row { display:flex; align-items:center; justify-content:space-between; gap:10px; font-size:13px; font-weight:650; cursor:pointer; }
+    .switch-row input { width:36px; height:20px; accent-color:var(--danger); cursor:pointer; }
+
+    /* ---- 卡片 ---- */
+    .lib-grid { --col:200px; display:grid; grid-template-columns:repeat(auto-fill,minmax(var(--col),1fr)); gap:14px; }
+    .lib-grid.view-grid.size-1 { --col:156px; } .lib-grid.view-grid.size-3 { --col:260px; }
+    .lib-grid.view-wall { --col:120px; gap:6px; } .lib-grid.view-wall.size-1 { --col:92px; } .lib-grid.view-wall.size-3 { --col:168px; }
+    .lib-grid.view-list { grid-template-columns:1fr; gap:10px; }
+    .lib-card { position:relative; border-radius:14px; background:var(--bg-surface); border:1px solid var(--border-color); box-shadow:var(--shadow-sm); overflow:hidden; cursor:pointer; outline:none; transition:transform .2s cubic-bezier(.2,.8,.2,1), box-shadow .2s ease, border-color .2s ease; }
+    .lib-card:focus-visible { box-shadow:0 0 0 3px var(--primary); }
+    .lib-card.playing { border-color:var(--primary); box-shadow:0 0 0 2px var(--primary), var(--shadow); }
+    .view-wall .lib-card { border-radius:10px; }
+    /* 无限滚动不做虚拟化：离屏卡片跳过布局与绘制；auto 记住渲染过的真实高度，初值按视图估 */
+    .lib-card { content-visibility:auto; contain-intrinsic-size:auto 280px; }
+    .view-wall .lib-card { contain-intrinsic-size:auto 170px; }
+    .view-list .lib-card { contain-intrinsic-size:auto 150px; }
+    .lc-cover { position:relative; aspect-ratio:3/4; overflow:hidden; background:var(--bg-elevated); }
+    .lc-cover img.lc-img { position:absolute; inset:0; width:100%; height:100%; object-fit:cover; opacity:0; transition:opacity .3s ease, transform .4s ease, filter .3s ease; }
+    .lc-cover img.lc-img.loaded { opacity:1; }
+    .lc-cover.shimmer::before, .skeleton .lc-cover::before { content:""; position:absolute; inset:0; background:linear-gradient(100deg, transparent 20%, color-mix(in srgb, var(--border-color) 70%, transparent) 50%, transparent 80%); background-size:200% 100%; animation:shimmer 1.3s linear infinite; }
+    @keyframes shimmer { from { background-position:150% 0; } to { background-position:-50% 0; } }
+    .lc-fallback { position:absolute; inset:0; display:grid; place-items:center; align-content:center; gap:6px; color:var(--text-lighter); font-size:11.5px; font-weight:600; text-align:center; }
+    .lc-fallback svg { width:26px; height:26px; margin:0 auto; opacity:.7; }
+    .lib-card.dim .lc-img.loaded { filter:saturate(.55) brightness(.82); }
+    .lc-badges { position:absolute; left:8px; top:8px; right:44px; display:flex; flex-wrap:wrap; gap:5px; pointer-events:none; }
+    .lc-pill { display:inline-flex; align-items:center; gap:3px; height:21px; padding:0 7px; border-radius:999px; font-size:11px; font-weight:700; color:#fff; background:rgba(15,23,42,.58); backdrop-filter:blur(6px); -webkit-backdrop-filter:blur(6px); }
+    .lc-pill svg { width:12px; height:12px; }
+    .lc-pill.cat { background:rgba(217,119,6,.9); }
+    .lc-pill.warn { background:rgba(220,38,38,.9); }
+    .lc-score { position:absolute; right:8px; top:8px; min-width:26px; height:26px; padding:0 6px; border-radius:9px; display:grid; place-items:center; font-size:12.5px; font-weight:800; color:#fff; background:var(--score); box-shadow:0 2px 8px rgba(0,0,0,.25); font-variant-numeric:tabular-nums; }
+    .view-wall .lc-score { right:5px; top:5px; min-width:20px; height:20px; border-radius:7px; font-size:11px; }
+    .lc-foot { position:absolute; left:0; right:0; bottom:0; padding:28px 9px 8px; display:flex; align-items:flex-end; gap:7px; color:#fff; background:linear-gradient(to top, rgba(2,6,23,.82), rgba(2,6,23,.35) 60%, transparent); transition:opacity .2s ease; }
+    .lc-avatar { position:relative; width:24px; height:24px; flex-shrink:0; border-radius:50%; overflow:hidden; display:grid; place-items:center; font-size:11px; font-weight:800; font-style:normal; color:#fff; background:linear-gradient(145deg,#38bdf8,#0284c7); box-shadow:0 0 0 1.5px rgba(255,255,255,.7); }
+    .lc-avatar img { position:absolute; inset:0; width:100%; height:100%; object-fit:cover; }
+    .lc-who { flex:1; min-width:0; line-height:1.25; }
+    .lc-nick { font-size:12px; font-weight:700; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; text-shadow:0 1px 2px rgba(0,0,0,.4); }
+    .lc-time { font-size:10.5px; opacity:.8; }
+    .lc-dur { flex-shrink:0; font-size:11px; font-weight:700; padding:1px 6px; border-radius:6px; background:rgba(15,23,42,.55); font-variant-numeric:tabular-nums; }
+    .lc-hover { position:absolute; left:0; right:0; bottom:0; padding:40px 11px 11px; display:flex; flex-direction:column; gap:7px; color:#fff; background:linear-gradient(to top, rgba(2,6,23,.94), rgba(2,6,23,.78) 70%, transparent); opacity:0; transform:translateY(8px); transition:opacity .2s ease, transform .2s ease; pointer-events:none; }
+    .lc-summary { font-size:12px; line-height:1.45; display:-webkit-box; -webkit-line-clamp:3; -webkit-box-orient:vertical; overflow:hidden; }
+    .bars { display:grid; grid-template-columns:auto 1fr auto; align-items:center; gap:3px 7px; font-size:10.5px; }
+    .bars .bl { opacity:.8; font-weight:600; }
+    .bars .bt { display:block; height:5px; border-radius:999px; background:rgba(148,163,184,.3); overflow:hidden; }
+    /* span 默认 inline，宽高不生效，进度条会一直是空的灰条 */
+    .bars .bf { display:block; height:100%; border-radius:999px; background:var(--bar-color, #38bdf8); transition:width .3s ease; }
+    .bars .bv { font-weight:700; font-variant-numeric:tabular-nums; opacity:.85; }
+    .lc-tags { display:flex; flex-wrap:wrap; gap:4px; max-height:40px; overflow:hidden; }
+    .lc-tags span { font-size:10.5px; line-height:17px; padding:0 7px; border-radius:999px; background:rgba(255,255,255,.16); }
+    .view-wall .lc-foot, .view-wall .lc-hover, .view-wall .lc-badges { display:none; }
+    /* 悬停只在真有鼠标的设备上生效，触屏不出浮层 */
+    @media (hover:hover) and (pointer:fine) {
+      .view-grid .lib-card:hover, .view-wall .lib-card:hover { transform:translateY(-4px); box-shadow:0 16px 36px rgba(15,23,42,.18); }
+      .view-grid .lib-card:hover .lc-img.loaded { transform:scale(1.04); }
+      .view-grid .lib-card:hover .lc-hover { opacity:1; transform:none; }
+      .view-grid .lib-card:hover .lc-foot { opacity:0; }
+      .view-list .lib-card:hover { border-color:var(--border-strong); box-shadow:var(--shadow); }
+    }
+
+    /* 列表视图 */
+    .view-list .lib-card { display:flex; gap:14px; padding:10px; }
+    .view-list .lc-cover { width:96px; flex-shrink:0; border-radius:10px; }
+    .view-list .lc-foot, .view-list .lc-hover { display:none; }
+    .view-list .lc-badges { left:5px; top:5px; right:5px; }
+    .view-list .lc-badges .lc-pill:not(.media) { display:none; }
+    .lr-main { flex:1; min-width:0; display:flex; flex-direction:column; gap:5px; }
+    .lr-head { display:flex; align-items:center; gap:8px; min-width:0; font-size:12px; color:var(--text-muted); }
+    .lr-head .lc-avatar { width:22px; height:22px; box-shadow:none; }
+    .lr-nick { font-weight:750; color:var(--text-main); font-size:13px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    .lr-score { flex-shrink:0; padding:1px 8px; border-radius:999px; font-size:11px; font-weight:800; color:#fff; background:var(--score); }
+    .lr-cat { flex-shrink:0; padding:1px 8px; border-radius:999px; font-size:11px; font-weight:700; color:var(--warn); background:var(--warn-light); }
+    .lr-desc { font-size:13px; line-height:1.5; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; }
+    .lr-summary { font-size:12px; color:var(--text-muted); line-height:1.5; }
+    .lr-row { display:flex; gap:16px; align-items:flex-start; flex-wrap:wrap; }
+    .lr-row .bars { width:220px; flex-shrink:0; color:var(--text-muted); }
+    .lr-row .bars .bt { background:var(--bg-elevated); }
+    .lr-tags { flex:1; min-width:200px; display:flex; flex-wrap:wrap; gap:4px; }
+    .tag-pill { font-size:11px; line-height:18px; padding:0 8px; border-radius:999px; background:var(--primary-light); color:var(--accent); }
+    .tag-pill.g-outfit, .tag-pill.g-enhancers { background:color-mix(in srgb, #f97316 14%, transparent); color:#ea580c; }
+    body.theme-dark .tag-pill.g-outfit, body.theme-dark .tag-pill.g-enhancers { color:#fdba74; }
+    .skeleton { cursor:default; pointer-events:none; }
+    .skeleton .lc-line { height:10px; margin:10px; border-radius:6px; background:var(--bg-elevated); }
+    .view-list .skeleton .lc-line { flex:1; }
+
+    /* 列表尾部：空态 / 出错 / 到底 / 加载更多 */
+    .lib-state { display:flex; flex-direction:column; align-items:center; gap:10px; padding:28px 16px; text-align:center; color:var(--text-muted); font-size:13px; }
+    .lib-state[hidden] { display:none; }
+    .lib-state .big { font-size:15px; font-weight:750; color:var(--text-main); }
+    .lib-state.end { padding:18px 16px 8px; font-size:12px; color:var(--text-lighter); }
+    .lib-state.end::before, .lib-state.end::after { content:""; }
+    .empty-art { width:64px; height:64px; border-radius:20px; display:grid; place-items:center; background:var(--primary-light); color:var(--accent); }
+    .empty-art svg { width:30px; height:30px; }
+    .sentinel { height:1px; }
+    .load-more-wrap { display:flex; justify-content:center; padding:6px 0 10px; }
+    .load-more-wrap[hidden] { display:none; }
+
+    .btn:focus-visible, .seg button:focus-visible, .chip-toggle:focus-visible, .facet button:focus-visible,
+    .user-facet:focus-visible, .link-btn:focus-visible, .hist-col:focus-visible, .fchip button:focus-visible,
+    .saved-chip button:focus-visible, .fp-group > summary:focus-visible { outline:2px solid var(--primary); outline-offset:2px; }
+
+    .filter-overlay { z-index:58; }
+    @media (prefers-reduced-motion: reduce) {
+      .lib-card, .lc-img, .lc-hover, .filter-panel, .hist-bar { transition:none !important; }
+      .lc-cover.shimmer::before, .skeleton .lc-cover::before { animation:none; }
+    }
+
+    /* 平板/手机：侧边筛选改为底部抽屉 */
+    @media (max-width:900px) {
+      .filter-panel, .filter-panel[hidden] { display:flex; position:fixed; left:0; right:0; bottom:0; top:auto; z-index:60; width:auto; max-height:82vh; border-radius:20px 20px 0 0; border-bottom:0; box-shadow:0 -12px 40px rgba(15,23,42,.25); transform:translateY(105%); visibility:hidden; transition:transform .28s cubic-bezier(.16,1,.3,1), visibility .28s; padding-bottom:env(safe-area-inset-bottom, 0px); }
+      .filter-panel.sheet-open { transform:none; visibility:visible; }
+      .fp-handle { display:block; position:absolute; left:50%; top:6px; width:38px; height:4px; margin-left:-19px; border-radius:999px; background:var(--border-strong); }
+      .fp-head { padding-top:16px; }
+    }
+    @media (max-width:640px) {
+      .lib-toolbar { top:-16px; margin:0; padding:9px 10px; border-radius:14px; }
+      /* 手机上胶囊放底部居中，拇指够得着 */
+      .lib-fab { right:50%; transform:translate3d(50%, 14px, 0) scale(.92); }
+      .lib-fab.show { transform:translate3d(50%, 0, 0); }
+      .tb-scroll { flex-wrap:nowrap; overflow-x:auto; margin:0 -10px; padding:0 10px 2px; scrollbar-width:none; -webkit-overflow-scrolling:touch; }
+      .tb-scroll::-webkit-scrollbar { display:none; }
+      .tb-size { display:none !important; }
+      .tb-view-text { display:none; }
+      .tb-row:first-child { flex-wrap:nowrap; }
+      .tb-search { flex:1 1 120px; }
+      .tb-row:first-child .seg button { padding:5px 8px; }
+      .hist { width:100%; justify-content:space-between; }
+      .hist-col { flex:1; width:auto; }
+      .lib-grid.view-grid, .lib-grid.view-grid.size-1, .lib-grid.view-grid.size-3 { grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px; }
+      .lib-grid.view-wall, .lib-grid.view-wall.size-1, .lib-grid.view-wall.size-3 { grid-template-columns:repeat(3,minmax(0,1fr)); gap:4px; }
+      .view-list .lc-cover { width:78px; }
+      .lr-row .bars { width:100%; }
+      .lr-tags { min-width:0; }
+      .lr-summary { display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; }
+    }
+  </style>
+</head>
+<body>
+  <aside class="sidebar" id="sidebar">
+    <div class="sidebar-header">
+      <div class="sidebar-brand">抖</div>
+      <span id="sidebarTitle">用户监控台</span>
+    </div>
+    <nav class="sidebar-nav">
+      <a class="nav-item" href="/api/monitor/dashboard" onclick="return navigateToPage('/api/monitor/dashboard')" title="数据大盘">
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6A2.25 2.25 0 0 1 6 3.75h2.25A2.25 2.25 0 0 1 10.5 6v2.25a2.25 2.25 0 0 1-2.25 2.25H6a2.25 2.25 0 0 1-2.25-2.25V6ZM3.75 15.75A2.25 2.25 0 0 1 6 13.5h2.25a2.25 2.25 0 0 1 2.25 2.25V18a2.25 2.25 0 0 1-2.25 2.25H6A2.25 2.25 0 0 1 3.75 18v-2.25ZM13.5 6a2.25 2.25 0 0 1 2.25-2.25H18A2.25 2.25 0 0 1 20.25 6v2.25A2.25 2.25 0 0 1 18 10.5h-2.25a2.25 2.25 0 0 1-2.25-2.25V6ZM13.5 15.75a2.25 2.25 0 0 1 2.25-2.25H18a2.25 2.25 0 0 1 2.25 2.25V18A2.25 2.25 0 0 1 18 20.25h-2.25A2.25 2.25 0 0 1 13.5 18v-2.25Z" /></svg>
+        数据大盘
+      </a>
+      <a class="nav-item" href="/api/monitor/statistics/dashboard" onclick="return navigateToPage('/api/monitor/statistics/dashboard')" title="用户统计">
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M7.5 3.75h9A2.25 2.25 0 0 1 18.75 6v12A2.25 2.25 0 0 1 16.5 20.25h-9A2.25 2.25 0 0 1 5.25 18V6A2.25 2.25 0 0 1 7.5 3.75Zm1.5 4.5h6m-6 3h6m-6 3h3" /></svg>
+        用户统计
+      </a>
+      <a class="nav-item active" href="/api/monitor/library/dashboard" onclick="return navigateToPage('/api/monitor/library/dashboard')" title="作品库">
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M3.375 19.5h17.25m-17.25 0a1.125 1.125 0 0 1-1.125-1.125M3.375 19.5h1.5C5.496 19.5 6 18.996 6 18.375m-3.75 0V5.625m0 12.75v-1.5c0-.621.504-1.125 1.125-1.125m18.375 2.625V5.625m0 12.75c0 .621-.504 1.125-1.125 1.125m1.125-1.125v-1.5c0-.621-.504-1.125-1.125-1.125m0 3.75h-1.5A1.125 1.125 0 0 1 18 18.375M20.625 4.5H3.375m17.25 0c.621 0 1.125.504 1.125 1.125M20.625 4.5h-1.5C18.504 4.5 18 5.004 18 5.625m3.75 0v1.5c0 .621-.504 1.125-1.125 1.125M3.375 4.5c-.621 0-1.125.504-1.125 1.125M3.375 4.5h1.5C5.496 4.5 6 5.004 6 5.625m-3.75 0v1.5c0 .621.504 1.125 1.125 1.125m0 0h1.5m-1.5 0c-.621 0-1.125.504-1.125 1.125v1.5c0 .621.504 1.125 1.125 1.125m1.5-3.75C5.496 8.25 6 7.746 6 7.125v-1.5M4.875 8.25C5.496 8.25 6 8.754 6 9.375v1.5m0-5.25v5.25m0-5.25C6 5.004 6.504 4.5 7.125 4.5h9.75c.621 0 1.125.504 1.125 1.125m1.125 2.625h1.5m-1.5 0A1.125 1.125 0 0 1 18 7.125v-1.5m1.125 2.625c-.621 0-1.125.504-1.125 1.125v1.5m2.625-2.625c.621 0 1.125.504 1.125 1.125v1.5c0 .621-.504 1.125-1.125 1.125M18 5.625v5.25M7.125 12h9.75m-9.75 0A1.125 1.125 0 0 1 6 10.875M7.125 12C6.504 12 6 12.504 6 13.125m0-2.25C6 11.496 5.496 12 4.875 12M18 10.875c0 .621-.504 1.125-1.125 1.125M18 10.875c0 .621.504 1.125 1.125 1.125m-2.25 0c.621 0 1.125.504 1.125 1.125m-12 5.25v-5.25m0 5.25c0 .621.504 1.125 1.125 1.125h9.75c.621 0 1.125-.504 1.125-1.125m-12 0v-1.5c0-.621-.504-1.125-1.125-1.125M18 18.375v-5.25m0 5.25v-1.5c0-.621.504-1.125 1.125-1.125M18 13.125v1.5c0 .621.504 1.125 1.125 1.125M18 13.125c0-.621.504-1.125 1.125-1.125M6 13.125v1.5c0 .621-.504 1.125-1.125 1.125M6 13.125C6 12.504 5.496 12 4.875 12m-1.5 0h1.5m-1.5 0c-.621 0-1.125.504-1.125 1.125v1.5c0 .621.504 1.125 1.125 1.125M19.125 12h1.5m0 0c.621 0 1.125.504 1.125 1.125v1.5c0 .621-.504 1.125-1.125 1.125m-17.25 0h1.5m14.25 0h1.5" /></svg>
+        作品库
+      </a>
+      <a class="nav-item" href="/api/monitor/swipe/dashboard" onclick="return navigateToPage('/api/monitor/swipe/dashboard')" title="刷视频">
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" /><path stroke-linecap="round" stroke-linejoin="round" d="M15.91 11.672a.375.375 0 0 1 0 .656l-5.603 3.113a.375.375 0 0 1-.557-.328V8.887c0-.286.307-.466.557-.327l5.603 3.112Z" /></svg>
+        刷视频
+      </a>
+      <a class="nav-item" href="/api/monitor/cookies/dashboard" onclick="return navigateToPage('/api/monitor/cookies/dashboard')" title="Cookie 池">
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 5.25a3 3 0 0 1 3 3m3 0a6 6 0 0 1-7.029 5.912c-.563-.097-1.159.026-1.563.43L10.5 17.25H8.25v2.25H6v2.25H2.25v-2.818c0-.597.237-1.17.659-1.591l6.499-6.499c.404-.404.527-1 .43-1.563A6 6 0 1 1 21.75 8.25Z" /></svg>
+        Cookie 池
+      </a>
+      <a class="nav-item" href="/api/monitor/settings/dashboard" onclick="return navigateToPage('/api/monitor/settings/dashboard')" title="调度配置">
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M9.594 3.94c.09-.542.56-.94 1.11-.94h2.593c.55 0 1.02.398 1.11.94l.213 1.281c.063.374.313.686.645.87.074.04.147.083.22.127.325.196.72.257 1.075.124l1.217-.456a1.125 1.125 0 0 1 1.37.49l1.296 2.247a1.125 1.125 0 0 1-.26 1.431l-1.003.827c-.293.241-.438.613-.43.992a7.723 7.723 0 0 1 0 .255c-.008.378.137.75.43.991l1.004.827c.424.35.534.955.26 1.43l-1.298 2.247a1.125 1.125 0 0 1-1.369.491l-1.217-.456c-.355-.133-.75-.072-1.076.124a6.47 6.47 0 0 1-.22.128c-.331.183-.581.495-.644.869l-.213 1.281c-.09.543-.56.94-1.11.94h-2.594c-.55 0-1.019-.398-1.11-.94l-.213-1.281c-.062-.374-.312-.686-.644-.87a6.52 6.52 0 0 1-.22-.127c-.325-.196-.72-.257-1.076-.124l-1.217.456a1.125 1.125 0 0 1-1.369-.49l-1.297-2.247a1.125 1.125 0 0 1 .26-1.431l1.004-.827c.292-.24.437-.613.43-.991a6.932 6.932 0 0 1 0-.255c.007-.38-.138-.751-.43-.992l-1.004-.827a1.125 1.125 0 0 1-.26-1.43l1.297-2.247a1.125 1.125 0 0 1 1.37-.491l1.216.456c.356.133.751.072 1.076-.124.072-.044.146-.086.22-.128.332-.183.582-.495.644-.869l.214-1.28Z" /><path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" /></svg>
+        调度配置
+      </a>
+      <a class="nav-item" href="/api/monitor/api/dashboard" onclick="return navigateToPage('/api/monitor/api/dashboard')" title="解析 API">
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M17.25 6.75 22.5 12l-5.25 5.25m-10.5 0L1.5 12l5.25-5.25m7.5-3-4.5 16.5" /></svg>
+        解析 API
+      </a>
+      <div class="nav-spacer"></div>
+      <a class="nav-item theme-toggle" onclick="return toggleTheme()" title="切换暗黑模式" aria-label="切换暗黑模式">
+        <svg class="theme-icon theme-icon-moon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.6" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79Z" /></svg>
+        <svg class="theme-icon theme-icon-sun" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.6" stroke="currentColor"><circle cx="12" cy="12" r="3.5" /><path stroke-linecap="round" d="M12 2v2m0 16v2M4.93 4.93l1.42 1.42m11.3 11.3 1.42 1.42M2 12h2m16 0h2M4.93 19.07l1.42-1.42m11.3-11.3 1.42-1.42" /></svg>
+        主题模式
+      </a>
+      <a class="nav-item" onclick="return reloadLibrary()" title="重新加载">
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0 3.181 3.183a8.25 8.25 0 0 0 13.803-3.7M4.031 9.865a8.25 8.25 0 0 1 13.803-3.7l3.181 3.182m0-4.991v4.99" /></svg>
+        重新加载
+      </a>
+    </nav>
+  </aside>
+  <div class="overlay" id="sidebarOverlay" onclick="toggleSidebar()"></div>
+  <div class="app-wrapper">
+    <header class="top-header">
+      <div style="display:flex;align-items:center;gap:12px;min-width:0;">
+        <button class="btn btn-secondary btn-sm mobile-sidebar-toggle" onclick="toggleSidebar()" aria-label="菜单">
+          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" style="width:22px;height:22px;"><path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5" /></svg>
+        </button>
+        <div class="title-with-orb">
+          <div class="title-orb">◉</div>
+          <div>
+            <div style="font-size:15px;font-weight:750;">作品库</div>
+            <div style="font-size:11px;color:var(--text-muted);">全部用户的已归档作品</div>
+          </div>
+        </div>
+      </div>
+      <div class="header-right">
+        <button type="button" class="btn btn-primary btn-sm" onclick="openSwipe()" title="按当前筛选上下滑动刷视频">刷视频</button>
+        <button type="button" class="btn btn-secondary btn-sm" onclick="saveCurrentFilter()">保存当前筛选</button>
+      </div>
+    </header>
+
+    <main class="main-content" id="mainScroll">
+      <div class="content-container lib-container">
+        <section class="lib-hero">
+          <div>
+            <h1 class="page-title">作品库</h1>
+            <div class="lib-stats" id="libStats" aria-live="polite">正在加载…</div>
+          </div>
+          <div class="hist" id="scoreHist" role="group" aria-label="擦边评分分布，点击只看该分"></div>
+        </section>
+
+        <div class="lib-toolbar" id="toolbar">
+          <div class="tb-row">
+            <label class="tb-search">
+              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="m21 21-4.35-4.35M17 10.5a6.5 6.5 0 1 1-13 0 6.5 6.5 0 0 1 13 0Z" /></svg>
+              <input class="input" id="searchInput" type="search" placeholder="搜索昵称、描述、内容摘要" aria-label="搜索作品" autocomplete="off" />
+            </label>
+            <div class="seg" id="viewSeg" role="group" aria-label="视图">
+              <button type="button" data-view="grid" aria-label="网格视图"><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.8" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M4 5.5A1.5 1.5 0 0 1 5.5 4h4A1.5 1.5 0 0 1 11 5.5v4A1.5 1.5 0 0 1 9.5 11h-4A1.5 1.5 0 0 1 4 9.5v-4Zm9 0A1.5 1.5 0 0 1 14.5 4h4A1.5 1.5 0 0 1 20 5.5v4a1.5 1.5 0 0 1-1.5 1.5h-4A1.5 1.5 0 0 1 13 9.5v-4Zm-9 9A1.5 1.5 0 0 1 5.5 13h4a1.5 1.5 0 0 1 1.5 1.5v4A1.5 1.5 0 0 1 9.5 20h-4A1.5 1.5 0 0 1 4 18.5v-4Zm9 0a1.5 1.5 0 0 1 1.5-1.5h4a1.5 1.5 0 0 1 1.5 1.5v4a1.5 1.5 0 0 1-1.5 1.5h-4a1.5 1.5 0 0 1-1.5-1.5v-4Z" /></svg><span class="tb-view-text">网格</span></button>
+              <button type="button" data-view="wall" aria-label="紧凑墙视图"><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.8" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M4 4h4v4H4V4Zm6 0h4v4h-4V4Zm6 0h4v4h-4V4ZM4 10h4v4H4v-4Zm6 0h4v4h-4v-4Zm6 0h4v4h-4v-4ZM4 16h4v4H4v-4Zm6 0h4v4h-4v-4Zm6 0h4v4h-4v-4Z" /></svg><span class="tb-view-text">紧凑墙</span></button>
+              <button type="button" data-view="list" aria-label="列表视图"><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.8" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M4 5h4v5H4V5Zm0 9h4v5H4v-5Zm7-8h9m-9 3h6m-6 6h9m-9 3h6" /></svg><span class="tb-view-text">列表</span></button>
+            </div>
+            <button type="button" class="btn btn-secondary btn-sm filter-btn" id="filterToggle" aria-controls="filterPanel" aria-expanded="false">
+              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.8" stroke="currentColor" style="width:16px;height:16px;" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M3 5h18l-7 8.5V19l-4 1.5v-7L3 5Z" /></svg>
+              筛选 <span class="badge-dot" id="filterCount" hidden>0</span>
+            </button>
+          </div>
+          <div class="tb-row tb-scroll">
+            <div class="tb-group">
+              <span class="tb-label">类型</span>
+              <div class="seg" id="typeSeg" role="group" aria-label="作品类型">
+                <button type="button" data-type="">全部</button>
+                <button type="button" data-type="video">视频</button>
+                <button type="button" data-type="image">图文</button>
+              </div>
+            </div>
+            <div class="tb-group">
+              <span class="tb-label">擦边评分</span>
+              <div class="dual" id="scoreDual">
+                <div class="dual-track"><div class="dual-fill" id="scoreFill"></div></div>
+                <input type="range" id="scoreMin" min="1" max="5" step="1" value="1" aria-label="擦边评分下限" />
+                <input type="range" id="scoreMax" min="1" max="5" step="1" value="5" aria-label="擦边评分上限" />
+              </div>
+              <span class="score-readout" id="scoreReadout">1–5</span>
+            </div>
+            <div class="tb-group" id="subChips" role="group" aria-label="单项评分下限（点击切换档位）"></div>
+            <div class="tb-group" id="categoryChips" role="group" aria-label="分类（右键排除）"></div>
+            <div class="tb-group">
+              <span class="tb-label">发布时间</span>
+              <select class="input tb-select" id="dateRange" aria-label="发布时间">
+                <option value="">全部</option>
+                <option value="7">近 7 天</option>
+                <option value="30">近 30 天</option>
+                <option value="90">近 90 天</option>
+                <option value="custom">自定义</option>
+              </select>
+              <input class="input tb-date" type="date" id="dateFrom" aria-label="开始日期" hidden />
+              <input class="input tb-date" type="date" id="dateTo" aria-label="结束日期" hidden />
+            </div>
+            <div class="tb-group">
+              <span class="tb-label">排序</span>
+              <select class="input tb-select" id="sortSelect" aria-label="排序">
+                <option value="newest">最新发布</option>
+                <option value="oldest">最早发布</option>
+                <option value="score">擦边分最高</option>
+                <option value="duration">时长最长</option>
+                <option value="random">随机逛</option>
+                <optgroup label="单项评分">
+                  <option value="chest">胸部分最高</option>
+                  <option value="overall">整体暴露最高</option>
+                  <option value="body">身材分最高</option>
+                  <option value="camera">镜头强调最高</option>
+                  <option value="motion">动作展示最高</option>
+                </optgroup>
+              </select>
+              <button type="button" class="btn btn-secondary btn-sm" id="reshuffleBtn" hidden>换一批</button>
+            </div>
+            <div class="tb-group tb-size">
+              <span class="tb-label">卡片</span>
+              <input type="range" class="size-range" id="sizeRange" min="1" max="3" step="1" value="2" aria-label="卡片大小" />
+            </div>
+          </div>
+        </div>
+
+        <div class="chip-row" id="savedRow" aria-label="已保存的筛选"></div>
+        <div class="chip-row" id="activeRow" aria-label="当前筛选条件"></div>
+
+        <div class="lib-body">
+          <aside class="filter-panel" id="filterPanel" aria-label="筛选面板">
+            <span class="fp-handle" aria-hidden="true"></span>
+            <div class="fp-head">
+              <span class="fp-title">筛选</span>
+              <div style="display:flex;gap:4px;align-items:center;">
+                <button type="button" class="link-btn" onclick="clearAllFilters()">清空</button>
+                <button type="button" class="btn btn-secondary btn-sm" id="filterDone">完成</button>
+              </div>
+            </div>
+            <div class="fp-body" id="filterBody"></div>
+          </aside>
+
+          <section class="lib-results" aria-label="作品列表">
+            <div class="lib-grid view-grid size-2" id="libGrid"></div>
+            <div class="lib-state" id="libState" hidden></div>
+            <div class="load-more-wrap" id="loadMoreWrap" hidden>
+              <button type="button" class="btn btn-secondary btn-sm" id="loadMoreBtn">加载更多</button>
+            </div>
+            <div class="sentinel" id="sentinel" aria-hidden="true"></div>
+          </section>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <div class="overlay filter-overlay" id="filterOverlay"></div>
+
+  <!-- 工具栏收起时的呼出入口 -->
+  <div class="lib-fab" id="libFab" role="toolbar" aria-label="快捷操作">
+    <button type="button" id="fabFilter" aria-label="显示筛选栏">
+      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.8" stroke="currentColor" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M3 5h18l-7 8.5V19l-4 1.5v-7L3 5Z" /></svg>
+      <span>筛选</span><span class="badge-dot" id="fabCount" hidden>0</span>
+    </button>
+  </div>
+  <div class="toast-container" id="toast-container"></div>
+
+  <script src="/static/common.js?v=live-20260929a"></script>
+  <script src="/static/works-viewer.js?v=swipe-20260930b"></script>
+  <script>
+    function isMobileViewport() { return window.innerWidth <= 1024; }
+    function isSheetViewport() { return window.innerWidth <= 900; }
+
+    // ---- 常量：与 /api/monitor/library 的参数名一一对应 ----
+    const PAGE_SIZE = 60;
+    // 标签分组 [参数名, 显示名, 来源]；来源 tags=作品标签，appearance=人物外观，borderline=擦边评分
+    const TAG_GROUPS = [
+      ["outfit", "着装", "appearance"], ["scene", "场景", "tags"], ["content", "内容", "tags"],
+      ["style", "风格", "tags"], ["subject", "主体", "tags"], ["features", "特征", "tags"],
+      ["enhancers", "增强因素", "borderline"],
+    ];
+    const TAG_LABELS = Object.fromEntries(TAG_GROUPS.map(([key, label]) => [key, label]));
+    // 身材 = 臀部与曲线合成（臀部占大头）；所有分项满分都是 3
+    const SUB_SCORES = [["chest", "胸部", 3], ["body", "身材", 3], ["overall", "整体", 3], ["camera", "镜头", 3], ["motion", "动作", 3]];
+    const CATEGORIES = [["normal", "正常"], ["ad", "广告"], ["text_only", "纯文字"], ["screenshot", "截图"]];
+    const CATEGORY_LABELS = Object.fromEntries(CATEGORIES);
+    const SORT_LABELS = {
+      newest: "最新发布", oldest: "最早发布", score: "擦边分最高", duration: "时长最长", random: "随机逛",
+      chest: "胸部分最高", body: "身材分最高", overall: "整体暴露最高", camera: "镜头强调最高", motion: "动作展示最高",
+    };
+    const VIEWS = ["grid", "wall", "list"];
+    const DATE_PRESETS = ["7", "30", "90"];
+    const ACTIVE_CHIP_LIMIT = 8;
+    const SAVED_KEY = "dymon-library-saved-filters";
+    const PANEL_KEY = "dymon-library-panel-open";
+
+    const ICON_VIDEO = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 5.14v13.72a1 1 0 0 0 1.53.85l10.4-6.86a1 1 0 0 0 0-1.7L9.53 4.29A1 1 0 0 0 8 5.14Z"/></svg>';
+    const ICON_IMAGE = '<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M4 16l4.5-4.5a2 2 0 0 1 2.8 0L16 16m-2-2 1.5-1.5a2 2 0 0 1 2.8 0L20 14M6 20h12a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2Z"/></svg>';
+    const ICON_BROKEN = '<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.6" stroke="currentColor" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="m3 3 18 18M9.9 4H18a2 2 0 0 1 2 2v8.1M20 20H6a2 2 0 0 1-2-2V6"/></svg>';
+    const ICON_EMPTY = '<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.6" stroke="currentColor" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="m21 21-4.35-4.35M17 10.5a6.5 6.5 0 1 1-13 0 6.5 6.5 0 0 1 13 0ZM8 10.5h5"/></svg>';
+
+    function escapeHtml(value) {
+      return String(value ?? "")
+        .replaceAll("&", "&amp;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;")
+        .replaceAll('"', "&quot;")
+        .replaceAll("'", "&#39;");
+    }
+
+    function showToast(message, type = "success") {
+      const container = document.getElementById("toast-container");
+      const toast = document.createElement("div");
+      toast.className = `toast toast-${type}`;
+      toast.textContent = String(message ?? "");
+      container.appendChild(toast);
+      requestAnimationFrame(() => requestAnimationFrame(() => toast.classList.add("show")));
+      setTimeout(() => {
+        toast.classList.remove("show");
+        setTimeout(() => toast.remove(), 300);
+      }, 3000);
+    }
+
+    function formatNumber(value) {
+      return Number(value || 0).toLocaleString("zh-CN");
+    }
+
+    function formatDuration(ms) {
+      const total = Math.max(0, Math.round(Number(ms || 0) / 1000));
+      const hours = Math.floor(total / 3600);
+      const minutes = Math.floor((total % 3600) / 60);
+      const seconds = String(total % 60).padStart(2, "0");
+      return hours ? `${hours}:${String(minutes).padStart(2, "0")}:${seconds}` : `${minutes}:${seconds}`;
+    }
+
+    // 服务端给的站内相对地址才用，防止数据里混进 javascript: 之类协议
+    function safeLocalUrl(value) {
+      const text = String(value || "");
+      return text.startsWith("/api/monitor/") ? text : "";
+    }
+
+    // ---- 日期：一律按上海时区 ----
+    function shanghaiDateDaysAgo(days) {
+      const parts = formatTimeParts(new Date());
+      const date = new Date(Date.UTC(Number(parts.year), Number(parts.month) - 1, Number(parts.day) - days));
+      return date.toISOString().slice(0, 10);
+    }
+
+    function relativeTime(value) {
+      const parsed = parseTimeValue(value);
+      if (!parsed) return "时间未知";
+      const diffMinutes = (Date.now() - parsed.getTime()) / 60000;
+      if (diffMinutes < 0) return formatTime(value).slice(0, 10);
+      if (diffMinutes < 1) return "刚刚";
+      if (diffMinutes < 60) return `${Math.floor(diffMinutes)}分钟前`;
+      if (diffMinutes < 60 * 24) return `${Math.floor(diffMinutes / 60)}小时前`;
+      if (diffMinutes < 60 * 24 * 30) return `${Math.floor(diffMinutes / 60 / 24)}天前`;
+      return formatTime(value).slice(0, 10);
+    }
+
+    // ---- 筛选状态（URL 是唯一来源，参数名与接口一致；view/size/range 只在页面用）----
+    function defaultFilters() {
+      const filters = {
+        q: "", media_type: "", category: [], score_min: 1, score_max: 5,
+        user_ids: [], exclude: [], violation: false,
+        range: "", date_from: "", date_to: "", sort: "newest", seed: null,
+      };
+      SUB_SCORES.forEach(([key]) => { filters[`${key}_min`] = 0; });
+      TAG_GROUPS.forEach(([key]) => { filters[key] = []; });
+      return filters;
+    }
+
+    let filters = defaultFilters();
+    const ui = { view: "grid", size: 2, panelOpen: true, sheetOpen: false, chipsExpanded: false, openGroups: new Set(["sub", "users", "outfit", "content"]), userSearch: "", playingIndex: -1 };
+
+    function parseList(value) {
+      const seen = new Set();
+      String(value || "").split(",").map((part) => part.trim()).filter(Boolean).forEach((part) => seen.add(part));
+      return [...seen];
+    }
+
+    function parseIntIn(value, min, max, fallback) {
+      if (value === null || value === "") return fallback;
+      const num = Number(value);
+      return Number.isInteger(num) ? Math.min(max, Math.max(min, num)) : fallback;
+    }
+
+    function isDateText(value) {
+      return /^\d{4}-\d{2}-\d{2}$/.test(String(value || ""));
+    }
+
+    function readUrlState(search) {
+      const params = new URLSearchParams(search);
+      const next = defaultFilters();
+      next.q = (params.get("q") || "").trim();
+      next.media_type = ["video", "image"].includes(params.get("media_type")) ? params.get("media_type") : "";
+      next.category = parseList(params.get("category")).filter((value) => CATEGORY_LABELS[value]);
+      next.score_min = parseIntIn(params.get("score_min"), 1, 5, 1);
+      next.score_max = parseIntIn(params.get("score_max"), next.score_min, 5, 5);
+      SUB_SCORES.forEach(([key, , max]) => { next[`${key}_min`] = parseIntIn(params.get(`${key}_min`), 0, max, 0); });
+      next.user_ids = parseList(params.get("user_ids"));
+      TAG_GROUPS.forEach(([key]) => { next[key] = parseList(params.get(key)); });
+      next.exclude = parseList(params.get("exclude")).filter((pair) => pair.includes(":"));
+      next.violation = params.get("violation") === "1";
+      const range = params.get("range") || "";
+      if (DATE_PRESETS.includes(range)) next.range = range;
+      else {
+        next.date_from = isDateText(params.get("date_from")) ? params.get("date_from") : "";
+        next.date_to = isDateText(params.get("date_to")) ? params.get("date_to") : "";
+        if (range === "custom" || next.date_from || next.date_to) next.range = "custom";
+      }
+      next.sort = SORT_LABELS[params.get("sort")] ? params.get("sort") : "newest";
+      next.seed = next.sort === "random" ? parseIntIn(params.get("seed"), 0, 2147483647, null) : null;
+      filters = next;
+      ui.view = VIEWS.includes(params.get("view")) ? params.get("view") : "grid";
+      ui.size = parseIntIn(params.get("size"), 1, 3, 2);
+    }
+
+    // 过滤条件本身（URL 与接口共用），日期、页码、视图各自追加
+    function filterParams(source) {
+      const params = new URLSearchParams();
+      if (source.q) params.set("q", source.q);
+      if (source.media_type) params.set("media_type", source.media_type);
+      if (source.category.length) params.set("category", source.category.join(","));
+      if (source.score_min !== 1) params.set("score_min", String(source.score_min));
+      if (source.score_max !== 5) params.set("score_max", String(source.score_max));
+      SUB_SCORES.forEach(([key]) => {
+        if (source[`${key}_min`] > 0) params.set(`${key}_min`, String(source[`${key}_min`]));
+      });
+      if (source.user_ids.length) params.set("user_ids", source.user_ids.join(","));
+      TAG_GROUPS.forEach(([key]) => {
+        if (source[key].length) params.set(key, source[key].join(","));
+      });
+      if (source.exclude.length) params.set("exclude", source.exclude.join(","));
+      if (source.violation) params.set("violation", "1");
+      if (source.sort !== "newest") params.set("sort", source.sort);
+      if (source.sort === "random" && source.seed !== null) params.set("seed", String(source.seed));
+      return params;
+    }
+
+    function urlParams() {
+      const params = filterParams(filters);
+      if (DATE_PRESETS.includes(filters.range)) params.set("range", filters.range);
+      else if (filters.range === "custom") {
+        if (filters.date_from) params.set("date_from", filters.date_from);
+        if (filters.date_to) params.set("date_to", filters.date_to);
+        if (!filters.date_from && !filters.date_to) params.set("range", "custom");
+      }
+      if (ui.view !== "grid") params.set("view", ui.view);
+      if (ui.size !== 2) params.set("size", String(ui.size));
+      return params;
+    }
+
+    // 近 N 天在请求时才换算成 date_from，收藏的筛选不会被冻结在保存那天
+    function apiParams(page) {
+      const params = filterParams(filters);
+      if (DATE_PRESETS.includes(filters.range)) {
+        params.set("date_from", shanghaiDateDaysAgo(Number(filters.range) - 1));
+      } else if (filters.range === "custom") {
+        if (filters.date_from) params.set("date_from", filters.date_from);
+        if (filters.date_to) params.set("date_to", filters.date_to);
+      }
+      params.set("page", String(page));
+      params.set("page_size", String(PAGE_SIZE));
+      return params;
+    }
+
+    // 决定列表内容的查询键（不含页码/视图/尺寸）
+    function listQueryKey() {
+      const params = urlParams();
+      params.delete("view");
+      params.delete("size");
+      return params.toString();
+    }
+
+    function writeUrl(mode = "push") {
+      const query = urlParams().toString();
+      const url = `${window.location.pathname}${query ? `?${query}` : ""}`;
+      if (url === `${window.location.pathname}${window.location.search}`) return;
+      if (mode === "replace") history.replaceState(null, "", url);
+      else history.pushState(null, "", url);
+    }
+
+    // ---- 包含 / 排除 ----
+    function excludeKey(group, value) {
+      return `${group}:${value}`;
+    }
+
+    function isExcluded(group, value) {
+      return filters.exclude.includes(excludeKey(group, value));
+    }
+
+    function includeListOf(group) {
+      return group === "category" ? filters.category : filters[group];
+    }
+
+    function toggleInclude(group, value) {
+      const key = excludeKey(group, value);
+      if (filters.exclude.includes(key)) {
+        filters.exclude = filters.exclude.filter((item) => item !== key);
+      } else {
+        const listRef = includeListOf(group);
+        const index = listRef.indexOf(value);
+        if (index >= 0) listRef.splice(index, 1);
+        else listRef.push(value);
+      }
+      commit();
+    }
+
+    function toggleExclude(group, value) {
+      const key = excludeKey(group, value);
+      const listRef = includeListOf(group);
+      const index = listRef.indexOf(value);
+      if (index >= 0) listRef.splice(index, 1);
+      if (filters.exclude.includes(key)) filters.exclude = filters.exclude.filter((item) => item !== key);
+      else filters.exclude.push(key);
+      commit();
+    }
+
+    function toggleUser(userId) {
+      const index = filters.user_ids.indexOf(userId);
+      if (index >= 0) filters.user_ids.splice(index, 1);
+      else filters.user_ids.push(userId);
+      commit();
+    }
+
+    function clearAllFilters() {
+      filters = { ...defaultFilters(), sort: filters.sort, seed: filters.seed };
+      ui.chipsExpanded = false;
+      commit();
+      return false;
+    }
+
+    // 任何筛选变化：写 URL → 同步控件 → 重新拉第一页
+    function commit({ history: mode = "push" } = {}) {
+      writeUrl(mode);
+      syncControls();
+      renderActiveChips();
+      renderPanel();
+      reloadList();
+    }
+
+    // ---- 列表加载（无限滚动，保留已加载条目，筛选变化时整体重置）----
+    const list = { items: [], ids: new Set(), page: 0, totalPages: 0, total: 0, loading: false, error: "", seq: 0, controller: null, pending: null };
+    let meta = null;
+    // 用户昵称缓存：选中的用户即使不在当前 facets 里也能显示名字
+    const nicknames = new Map();
+
+    function hasMore() {
+      return list.page > 0 && list.page < list.totalPages;
+    }
+
+    function trackPending(promise) {
+      list.pending = promise;
+      promise.finally(() => {
+        if (list.pending === promise) list.pending = null;
+      });
+      return promise;
+    }
+
+    function reloadList() {
+      if (list.controller) list.controller.abort();
+      list.seq += 1;
+      list.items = [];
+      list.ids = new Set();
+      list.page = 0;
+      list.totalPages = 0;
+      list.total = 0;
+      list.error = "";
+      return trackPending(runLoad(1, false));
+    }
+
+    function reloadLibrary() {
+      reloadList();
+      return false;
+    }
+
+    async function loadMore() {
+      if (list.pending) {
+        const before = list.items.length;
+        await list.pending;
+        return list.items.length > before;
+      }
+      if (list.loading || list.error || !hasMore()) return false;
+      return trackPending(runLoad(list.page + 1, true));
+    }
+
+    // 返回是否有新条目追加进列表；失败已 toast + 尾部重试按钮，不吞错
+    async function runLoad(page, append) {
+      const seq = list.seq;
+      const controller = new AbortController();
+      list.controller = controller;
+      list.loading = true;
+      list.error = "";
+      if (append) appendSkeletons();
+      else renderGrid();
+      renderTail();
+      let data = null;
+      let failure = null;
+      try {
+        data = await api(`/library?${apiParams(page).toString()}`, { signal: controller.signal });
+      } catch (error) {
+        failure = error;
+      }
+      // 已被新的筛选取代（含主动 abort），丢弃这次结果
+      if (seq !== list.seq) return false;
+      list.loading = false;
+      list.controller = null;
+      removeSkeletons();
+      if (failure) {
+        list.error = failure.message || "请求失败";
+        showToast(`作品库加载失败：${list.error}`, "error");
+        if (!append) {
+          // 统计、分布、facets 属于上一轮筛选，失败时清掉，别让旧数字冒充当前结果
+          meta = null;
+          renderGrid();
+          renderStats();
+          renderHistogram();
+          renderPanel();
+        }
+        renderTail();
+        return false;
+      }
+      // 去重键带上用户：同一作品可能同时挂在多个用户下
+      const workKey = (item) => `${item.user_id}:${item.aweme_id}`;
+      const fresh = (Array.isArray(data.items) ? data.items : []).filter((item) => item && !list.ids.has(workKey(item)));
+      fresh.forEach((item) => {
+        list.ids.add(workKey(item));
+        if (item.user_id && item.nickname) nicknames.set(String(item.user_id), String(item.nickname));
+      });
+      list.page = Number(data.page || page);
+      list.totalPages = Number(data.total_pages || 0);
+      list.total = Number(data.total || 0);
+      const start = list.items.length;
+      list.items = list.items.concat(fresh);
+      if (!append) {
+        applyMeta(data);
+        renderGrid();
+      } else {
+        appendCards(fresh, start);
+      }
+      // 随机逛首次由服务端选种子；记进 URL，刷新/返回时顺序不变
+      if (filters.sort === "random" && filters.seed === null && data.seed !== null && data.seed !== undefined) {
+        filters.seed = Number(data.seed);
+        writeUrl("replace");
+      }
+      WorksViewer.syncAfterReload();
+      if (fresh.length) WorksViewer.prefetchDirectUrls(fresh);
+      renderTail();
+      scheduleAutoLoad();
+      return fresh.length > 0;
+    }
+
+    function applyMeta(data) {
+      meta = {
+        facets: data.facets || {},
+        histogram: data.score_histogram || {},
+        usersTotal: Number(data.users_total || 0),
+        eligibleTotal: Number(data.eligible_total || 0),
+      };
+      (meta.facets.users || []).forEach((entry) => {
+        if (entry.user_id && entry.nickname) nicknames.set(String(entry.user_id), String(entry.nickname));
+      });
+      renderStats();
+      renderHistogram();
+      renderPanel();
+      renderActiveChips();
+    }
+
+    // 哨兵已在视口附近（内容不够一屏或刚追加完）时 IntersectionObserver 不会再触发，这里补一次
+    function scheduleAutoLoad() {
+      requestAnimationFrame(() => {
+        if (list.loading || list.error || !hasMore()) return;
+        const rect = document.getElementById("sentinel").getBoundingClientRect();
+        if (rect.top < window.innerHeight + 800) loadMore();
+      });
+    }
+
+    // ---- 条目字段 ----
+    function filterOf(item) {
+      return item.content_filter && typeof item.content_filter === "object" ? item.content_filter : {};
+    }
+
+    function borderlineOf(item) {
+      const borderline = filterOf(item).appearance?.borderline;
+      return borderline && typeof borderline === "object" ? borderline : null;
+    }
+
+    function scoreOf(item) {
+      const score = Number(borderlineOf(item)?.score);
+      return Number.isInteger(score) && score >= 1 ? Math.min(score, 5) : 0;
+    }
+
+    function tagValues(item, group, source) {
+      const result = filterOf(item);
+      const bag = source === "tags" ? result.tags : source === "appearance" ? result.appearance : borderlineOf(item);
+      const values = bag && Array.isArray(bag[group]) ? bag[group] : [];
+      return values.map((value) => String(value || "").trim()).filter(Boolean);
+    }
+
+    // 卡片优先展示内容/着装，其余按分组顺序
+    const CARD_TAG_ORDER = ["content", "outfit", "scene", "style", "subject", "features", "enhancers"];
+    function tagsOf(item) {
+      const sources = Object.fromEntries(TAG_GROUPS.map(([key, , source]) => [key, source]));
+      return CARD_TAG_ORDER.flatMap((group) => tagValues(item, group, sources[group]).map((value) => ({ group, value })));
+    }
+
+    function categoryOf(item) {
+      const category = String(filterOf(item).category || "normal");
+      return CATEGORY_LABELS[category] ? category : "normal";
+    }
+
+    // ---- 卡片 ----
+    function avatarHtml(item) {
+      const name = String(item.nickname || item.user_id || "?");
+      const initial = escapeHtml(Array.from(name)[0] || "?");
+      const url = safeLocalUrl(item.avatar_url);
+      const image = url ? `<img src="${escapeHtml(url)}" alt="" loading="lazy" decoding="async" onerror="this.remove()" />` : "";
+      return `<span class="lc-avatar" aria-hidden="true">${initial}${image}</span>`;
+    }
+
+    function coverHtml(item) {
+      const url = WorksViewer.coverImageUrl(item);
+      if (!url) return `<div class="lc-fallback">${ICON_IMAGE}<span>暂无封面</span></div>`;
+      return `<img class="lc-img" src="${escapeHtml(url)}" alt="" loading="lazy" decoding="async" onload="onCoverLoad(this)" onerror="onCoverError(this)" />`;
+    }
+
+    function onCoverLoad(image) {
+      image.classList.add("loaded");
+      image.parentElement?.classList.remove("shimmer");
+    }
+
+    function onCoverError(image) {
+      const cover = image.parentElement;
+      cover?.classList.remove("shimmer");
+      const fallback = document.createElement("div");
+      fallback.className = "lc-fallback";
+      fallback.innerHTML = `${ICON_BROKEN}<span>封面加载失败</span>`;
+      image.replaceWith(fallback);
+    }
+
+    function barsHtml(borderline) {
+      if (!borderline) return "";
+      const rows = SUB_SCORES.map(([key, label, max]) => {
+        const value = Math.min(max, Math.max(0, Number(borderline[key]) || 0));
+        const ratio = value / max;
+        // 按占比上色：满分红、过半橙、其余蓝，一眼看出哪项高
+        const color = ratio >= 1 ? "#ef4444" : ratio > 0.5 ? "#f97316" : "#38bdf8";
+        return `<span class="bl">${label}</span>`
+          + `<span class="bt" title="${label} ${value}/${max}"><span class="bf" style="width:${ratio * 100}%;--bar-color:${color}"></span></span>`
+          + `<span class="bv">${value}/${max}</span>`;
+      });
+      return `<div class="bars">${rows.join("")}</div>`;
+    }
+
+    function badgesHtml(item) {
+      const isImage = item.media_type === "image";
+      const media = isImage
+        ? `<span class="lc-pill media" title="图文 ${Number(item.image_count || 0)} 张">${ICON_IMAGE}${Number(item.image_count || 0)}</span>`
+        : `<span class="lc-pill media" title="视频">${ICON_VIDEO}视频</span>`;
+      const category = categoryOf(item);
+      const categoryPill = category !== "normal" ? `<span class="lc-pill cat">${escapeHtml(CATEGORY_LABELS[category])}</span>` : "";
+      const warn = borderlineOf(item)?.violation ? '<span class="lc-pill warn">疑似违规</span>' : "";
+      return `<div class="lc-badges">${media}${categoryPill}${warn}</div>`;
+    }
+
+    function cardClass(item) {
+      const score = scoreOf(item);
+      return `lib-card${score ? ` s${score}` : ""}${categoryOf(item) !== "normal" ? " dim" : ""}`;
+    }
+
+    function cardLabel(item) {
+      const score = scoreOf(item);
+      const nickname = item.nickname || item.user_id || "未知用户";
+      const desc = String(item.desc || "").trim() || "无描述";
+      return `${nickname}：${desc}${score ? `，擦边评分 ${score}` : ""}`;
+    }
+
+    function cardHtml(item, index) {
+      const score = scoreOf(item);
+      const attrs = `class="${cardClass(item)}" data-index="${index}" tabindex="0" role="button" aria-label="${escapeHtml(cardLabel(item))}"`;
+      const scoreBadge = score ? `<span class="lc-score" title="擦边评分 ${score}">${score}</span>` : "";
+      if (ui.view === "wall") {
+        return `<article ${attrs}><div class="lc-cover shimmer">${coverHtml(item)}${scoreBadge}</div></article>`;
+      }
+      const nickname = String(item.nickname || item.user_id || "未知用户");
+      const desc = String(item.desc || "").trim() || "（无描述）";
+      const summary = String(filterOf(item).summary || "").trim();
+      const duration = item.media_type !== "image" && Number(item.duration_ms) > 0 ? formatDuration(item.duration_ms) : "";
+      const when = relativeTime(item.publish_time);
+      const whenTitle = escapeHtml(formatTime(item.publish_time, "时间未知"));
+      const tags = tagsOf(item);
+      if (ui.view === "list") {
+        const category = categoryOf(item);
+        return `<article ${attrs}>
+          <div class="lc-cover shimmer">${coverHtml(item)}${badgesHtml(item)}</div>
+          <div class="lr-main">
+            <div class="lr-head">${avatarHtml(item)}<span class="lr-nick">${escapeHtml(nickname)}</span>
+              <span title="${whenTitle}">${escapeHtml(when)}</span>${duration ? `<span>· ${escapeHtml(duration)}</span>` : ""}
+              ${score ? `<span class="lr-score">擦边 ${score}</span>` : ""}
+              ${category !== "normal" ? `<span class="lr-cat">${escapeHtml(CATEGORY_LABELS[category])}</span>` : ""}
+              ${borderlineOf(item)?.violation ? '<span class="lr-cat" style="color:var(--danger);background:var(--danger-light);">疑似违规</span>' : ""}
+            </div>
+            <div class="lr-desc">${escapeHtml(desc)}</div>
+            ${summary ? `<div class="lr-summary">${escapeHtml(summary)}</div>` : ""}
+            <div class="lr-row">${barsHtml(borderlineOf(item))}
+              <div class="lr-tags">${tags.map((tag) => `<span class="tag-pill g-${tag.group}" title="${escapeHtml(TAG_LABELS[tag.group])}">${escapeHtml(tag.value)}</span>`).join("")}</div>
+            </div>
+          </div>
+        </article>`;
+      }
+      const hoverTags = tags.slice(0, 6).map((tag) => `<span>${escapeHtml(tag.value)}</span>`).join("");
+      return `<article ${attrs}>
+        <div class="lc-cover shimmer">
+          ${coverHtml(item)}
+          ${badgesHtml(item)}
+          ${scoreBadge}
+          <div class="lc-foot">
+            ${avatarHtml(item)}
+            <div class="lc-who"><div class="lc-nick">${escapeHtml(nickname)}</div><div class="lc-time" title="${whenTitle}">${escapeHtml(when)}</div></div>
+            ${duration ? `<span class="lc-dur">${escapeHtml(duration)}</span>` : ""}
+          </div>
+          <div class="lc-hover" aria-hidden="true">
+            <div class="lc-summary">${escapeHtml(summary || desc)}</div>
+            ${barsHtml(borderlineOf(item))}
+            ${hoverTags ? `<div class="lc-tags">${hoverTags}</div>` : ""}
+          </div>
+        </div>
+      </article>`;
+    }
+
+    function skeletonHtml(count) {
+      const one = ui.view === "list"
+        ? '<div class="lib-card skeleton" aria-hidden="true" style="display:flex;"><div class="lc-cover"></div><div class="lc-line"></div></div>'
+        : '<div class="lib-card skeleton" aria-hidden="true"><div class="lc-cover"></div></div>';
+      return one.repeat(count);
+    }
+
+    function gridEl() {
+      return document.getElementById("libGrid");
+    }
+
+    function renderGrid() {
+      const grid = gridEl();
+      grid.className = `lib-grid view-${ui.view} size-${ui.size}`;
+      grid.setAttribute("aria-busy", list.loading ? "true" : "false");
+      if (list.loading && !list.items.length) {
+        grid.innerHTML = skeletonHtml(ui.view === "wall" ? 24 : 12);
+        return;
+      }
+      grid.innerHTML = list.items.map((item, index) => cardHtml(item, index)).join("");
+      markPlayingCard(false);
+    }
+
+    function appendCards(items, start) {
+      gridEl().insertAdjacentHTML("beforeend", items.map((item, offset) => cardHtml(item, start + offset)).join(""));
+      markPlayingCard(false);
+    }
+
+    function appendSkeletons() {
+      gridEl().insertAdjacentHTML("beforeend", skeletonHtml(ui.view === "wall" ? 12 : 6));
+    }
+
+    function removeSkeletons() {
+      gridEl().querySelectorAll(".skeleton").forEach((node) => node.remove());
+    }
+
+    // 播放器里切换作品不滚动列表；关闭时才把最后看的那张一次性带进视野
+    function revealCard(index) {
+      const card = index >= 0 ? gridEl().querySelector(`.lib-card[data-index="${index}"]`) : null;
+      if (card) card.scrollIntoView({ block: "nearest" });
+    }
+
+    function markPlayingCard(scroll) {
+      gridEl().querySelectorAll(".lib-card.playing").forEach((card) => card.classList.remove("playing"));
+      if (ui.playingIndex < 0) return;
+      const card = gridEl().querySelector(`.lib-card[data-index="${ui.playingIndex}"]`);
+      if (!card) return;
+      card.classList.add("playing");
+      if (scroll) card.scrollIntoView({ block: "nearest", behavior: "smooth" });
+    }
+
+    // ---- 列表尾部：出错 / 空态 / 到底 / 加载更多 ----
+    function renderTail() {
+      const state = document.getElementById("libState");
+      const moreWrap = document.getElementById("loadMoreWrap");
+      moreWrap.hidden = !(hasMore() && !list.loading && !list.error);
+      state.className = "lib-state";
+      if (list.error) {
+        state.innerHTML = `<div class="big">加载失败</div><div>${escapeHtml(list.error)}</div>
+          <button type="button" class="btn btn-primary btn-sm" onclick="retryLoad()">重试</button>`;
+        state.hidden = false;
+        return;
+      }
+      if (list.loading) {
+        state.hidden = true;
+        return;
+      }
+      if (!list.items.length) {
+        const clearable = activeChipsOf().length > 0;
+        state.innerHTML = `<div class="empty-art">${ICON_EMPTY}</div><div class="big">没有符合条件的作品</div>
+          <div>${clearable ? "换个条件试试，或清空全部筛选" : "作品库里还没有可展示的作品"}</div>
+          ${clearable ? '<button type="button" class="btn btn-primary btn-sm" onclick="clearAllFilters()">清空筛选</button>' : ""}`;
+        state.hidden = false;
+        return;
+      }
+      if (!hasMore()) {
+        state.classList.add("end");
+        state.textContent = `已经到底了 · 共 ${formatNumber(list.total)} 个作品`;
+        state.hidden = false;
+        return;
+      }
+      state.hidden = true;
+    }
+
+    function retryLoad() {
+      if (!list.items.length) {
+        reloadList();
+        return;
+      }
+      list.error = "";
+      renderTail();
+      loadMore();
+    }
+
+    // ---- 顶部统计 + 评分分布 ----
+    function renderStats() {
+      const el = document.getElementById("libStats");
+      if (!meta) {
+        if (list.error) el.innerHTML = '<span class="muted">加载失败，统计暂不可用</span>';
+        return;
+      }
+      const filtered = list.total !== meta.eligibleTotal;
+      el.innerHTML = `<span>共 <b>${formatNumber(list.total)}</b> 个作品 · <b>${formatNumber(meta.usersTotal)}</b> 位用户</span>`
+        + (filtered ? `<span class="muted">作品库总计 ${formatNumber(meta.eligibleTotal)} 个</span>` : "");
+    }
+
+    function renderHistogram() {
+      const el = document.getElementById("scoreHist");
+      const histogram = meta ? meta.histogram : {};
+      const counts = [1, 2, 3, 4, 5].map((score) => Number(histogram[String(score)] || 0));
+      const max = Math.max(1, ...counts);
+      el.innerHTML = '<span class="hist-label">擦边</span>' + counts.map((count, i) => {
+        const score = i + 1;
+        const inRange = score >= filters.score_min && score <= filters.score_max;
+        const height = count ? Math.max(4, Math.round((count / max) * 30)) : 2;
+        const title = `擦边 ${score} 分：${formatNumber(count)} 个`;
+        return `<button type="button" class="hist-col s${score}${inRange ? "" : " off"}" data-score="${score}" title="${title}" aria-label="${title}">
+          <span class="hist-bar" style="height:${height}px"></span><span>${score}</span></button>`;
+      }).join("");
+    }
+
+    function onHistogramClick(event) {
+      const col = event.target.closest(".hist-col");
+      if (!col) return;
+      const score = Number(col.dataset.score);
+      const only = filters.score_min === score && filters.score_max === score;
+      filters.score_min = only ? 1 : score;
+      filters.score_max = only ? 5 : score;
+      commit();
+    }
+
+    // 整块 innerHTML 重绘前记下焦点按钮的 data-* 标识，重绘后聚焦同一按钮，键盘用户不会被甩回 body
+    const FOCUS_KEYS = ["act", "group", "value", "sub", "user", "category"];
+
+    function focusedButtonSelector(container) {
+      const active = document.activeElement;
+      if (!active || active.tagName !== "BUTTON" || !container.contains(active)) return "";
+      const parts = FOCUS_KEYS.filter((key) => active.dataset[key] !== undefined)
+        .map((key) => `[data-${key}="${CSS.escape(active.dataset[key])}"]`);
+      return parts.length ? `button${parts.join("")}` : "";
+    }
+
+    function restoreButtonFocus(container, selector) {
+      if (!selector) return;
+      const target = container.querySelector(selector);
+      if (target) target.focus({ preventScroll: true });
+    }
+
+    // ---- 工具栏分类 chips（点击包含，右键排除）----
+    // 单项高分快捷筛选：每个分项一个胶囊，点一下在 不限 → 过半 → 满分 → 不限 之间切换
+    // （0~3 分项：≥2 → =3；0~2 分项：≥1 → =2）。和侧栏“评分分项”是同一组条件
+    function subChipSteps(max) { return max >= 3 ? [0, 2, 3] : [0, 1, 2]; }
+
+    function renderSubChips() {
+      const chips = document.getElementById("subChips");
+      const focusSelector = focusedButtonSelector(chips);
+      chips.innerHTML = '<span class="tb-label">单项</span>' + SUB_SCORES.map(([key, label, max]) => {
+        const value = filters[`${key}_min`];
+        const text = value <= 0 ? label : value >= max ? `${label} 满分` : `${label} ≥${value}`;
+        return `<button type="button" class="chip-toggle" data-sub="${key}" aria-pressed="${value > 0}" title="点击切换：不限 / ≥${subChipSteps(max)[1]} / 满分">${text}</button>`;
+      }).join("");
+      restoreButtonFocus(chips, focusSelector);
+    }
+
+    function cycleSubChip(key) {
+      const max = SUB_SCORES.find(([name]) => name === key)[2];
+      const steps = subChipSteps(max);
+      const current = filters[`${key}_min`];
+      const index = steps.indexOf(current);
+      filters[`${key}_min`] = steps[(index < 0 ? 0 : index + 1) % steps.length];
+      commit();
+    }
+
+    function renderCategoryChips() {
+      const chips = document.getElementById("categoryChips");
+      const focusSelector = focusedButtonSelector(chips);
+      chips.innerHTML = '<span class="tb-label">分类</span>' + CATEGORIES.map(([value, label]) => {
+        const on = filters.category.includes(value);
+        const excluded = isExcluded("category", value);
+        return `<button type="button" class="chip-toggle${excluded ? " excluded" : ""}" data-category="${value}" aria-pressed="${on}" title="${excluded ? "已排除，点击取消" : "点击筛选，右键排除"}">${label}</button>`;
+      }).join("");
+      restoreButtonFocus(chips, focusSelector);
+    }
+
+    // ---- 侧边筛选面板 ----
+    function facetLabel(group, value) {
+      return group === "category" ? CATEGORY_LABELS[value] || value : value;
+    }
+
+    // facets 里的值 + 已选/已排除但当前计数为 0 的值（否则选了就找不到取消入口）
+    function facetEntries(group) {
+      const facets = meta && Array.isArray(meta.facets[group]) ? meta.facets[group] : [];
+      const entries = facets.map((entry) => ({ value: String(entry.value), count: Number(entry.count || 0) }));
+      const known = new Set(entries.map((entry) => entry.value));
+      const selected = includeListOf(group).concat(
+        filters.exclude.filter((key) => key.startsWith(`${group}:`)).map((key) => key.slice(group.length + 1))
+      );
+      selected.forEach((value) => {
+        if (!known.has(value)) {
+          known.add(value);
+          entries.push({ value, count: 0 });
+        }
+      });
+      return entries;
+    }
+
+    function facetPillsHtml(group) {
+      const entries = facetEntries(group);
+      if (!entries.length) return `<div class="fp-empty">${meta ? "当前结果里没有可选项" : list.error ? "加载失败" : "加载中…"}</div>`;
+      return `<div class="facet-list">${entries.map(({ value, count }) => {
+        const on = includeListOf(group).includes(value);
+        const excluded = isExcluded(group, value);
+        const label = escapeHtml(facetLabel(group, value));
+        const cls = `facet${on ? " on" : ""}${excluded ? " ex" : ""}${count ? "" : " zero"}`;
+        const data = `data-group="${escapeHtml(group)}" data-value="${escapeHtml(value)}"`;
+        return `<span class="${cls}">
+          <button type="button" class="facet-inc" data-act="inc" ${data} aria-pressed="${on}" title="${excluded ? "已排除，点击取消" : "点击筛选，右键排除"}">${label}<span class="count">${formatNumber(count)}</span></button>
+          <button type="button" class="facet-ex" data-act="ex" ${data} aria-pressed="${excluded}" aria-label="排除 ${label}" title="排除">⊘</button>
+        </span>`;
+      }).join("")}</div>`;
+    }
+
+    function groupHtml(key, title, count, content) {
+      const open = ui.openGroups.has(key) ? " open" : "";
+      const badge = count ? `<span class="fp-count">${count}</span>` : "";
+      return `<details class="fp-group" data-group-key="${key}"${open}><summary>${title}${badge}</summary><div class="fp-content">${content}</div></details>`;
+    }
+
+    function subScoresHtml() {
+      const rows = SUB_SCORES.map(([key, label, max]) => {
+        const current = filters[`${key}_min`];
+        const buttons = Array.from({ length: max + 1 }, (_, value) =>
+          `<button type="button" data-sub="${key}" data-value="${value}" aria-pressed="${current === value}">${value ? `≥${value}` : "不限"}</button>`
+        ).join("");
+        return `<div class="sub-row"><span class="tb-label">${label}</span><div class="seg" role="group" aria-label="${label}最低分">${buttons}</div></div>`;
+      }).join("");
+      const violation = `<label class="switch-row">只看疑似违规<input type="checkbox" id="violationToggle"${filters.violation ? " checked" : ""} /></label>`;
+      return violation + rows;
+    }
+
+    function userFacetsHtml() {
+      const facetUsers = meta && Array.isArray(meta.facets.users) ? meta.facets.users : [];
+      const counts = new Map(facetUsers.map((entry) => [String(entry.user_id), Number(entry.count || 0)]));
+      const order = filters.user_ids.concat(facetUsers.map((entry) => String(entry.user_id)).filter((id) => !filters.user_ids.includes(id)));
+      const keyword = ui.userSearch.trim().toLowerCase();
+      const rows = order.filter((id) => !keyword || (nicknames.get(id) || id).toLowerCase().includes(keyword)).map((id) => {
+        const on = filters.user_ids.includes(id);
+        const name = nicknames.get(id) || id;
+        const avatar = avatarHtml({ nickname: name, user_id: id, avatar_url: `${API_BASE}/users/${encodeURIComponent(id)}/avatar` });
+        return `<button type="button" class="user-facet${on ? " on" : ""}" data-user="${escapeHtml(id)}" aria-pressed="${on}">
+          ${avatar}<span class="name">${escapeHtml(name)}</span><span class="count">${formatNumber(counts.get(id) || 0)}</span></button>`;
+      });
+      if (!rows.length) return `<div class="fp-empty">${meta ? "没有匹配的用户" : list.error ? "加载失败" : "加载中…"}</div>`;
+      return rows.join("");
+    }
+
+    function renderPanel() {
+      const body = document.getElementById("filterBody");
+      const scrollTop = body.scrollTop;
+      const subCount = SUB_SCORES.filter(([key]) => filters[`${key}_min`] > 0).length + (filters.violation ? 1 : 0);
+      const groupCount = (group) => includeListOf(group).length + filters.exclude.filter((key) => key.startsWith(`${group}:`)).length;
+      const parts = [
+        groupHtml("sub", "评分分项", subCount, subScoresHtml()),
+        groupHtml("users", "用户", filters.user_ids.length,
+          `<input class="input" id="userSearch" type="search" placeholder="搜索用户" aria-label="搜索用户" value="${escapeHtml(ui.userSearch)}" style="padding:6px 10px;font-size:12.5px;" />
+           <div class="user-facets" id="userFacets">${userFacetsHtml()}</div>`),
+        groupHtml("category", "分类", groupCount("category"), facetPillsHtml("category")),
+        ...TAG_GROUPS.map(([key, label]) => groupHtml(key, label, groupCount(key), facetPillsHtml(key))),
+      ];
+      const hadUserFocus = document.activeElement?.id === "userSearch";
+      const focusSelector = focusedButtonSelector(body);
+      body.innerHTML = parts.join("");
+      body.scrollTop = scrollTop;
+      restoreButtonFocus(body, focusSelector);
+      if (hadUserFocus) {
+        const input = document.getElementById("userSearch");
+        input.focus();
+        input.setSelectionRange(input.value.length, input.value.length);
+      }
+    }
+
+    // ---- 已选条件 chips ----
+    function removeFrom(listRef, value) {
+      const index = listRef.indexOf(value);
+      if (index >= 0) listRef.splice(index, 1);
+    }
+
+    function dateChipLabel() {
+      if (DATE_PRESETS.includes(filters.range)) return `近 ${filters.range} 天`;
+      if (filters.range !== "custom" || (!filters.date_from && !filters.date_to)) return "";
+      if (filters.date_from && filters.date_to) return `${filters.date_from} 至 ${filters.date_to}`;
+      return filters.date_from ? `${filters.date_from} 起` : `截至 ${filters.date_to}`;
+    }
+
+    function activeChipsOf() {
+      const chips = [];
+      const add = (label, remove, excluded = false) => chips.push({ label, remove, excluded });
+      if (filters.q) add(`搜索：${filters.q}`, () => { filters.q = ""; });
+      if (filters.media_type) add(`类型：${filters.media_type === "video" ? "视频" : "图文"}`, () => { filters.media_type = ""; });
+      if (filters.score_min !== 1 || filters.score_max !== 5) {
+        const text = filters.score_min === filters.score_max ? `${filters.score_min}` : `${filters.score_min}–${filters.score_max}`;
+        add(`擦边评分：${text}`, () => { filters.score_min = 1; filters.score_max = 5; });
+      }
+      SUB_SCORES.forEach(([key, label]) => {
+        const value = filters[`${key}_min`];
+        if (value > 0) add(`${label} ≥${value}`, () => { filters[`${key}_min`] = 0; });
+      });
+      if (filters.violation) add("疑似违规", () => { filters.violation = false; });
+      filters.category.forEach((value) => add(`分类：${CATEGORY_LABELS[value] || value}`, () => removeFrom(filters.category, value)));
+      filters.user_ids.forEach((id) => add(`用户：${nicknames.get(id) || id}`, () => removeFrom(filters.user_ids, id)));
+      TAG_GROUPS.forEach(([key, label]) => {
+        filters[key].forEach((value) => add(`${label}：${value}`, () => removeFrom(filters[key], value)));
+      });
+      filters.exclude.forEach((pair) => {
+        const split = pair.indexOf(":");
+        const group = pair.slice(0, split);
+        const value = pair.slice(split + 1);
+        const label = group === "category" ? "分类" : TAG_LABELS[group] || group;
+        add(`⊘ ${label}：${facetLabel(group, value)}`, () => { filters.exclude = filters.exclude.filter((item) => item !== pair); }, true);
+      });
+      const dateLabel = dateChipLabel();
+      if (dateLabel) add(`发布：${dateLabel}`, () => { filters.range = ""; filters.date_from = ""; filters.date_to = ""; });
+      return chips;
+    }
+
+    let renderedChips = [];
+    function renderActiveChips() {
+      const row = document.getElementById("activeRow");
+      renderedChips = activeChipsOf();
+      const count = renderedChips.length;
+      const badge = document.getElementById("filterCount");
+      badge.textContent = String(count);
+      badge.hidden = count === 0;
+      const fabBadge = document.getElementById("fabCount");
+      fabBadge.textContent = String(count);
+      fabBadge.hidden = count === 0;
+      if (!count) {
+        row.innerHTML = "";
+        return;
+      }
+      const shown = ui.chipsExpanded ? renderedChips : renderedChips.slice(0, ACTIVE_CHIP_LIMIT);
+      const chips = shown.map((chip, index) => `<span class="fchip${chip.excluded ? " ex" : ""}" title="${escapeHtml(chip.label)}">
+        <span>${escapeHtml(chip.label)}</span><button type="button" data-chip="${index}" aria-label="移除条件 ${escapeHtml(chip.label)}">×</button></span>`);
+      if (count > shown.length) chips.push(`<button type="button" class="fchip more" data-chip-more="1">+${count - shown.length}</button>`);
+      else if (ui.chipsExpanded && count > ACTIVE_CHIP_LIMIT) chips.push('<button type="button" class="fchip more" data-chip-more="0">收起</button>');
+      row.innerHTML = `<span class="chip-row-label">已选</span>${chips.join("")}<button type="button" class="link-btn" onclick="clearAllFilters()">清空全部</button>`;
+    }
+
+    function onActiveRowClick(event) {
+      const more = event.target.closest("[data-chip-more]");
+      if (more) {
+        ui.chipsExpanded = more.dataset.chipMore === "1";
+        renderActiveChips();
+        return;
+      }
+      const button = event.target.closest("[data-chip]");
+      if (!button) return;
+      const chip = renderedChips[Number(button.dataset.chip)];
+      if (!chip) return;
+      chip.remove();
+      commit();
+    }
+
+    // ---- 收藏的筛选（仅存本浏览器）----
+    function readSaved() {
+      try {
+        const parsed = JSON.parse(localStorage.getItem(SAVED_KEY) || "[]");
+        return Array.isArray(parsed) ? parsed.filter((entry) => entry && typeof entry.name === "string" && typeof entry.query === "string") : [];
+      } catch (error) {
+        console.error("读取收藏的筛选失败", error);
+        return [];
+      }
+    }
+
+    function writeSaved(entries) {
+      try {
+        localStorage.setItem(SAVED_KEY, JSON.stringify(entries));
+        return true;
+      } catch (error) {
+        showToast(`保存失败：浏览器禁止本地存储（${error.message || error}）`, "error");
+        return false;
+      }
+    }
+
+    // 收藏只记筛选条件和排序，不记随机种子与视图
+    function savedQuery() {
+      const params = urlParams();
+      ["seed", "view", "size"].forEach((key) => params.delete(key));
+      return params.toString();
+    }
+
+    // 带着当前筛选去刷视频；排序显式带上（刷视频页不写排序时默认随机）
+    function openSwipe() {
+      const params = urlParams();
+      ["view", "size", "media_type"].forEach((key) => params.delete(key));
+      params.set("sort", filters.sort);
+      window.location.assign(`/api/monitor/swipe/dashboard?${params}`);
+    }
+
+    function saveCurrentFilter() {
+      const query = savedQuery();
+      if (!query) {
+        showToast("当前没有任何筛选条件", "error");
+        return;
+      }
+      const suggestion = activeChipsOf().slice(0, 2).map((chip) => chip.label).join(" · ") || SORT_LABELS[filters.sort];
+      const input = window.prompt("给当前筛选起个名字", suggestion);
+      if (input === null) return;
+      const name = input.trim();
+      if (!name) {
+        showToast("名字不能为空", "error");
+        return;
+      }
+      const entries = readSaved().filter((entry) => entry.name !== name);
+      entries.push({ name, query });
+      if (writeSaved(entries)) {
+        renderSaved();
+        showToast(`已保存筛选「${name}」`);
+      }
+    }
+
+    function renderSaved() {
+      const row = document.getElementById("savedRow");
+      const entries = readSaved();
+      if (!entries.length) {
+        row.innerHTML = "";
+        return;
+      }
+      row.innerHTML = '<span class="chip-row-label">收藏</span>' + entries.map((entry, index) => `<span class="saved-chip">
+        <button type="button" class="saved-apply" data-saved-apply="${index}" title="${escapeHtml(entry.name)}">${escapeHtml(entry.name)}</button>
+        <button type="button" data-saved-del="${index}" aria-label="删除收藏 ${escapeHtml(entry.name)}" title="删除">×</button></span>`).join("");
+    }
+
+    function onSavedRowClick(event) {
+      const entries = readSaved();
+      const apply = event.target.closest("[data-saved-apply]");
+      if (apply) {
+        const entry = entries[Number(apply.dataset.savedApply)];
+        if (!entry) return;
+        const view = ui.view;
+        const size = ui.size;
+        readUrlState(`?${entry.query}`);
+        ui.view = view;
+        ui.size = size;
+        ui.chipsExpanded = false;
+        commit();
+        return;
+      }
+      const remove = event.target.closest("[data-saved-del]");
+      if (!remove) return;
+      const entry = entries[Number(remove.dataset.savedDel)];
+      if (!entry || !window.confirm(`删除收藏的筛选「${entry.name}」？`)) return;
+      if (writeSaved(entries.filter((item) => item !== entry))) renderSaved();
+    }
+
+    // ---- 控件 ↔ 状态 ----
+    function setPressed(container, attr, value) {
+      container.querySelectorAll(`[${attr}]`).forEach((button) => {
+        button.setAttribute("aria-pressed", String(button.getAttribute(attr) === value));
+      });
+    }
+
+    function renderScoreSlider() {
+      const min = Number(document.getElementById("scoreMin").value);
+      const max = Number(document.getElementById("scoreMax").value);
+      const fill = document.getElementById("scoreFill");
+      fill.style.left = `${((min - 1) / 4) * 100}%`;
+      fill.style.right = `${((5 - max) / 4) * 100}%`;
+      document.getElementById("scoreReadout").textContent = min === max ? `${min} 分` : `${min}–${max}`;
+    }
+
+    function syncControls() {
+      const search = document.getElementById("searchInput");
+      if (search.value.trim() !== filters.q) search.value = filters.q;
+      setPressed(document.getElementById("typeSeg"), "data-type", filters.media_type);
+      setPressed(document.getElementById("viewSeg"), "data-view", ui.view);
+      document.getElementById("scoreMin").value = String(filters.score_min);
+      document.getElementById("scoreMax").value = String(filters.score_max);
+      renderScoreSlider();
+      renderSubChips();
+      renderCategoryChips();
+      renderHistogram();
+      const custom = filters.range === "custom";
+      document.getElementById("dateRange").value = filters.range;
+      const dateFrom = document.getElementById("dateFrom");
+      const dateTo = document.getElementById("dateTo");
+      dateFrom.hidden = !custom;
+      dateTo.hidden = !custom;
+      dateFrom.value = filters.date_from;
+      dateTo.value = filters.date_to;
+      document.getElementById("sortSelect").value = filters.sort;
+      document.getElementById("reshuffleBtn").hidden = filters.sort !== "random";
+      document.getElementById("sizeRange").value = String(ui.size);
+    }
+
+    // ---- 筛选面板开合：桌面是侧栏，窄屏是底部抽屉 ----
+    function readPanelPref() {
+      try {
+        const saved = localStorage.getItem(PANEL_KEY);
+        return saved === null ? window.innerWidth >= 1200 : saved === "1";
+      } catch (error) {
+        return window.innerWidth >= 1200;
+      }
+    }
+
+    // 抽屉模式下把面板挂到 body、紧跟在遮罩后面：面板原本在 main#mainScroll 这个滚动容器里，
+    // iOS WebKit（-webkit-overflow-scrolling:touch 等）会把它做成层叠上下文，面板的 z-index 越不过
+    // body 下的遮罩 → 整屏灰、点面板其实点到遮罩就关了。桌面吸顶侧栏再放回 .lib-body 原位（锚点注释）。
+    // 在进入抽屉视口时就挪（而不是打开那一刻），保证 translateY 滑入过渡照常播放。
+    let panelAnchor = null;
+    function placeFilterPanel(panel, sheet) {
+      if (!panelAnchor) {
+        panelAnchor = document.createComment("filterPanel-anchor");
+        panel.before(panelAnchor);
+      }
+      const overlay = document.getElementById("filterOverlay");
+      const target = sheet ? document.body : panelAnchor.parentNode;
+      if (panel.parentNode === target) return;
+      const active = document.activeElement;
+      const hadFocus = panel.contains(active);
+      if (sheet) overlay.after(panel);
+      else panelAnchor.after(panel);
+      if (hadFocus && typeof active.focus === "function") active.focus({ preventScroll: true });
+    }
+
+    function applyPanelState() {
+      const panel = document.getElementById("filterPanel");
+      const sheet = isSheetViewport();
+      placeFilterPanel(panel, sheet);
+      if (!sheet) ui.sheetOpen = false;
+      panel.hidden = !sheet && !ui.panelOpen;
+      panel.classList.toggle("sheet-open", sheet && ui.sheetOpen);
+      document.getElementById("filterOverlay").classList.toggle("show", sheet && ui.sheetOpen);
+      document.getElementById("filterToggle").setAttribute("aria-expanded", String(sheet ? ui.sheetOpen : ui.panelOpen));
+    }
+
+    function togglePanel(force) {
+      if (isSheetViewport()) {
+        ui.sheetOpen = typeof force === "boolean" ? force : !ui.sheetOpen;
+      } else {
+        ui.panelOpen = typeof force === "boolean" ? force : !ui.panelOpen;
+        try { localStorage.setItem(PANEL_KEY, ui.panelOpen ? "1" : "0"); } catch (error) { /* 只是记住偏好，存不了下次按默认 */ }
+      }
+      applyPanelState();
+    }
+
+    let searchTimer = 0;
+    function onSearchInput(event) {
+      clearTimeout(searchTimer);
+      const value = event.target.value.trim();
+      searchTimer = setTimeout(() => {
+        if (value === filters.q) return;
+        filters.q = value;
+        commit();
+      }, 300);
+    }
+
+    function onScoreInput(event) {
+      const minEl = document.getElementById("scoreMin");
+      const maxEl = document.getElementById("scoreMax");
+      // 两个滑块交叉时推着另一个走，保证下限 ≤ 上限
+      if (Number(minEl.value) > Number(maxEl.value)) {
+        if (event.target === minEl) maxEl.value = minEl.value;
+        else minEl.value = maxEl.value;
+      }
+      renderScoreSlider();
+    }
+
+    function onScoreChange() {
+      const min = Number(document.getElementById("scoreMin").value);
+      const max = Number(document.getElementById("scoreMax").value);
+      if (min === filters.score_min && max === filters.score_max) return;
+      filters.score_min = min;
+      filters.score_max = max;
+      commit();
+    }
+
+    function onDateRangeChange(event) {
+      const value = event.target.value;
+      filters.range = value;
+      filters.date_from = "";
+      filters.date_to = "";
+      commit();
+      if (value === "custom") document.getElementById("dateFrom").focus();
+    }
+
+    function onCustomDateChange() {
+      const from = document.getElementById("dateFrom").value;
+      const to = document.getElementById("dateTo").value;
+      if (from && to && from > to) {
+        showToast("开始日期不能晚于结束日期", "error");
+        syncControls();
+        return;
+      }
+      filters.date_from = from;
+      filters.date_to = to;
+      commit();
+    }
+
+    function onPanelClick(event) {
+      const facet = event.target.closest("[data-act]");
+      if (facet) {
+        if (facet.dataset.act === "ex") toggleExclude(facet.dataset.group, facet.dataset.value);
+        else toggleInclude(facet.dataset.group, facet.dataset.value);
+        return;
+      }
+      const sub = event.target.closest("[data-sub]");
+      if (sub) {
+        filters[`${sub.dataset.sub}_min`] = Number(sub.dataset.value);
+        commit();
+        return;
+      }
+      const user = event.target.closest("[data-user]");
+      if (user) toggleUser(user.dataset.user);
+    }
+
+    function onGridActivate(event) {
+      const card = event.target.closest(".lib-card:not(.skeleton)");
+      if (!card) return;
+      if (event.type === "keydown") {
+        if (event.key !== "Enter" && event.key !== " ") return;
+        event.preventDefault();
+      }
+      WorksViewer.open(Number(card.dataset.index));
+    }
+
+    function bindEvents() {
+      document.getElementById("searchInput").addEventListener("input", onSearchInput);
+      document.getElementById("typeSeg").addEventListener("click", (event) => {
+        const button = event.target.closest("[data-type]");
+        if (!button || button.dataset.type === filters.media_type) return;
+        filters.media_type = button.dataset.type;
+        commit();
+      });
+      document.getElementById("viewSeg").addEventListener("click", (event) => {
+        const button = event.target.closest("[data-view]");
+        if (!button || button.dataset.view === ui.view) return;
+        ui.view = button.dataset.view;
+        writeUrl("push");
+        syncControls();
+        renderGrid();
+      });
+      ["scoreMin", "scoreMax"].forEach((id) => {
+        const el = document.getElementById(id);
+        el.addEventListener("input", onScoreInput);
+        el.addEventListener("change", onScoreChange);
+      });
+      document.getElementById("subChips").addEventListener("click", (event) => {
+        const chip = event.target.closest("[data-sub]");
+        if (chip) cycleSubChip(chip.dataset.sub);
+      });
+      const categoryChips = document.getElementById("categoryChips");
+      categoryChips.addEventListener("click", (event) => {
+        const chip = event.target.closest("[data-category]");
+        if (chip) toggleInclude("category", chip.dataset.category);
+      });
+      categoryChips.addEventListener("contextmenu", (event) => {
+        const chip = event.target.closest("[data-category]");
+        if (!chip) return;
+        event.preventDefault();
+        toggleExclude("category", chip.dataset.category);
+      });
+      document.getElementById("dateRange").addEventListener("change", onDateRangeChange);
+      document.getElementById("dateFrom").addEventListener("change", onCustomDateChange);
+      document.getElementById("dateTo").addEventListener("change", onCustomDateChange);
+      document.getElementById("sortSelect").addEventListener("change", (event) => {
+        filters.sort = event.target.value;
+        filters.seed = null;
+        commit();
+      });
+      document.getElementById("reshuffleBtn").addEventListener("click", () => {
+        filters.seed = Math.floor(Math.random() * 2147483646) + 1;
+        commit();
+      });
+      const sizeRange = document.getElementById("sizeRange");
+      sizeRange.addEventListener("input", () => {
+        ui.size = Number(sizeRange.value);
+        gridEl().className = `lib-grid view-${ui.view} size-${ui.size}`;
+      });
+      sizeRange.addEventListener("change", () => writeUrl("replace"));
+      document.getElementById("filterToggle").addEventListener("click", () => togglePanel());
+      document.getElementById("filterDone").addEventListener("click", () => togglePanel(false));
+      document.getElementById("filterOverlay").addEventListener("click", () => togglePanel(false));
+      document.getElementById("scoreHist").addEventListener("click", onHistogramClick);
+      document.getElementById("activeRow").addEventListener("click", onActiveRowClick);
+      document.getElementById("savedRow").addEventListener("click", onSavedRowClick);
+
+      const panelBody = document.getElementById("filterBody");
+      panelBody.addEventListener("click", onPanelClick);
+      panelBody.addEventListener("contextmenu", (event) => {
+        const facet = event.target.closest(".facet-inc");
+        if (!facet) return;
+        event.preventDefault();
+        toggleExclude(facet.dataset.group, facet.dataset.value);
+      });
+      panelBody.addEventListener("change", (event) => {
+        if (event.target.id !== "violationToggle") return;
+        filters.violation = event.target.checked;
+        commit();
+      });
+      panelBody.addEventListener("input", (event) => {
+        if (event.target.id !== "userSearch") return;
+        ui.userSearch = event.target.value;
+        document.getElementById("userFacets").innerHTML = userFacetsHtml();
+      });
+      // toggle 事件不冒泡，用捕获记住各分组的展开状态，重渲染后保持
+      panelBody.addEventListener("toggle", (event) => {
+        const key = event.target.dataset?.groupKey;
+        if (!key) return;
+        if (event.target.open) ui.openGroups.add(key);
+        else ui.openGroups.delete(key);
+      }, true);
+
+      const grid = gridEl();
+      grid.addEventListener("click", onGridActivate);
+      grid.addEventListener("keydown", onGridActivate);
+      document.getElementById("loadMoreBtn").addEventListener("click", () => loadMore());
+
+      window.addEventListener("popstate", () => {
+        const before = listQueryKey();
+        readUrlState(window.location.search);
+        // 视图/尺寸那一步历史只重绘卡片，保留已加载的页和滚动位置
+        if (listQueryKey() === before) {
+          syncControls();
+          renderGrid();
+          return;
+        }
+        ui.chipsExpanded = false;
+        syncControls();
+        renderActiveChips();
+        renderPanel();
+        reloadList();
+      });
+      window.addEventListener("resize", applyPanelState);
+      const toolbar = document.getElementById("toolbar");
+      new ResizeObserver(() => {
+        document.documentElement.style.setProperty("--tb-h", `${Math.round(toolbar.offsetHeight)}px`);
+      }).observe(toolbar);
+
+      const observer = new IntersectionObserver((entries) => {
+        if (entries.some((entry) => entry.isIntersecting)) loadMore();
+      }, { root: document.getElementById("mainScroll"), rootMargin: "0px 0px 800px 0px" });
+      observer.observe(document.getElementById("sentinel"));
+      initToolbarAutoHide();
+    }
+
+    // ---- 工具栏跟手收起 ----
+    // 下滑时工具栏按手指位移 1:1 上移藏起（只写 transform，不改布局），停在半路就吸附；
+    // 上滑不会叫回，藏起后底部出现“筛选”胶囊，点一下在原地滑回来；回到页面顶部时随内容自然归位。
+    const TB_SNAP_DELAY_MS = 90;       // 这么久没有新的滚动事件就当作松手/惯性结束
+    const TB_EXTRA_HIDE = 18;          // 多藏一点，连投影一起移出视口
+    const TB_REVEAL_HOLD_MS = 500;     // 点胶囊叫回后，这段时间内忽略惯性余量带来的下滑
+    const toolbarState = {
+      shift: 0, lastY: 0, lastDir: 0, ticking: false, snapTimer: 0, touching: false,
+      height: 0, stickStart: 0, holdUntil: 0,
+    };
+
+    function toolbarMaxShift() { return toolbarState.height + TB_EXTRA_HIDE; }
+
+    function applyToolbarShift(shift, snap = false) {
+      const toolbar = document.getElementById("toolbar");
+      const max = toolbarMaxShift();
+      const value = Math.round(Math.min(Math.max(shift, 0), max));
+      toolbar.classList.toggle("tb-snapping", snap);
+      if (value === toolbarState.shift && !snap) return;
+      toolbarState.shift = value;
+      const root = document.documentElement.style;
+      root.setProperty("--tb-shift", `${value}px`);
+      // 侧栏面板吸在工具栏下方：跟着上移，但最多移到贴顶
+      root.setProperty("--panel-shift", `${Math.min(value, Math.max(0, toolbarState.height - 12))}px`);
+      toolbar.classList.toggle("tb-gone", value >= max - 1);
+      document.getElementById("libFab").classList.toggle("show", value >= max * 0.85);
+    }
+
+    // 输入中或筛选抽屉打开时保持显示，免得操作到一半工具栏跑掉
+    function toolbarLocked() {
+      const active = document.activeElement;
+      return ui.sheetOpen || (document.getElementById("toolbar").contains(active) && active.matches("input, select"));
+    }
+
+    // 标题区底边 = 工具栏开始吸顶的滚动位置；在此之前工具栏随页面自然滚动
+    function measureToolbar() {
+      const scroller = document.getElementById("mainScroll");
+      const toolbar = document.getElementById("toolbar");
+      const anchor = toolbar.previousElementSibling;
+      toolbarState.height = toolbar.offsetHeight;
+      toolbarState.stickStart = anchor
+        ? anchor.getBoundingClientRect().bottom - scroller.getBoundingClientRect().top + scroller.scrollTop
+        : 0;
+    }
+
+    function snapToolbar() {
+      // 手指还按在屏幕上（慢慢拖、中途停顿）就不吸附，免得和手指抢
+      if (toolbarState.touching) return;
+      const max = toolbarMaxShift();
+      const { shift } = toolbarState;
+      if (shift <= 0 || shift >= max) return;
+      // 靠近顶部时工具栏正随页面自然滚回原位，不吸附
+      const past = toolbarState.lastY - toolbarState.stickStart;
+      if (past < max) return;
+      // 下滑停在半路：过了三分之一就收起，否则弹回显示
+      applyToolbarShift(shift > max / 3 ? max : 0, true);
+    }
+
+    function onMainScroll() {
+      const scroller = document.getElementById("mainScroll");
+      // iOS 回弹时 scrollTop 会越界，夹住再算位移
+      const y = Math.min(Math.max(scroller.scrollTop, 0), scroller.scrollHeight - scroller.clientHeight);
+      const delta = y - toolbarState.lastY;
+      toolbarState.lastY = y;
+      if (delta) toolbarState.lastDir = Math.sign(delta);
+      clearTimeout(toolbarState.snapTimer);
+      toolbarState.snapTimer = setTimeout(snapToolbar, TB_SNAP_DELAY_MS);
+
+      if (toolbarLocked()) {
+        if (toolbarState.shift) applyToolbarShift(0, true);
+        return;
+      }
+      // 超过吸顶点多少像素；<=0 表示工具栏还在文档流里的原位
+      const past = y - toolbarState.stickStart;
+      if (past <= 0) {
+        if (toolbarState.shift) applyToolbarShift(0);
+        return;
+      }
+      let next = toolbarState.shift;
+      // 只有下滑会把工具栏推走；上滑不叫回（要看筛选点底部“筛选”胶囊）
+      if (delta > 0 && performance.now() >= toolbarState.holdUntil) next += delta;
+      // 但回到顶部附近时，工具栏的原位已经进入画面：不能停在原位之上，于是随内容一起自然滑回
+      next = Math.min(next, past);
+      applyToolbarShift(next);
+    }
+
+    function revealToolbar() {
+      toolbarState.holdUntil = performance.now() + TB_REVEAL_HOLD_MS;
+      applyToolbarShift(0, true);
+    }
+
+    function initToolbarAutoHide() {
+      const scroller = document.getElementById("mainScroll");
+      const toolbar = document.getElementById("toolbar");
+      measureToolbar();
+      toolbarState.lastY = scroller.scrollTop;
+      new ResizeObserver(measureToolbar).observe(toolbar);
+      if (toolbar.previousElementSibling) new ResizeObserver(measureToolbar).observe(toolbar.previousElementSibling);
+      window.addEventListener("resize", measureToolbar);
+      scroller.addEventListener("scroll", () => {
+        if (toolbarState.ticking) return;
+        toolbarState.ticking = true;
+        requestAnimationFrame(() => {
+          toolbarState.ticking = false;
+          onMainScroll();
+        });
+      }, { passive: true });
+      scroller.addEventListener("touchstart", () => {
+        toolbarState.touching = true;
+        clearTimeout(toolbarState.snapTimer);
+      }, { passive: true });
+      const release = () => {
+        toolbarState.touching = false;
+        // 抬手后若还有惯性滚动，滚动事件会继续推迟吸附；没有惯性就在这里收尾
+        clearTimeout(toolbarState.snapTimer);
+        toolbarState.snapTimer = setTimeout(snapToolbar, TB_SNAP_DELAY_MS);
+      };
+      scroller.addEventListener("touchend", release, { passive: true });
+      scroller.addEventListener("touchcancel", release, { passive: true });
+      // 搜索框获得焦点（比如键盘 Tab 进来）时立刻显示
+      toolbar.addEventListener("focusin", () => { if (toolbarState.shift) revealToolbar(); });
+      document.getElementById("fabFilter").addEventListener("click", revealToolbar);
+    }
+
+    function initViewer() {
+      WorksViewer.init({
+        defaultUserId: null,
+        getItems: () => list.items,
+        getListInfo: () => ({ offset: 0, total: list.total }),
+        hasAdjacent: (delta) => delta > 0 && hasMore(),
+        loadAdjacent: async (delta) => (delta > 0 ? loadMore() : false),
+        onPlayingChange: (index, options = {}) => {
+          ui.playingIndex = index;
+          markPlayingCard(Boolean(options.scroll));
+          if (index < 0 && Number.isInteger(options.revealIndex)) revealCard(options.revealIndex);
+        },
+        onEscapeWhenClosed: () => {
+          if (ui.sheetOpen) togglePanel(false);
+        },
+      });
+    }
+
+    function init() {
+      initViewer();
+      readUrlState(window.location.search);
+      ui.panelOpen = readPanelPref();
+      bindEvents();
+      applyPanelState();
+      syncControls();
+      renderSaved();
+      renderActiveChips();
+      renderPanel();
+      reloadList();
+    }
+
+    init();
+  </script>
+</body>
+</html>

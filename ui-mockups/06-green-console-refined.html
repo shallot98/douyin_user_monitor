@@ -1,0 +1,702 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>E2 · Green Console Refined</title>
+<style>
+  :root {
+    --bg: #0a120e;
+    --panel: rgba(20, 32, 26, 0.78);
+    --panel-solid: #121c17;
+    --line: rgba(134, 201, 149, 0.10);
+    --line-2: rgba(134, 201, 149, 0.16);
+    --text: #e8f3eb;
+    --muted: #8aa394;
+    --faint: #61786b;
+    --green: #8fd19f;
+    --green-dim: #5f8f6c;
+    --green-2: #6fbf82;
+    --green-soft: rgba(143, 209, 159, 0.12);
+    --danger: #e89595;
+    --warn: #d6bc6a;
+    --radius: 20px;
+    --shadow: 0 12px 40px rgba(0,0,0,.25);
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    min-height: 100vh;
+    font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Noto Sans SC", "Segoe UI", sans-serif;
+    color: var(--text);
+    background:
+      radial-gradient(900px 480px at 75% 0%, rgba(111,191,130,.10), transparent 60%),
+      radial-gradient(700px 420px at 10% 100%, rgba(60,110,80,.08), transparent 55%),
+      var(--bg);
+    padding: 28px 18px 48px;
+  }
+  .stage { max-width: 1180px; margin: 0 auto; }
+  .tagline {
+    display: inline-flex; align-items: center; gap: 8px;
+    color: var(--muted); font-size: 12px; margin-bottom: 14px;
+  }
+  .tagline i { width: 7px; height: 7px; border-radius: 50%; background: var(--green); box-shadow: 0 0 0 4px rgba(143,209,159,.12); }
+
+  .shell {
+    display: grid;
+    grid-template-columns: 72px 1fr;
+    gap: 14px;
+  }
+
+  /* rail */
+  .rail {
+    background: rgba(16, 26, 21, .92);
+    border: 1px solid var(--line);
+    border-radius: 28px;
+    padding: 14px 10px;
+    display: flex; flex-direction: column; align-items: center; gap: 8px;
+    box-shadow: var(--shadow);
+  }
+  .brand {
+    width: 42px; height: 42px; border-radius: 15px;
+    display: grid; place-items: center;
+    background: var(--green-soft); color: var(--green);
+    font-weight: 800; margin-bottom: 6px;
+  }
+  .nav {
+    width: 44px; height: 44px; border-radius: 15px;
+    display: grid; place-items: center; color: var(--faint);
+  }
+  .nav svg { width: 18px; height: 18px; }
+  .nav.on { background: var(--green); color: #0a120e; box-shadow: 0 10px 22px rgba(111,191,130,.25); }
+  .rail .sp { flex: 1; }
+
+  /* main */
+  .main {
+    background: linear-gradient(180deg, rgba(16,26,21,.88), rgba(11,18,14,.94));
+    border: 1px solid var(--line);
+    border-radius: 28px;
+    padding: 22px;
+    box-shadow: var(--shadow);
+    position: relative;
+    overflow: hidden;
+  }
+  .main::before {
+    content: ""; position: absolute; right: 8%; top: -8%;
+    width: 360px; height: 220px;
+    background: radial-gradient(circle, rgba(143,209,159,.10), transparent 70%);
+    pointer-events: none;
+  }
+
+  .top {
+    display: flex; justify-content: space-between; align-items: center;
+    margin-bottom: 20px; position: relative; z-index: 1;
+  }
+  .title { display: flex; align-items: center; gap: 12px; }
+  .orb {
+    width: 30px; height: 30px; border-radius: 50%;
+    border: 2px solid var(--green); color: var(--green);
+    display: grid; place-items: center; font-size: 13px;
+  }
+  .title h1 { font-size: 22px; font-weight: 700; letter-spacing: .2px; }
+  .title p { font-size: 12px; color: var(--muted); margin-top: 2px; }
+  .live {
+    display: inline-flex; align-items: center; gap: 8px;
+    padding: 8px 12px; border-radius: 999px;
+    background: rgba(143,209,159,.08); border: 1px solid var(--line-2);
+    color: var(--green); font-size: 12px; font-weight: 700;
+  }
+  .live b { width: 7px; height: 7px; border-radius: 50%; background: var(--green); box-shadow: 0 0 10px var(--green); }
+
+  /* ===== soft metrics: NO nested mini-boxes ===== */
+  .metrics {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 12px;
+    margin-bottom: 14px;
+    position: relative; z-index: 1;
+  }
+  .metric-card {
+    background: rgba(18, 28, 23, .72);
+    border: 1px solid var(--line);
+    border-radius: 18px;
+    padding: 16px 16px 14px;
+    min-height: 108px;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+  }
+  .metric-card .head {
+    display: flex; align-items: center; justify-content: space-between;
+    margin-bottom: 14px;
+  }
+  .metric-card .label {
+    font-size: 12px; color: var(--muted); font-weight: 600;
+    letter-spacing: .2px;
+  }
+  .metric-card .icon {
+    width: 28px; height: 28px; border-radius: 9px;
+    background: rgba(8,14,11,.55);
+    color: var(--green);
+    display: grid; place-items: center;
+  }
+  .metric-card .icon svg { width: 14px; height: 14px; }
+  .metric-card .value-row {
+    display: flex; align-items: baseline; gap: 8px;
+  }
+  .metric-card .value {
+    font-size: 28px; font-weight: 750; letter-spacing: -0.8px;
+    line-height: 1; color: var(--text);
+  }
+  .metric-card .unit {
+    font-size: 12px; color: var(--faint); font-weight: 600;
+  }
+  .metric-card .foot {
+    margin-top: 10px;
+    display: flex; align-items: center; justify-content: space-between;
+    font-size: 11px; color: var(--faint);
+  }
+  .metric-card .foot em {
+    font-style: normal; color: var(--green); font-weight: 650;
+  }
+  .divider-h {
+    height: 1px; background: var(--line); margin: 10px 0 0;
+    opacity: .9;
+  }
+
+  /* dual inline stats without boxes */
+  .pair {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 0;
+    margin-top: 2px;
+  }
+  .pair .item { padding-right: 12px; }
+  .pair .item + .item {
+    padding-left: 14px;
+    border-left: 1px solid var(--line);
+  }
+  .pair .k { font-size: 11px; color: var(--muted); margin-bottom: 6px; }
+  .pair .n { font-size: 22px; font-weight: 750; letter-spacing: -.5px; }
+  .pair .s { font-size: 11px; color: var(--faint); margin-top: 4px; }
+
+  .row {
+    display: grid;
+    grid-template-columns: 1.2fr .8fr;
+    gap: 12px;
+    margin-bottom: 12px;
+    position: relative; z-index: 1;
+  }
+  .panel {
+    background: rgba(16, 24, 20, .72);
+    border: 1px solid var(--line);
+    border-radius: 18px;
+    padding: 16px 16px 14px;
+  }
+  .panel-h {
+    display: flex; align-items: center; justify-content: space-between;
+    margin-bottom: 14px;
+  }
+  .panel-h h2 { font-size: 14px; font-weight: 700; }
+  .panel-h .hint { font-size: 11px; color: var(--faint); }
+
+  /* activity as soft bars, not heavy boxes */
+  .activity {
+    display: flex; align-items: flex-end; gap: 5px; height: 84px;
+    padding: 4px 2px 0;
+  }
+  .bar {
+    flex: 1; border-radius: 6px 6px 3px 3px;
+    background: rgba(143,209,159,.10);
+    min-height: 8px;
+  }
+  .bar.on1 { background: rgba(143,209,159,.22); }
+  .bar.on2 { background: rgba(143,209,159,.38); }
+  .bar.on3 { background: rgba(143,209,159,.58); }
+  .bar.on4 { background: rgba(143,209,159,.82); }
+  .activity-foot {
+    display: flex; justify-content: space-between;
+    margin-top: 10px; color: var(--faint); font-size: 11px;
+  }
+
+  /* health as text rows, not card grid spam */
+  .health-list { display: flex; flex-direction: column; gap: 0; }
+  .health-row {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 11px 0;
+    border-bottom: 1px solid var(--line);
+  }
+  .health-row:last-child { border-bottom: 0; padding-bottom: 2px; }
+  .health-row .l { font-size: 13px; color: var(--muted); }
+  .health-row .r { font-size: 13px; font-weight: 700; }
+  .ok { color: var(--green); }
+  .warn { color: var(--warn); }
+
+  .add {
+    margin-top: 8px; padding-top: 12px; border-top: 1px solid var(--line);
+  }
+  .add h3 { font-size: 13px; margin-bottom: 10px; color: var(--text); }
+  .field { display: flex; gap: 8px; }
+  .input {
+    flex: 1; background: rgba(8,14,11,.55);
+    border: 1px solid var(--line); border-radius: 12px;
+    padding: 11px 13px; color: var(--faint); font-size: 13px;
+  }
+  .btn {
+    border: 0; border-radius: 12px; padding: 0 16px;
+    background: linear-gradient(180deg, #9ad9a9, #6fbf82);
+    color: #0a120e; font-weight: 800; font-size: 13px;
+    box-shadow: 0 8px 18px rgba(111,191,130,.2);
+    white-space: nowrap;
+  }
+
+  /* user block: typographic metrics, not 4 boxes */
+  .user {
+    display: flex; gap: 14px; align-items: flex-start;
+    padding: 4px 2px;
+  }
+  .av {
+    width: 48px; height: 48px; border-radius: 16px;
+    background: linear-gradient(145deg, #8fd19f, #3f7a52);
+    color: #0a120e; font-weight: 800; font-size: 18px;
+    display: grid; place-items: center; flex-shrink: 0;
+  }
+  .user-main { flex: 1; min-width: 0; }
+  .name-line {
+    display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  }
+  .name-line b { font-size: 16px; font-weight: 750; }
+  .pill {
+    font-size: 11px; font-weight: 700; color: var(--green);
+    background: var(--green-soft); padding: 3px 8px; border-radius: 999px;
+  }
+  .uid { font-size: 12px; color: var(--muted); margin: 4px 0 12px; }
+
+  .stats-line {
+    display: flex; align-items: center; gap: 0;
+    padding: 10px 0 2px;
+  }
+  .stats-line .s {
+    flex: 1; min-width: 0;
+  }
+  .stats-line .s .n {
+    font-size: 18px; font-weight: 750; letter-spacing: -.3px; line-height: 1.1;
+  }
+  .stats-line .s .l {
+    font-size: 11px; color: var(--faint); margin-top: 4px;
+  }
+  .stats-line .sep {
+    width: 1px; height: 28px; background: var(--line); margin: 0 8px;
+    flex-shrink: 0;
+  }
+  .actions {
+    display: flex; gap: 8px; margin-top: 14px;
+  }
+  .ghost {
+    border: 1px solid var(--line);
+    background: transparent;
+    color: var(--muted);
+    border-radius: 10px;
+    padding: 8px 14px;
+    font-size: 12px; font-weight: 650;
+  }
+  .ghost.danger {
+    color: var(--danger);
+    border-color: rgba(232,149,149,.28);
+  }
+
+  /* trend softer */
+  .trend-kpis {
+    display: flex; gap: 28px; margin-bottom: 8px;
+  }
+  .trend-kpis .k .l { font-size: 11px; color: var(--muted); }
+  .trend-kpis .k .v { font-size: 20px; font-weight: 750; margin-top: 3px; letter-spacing: -.3px; }
+  .chips { display: flex; gap: 6px; }
+  .chip {
+    font-size: 11px; color: var(--faint);
+    border: 1px solid transparent; border-radius: 999px; padding: 4px 9px;
+  }
+  .chip.on {
+    color: var(--green); background: var(--green-soft); border-color: var(--line-2);
+  }
+  .chart {
+    height: 132px; position: relative; margin-top: 6px;
+  }
+  .chart .grid {
+    position: absolute; inset: 0;
+    background-image: repeating-linear-gradient(
+      to top, transparent 0, transparent 31px, rgba(134,201,149,.07) 32px
+    );
+  }
+  .chart svg { position: absolute; inset: 0; width: 100%; height: 100%; }
+  .xlabels {
+    display: flex; justify-content: space-between;
+    margin-top: 6px; color: var(--faint); font-size: 10px;
+  }
+
+  /* mobile */
+  .mobile-block {
+    margin-top: 20px;
+    display: grid;
+    grid-template-columns: 390px 1fr;
+    gap: 16px;
+  }
+  .phone {
+    width: 390px;
+    background: linear-gradient(180deg, #101a15, #0a120e);
+    border: 1px solid var(--line);
+    border-radius: 28px;
+    overflow: hidden;
+    box-shadow: var(--shadow);
+  }
+  .p-status {
+    display: flex; justify-content: space-between; padding: 12px 18px 0;
+    font-size: 12px; color: var(--muted); font-weight: 600;
+  }
+  .p-head {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 10px 16px 8px;
+  }
+  .p-head h3 { font-size: 20px; font-weight: 750; }
+  .p-head span {
+    font-size: 11px; color: var(--green); background: var(--green-soft);
+    border-radius: 999px; padding: 5px 9px; font-weight: 700;
+  }
+  .p-body { padding: 6px 14px 14px; }
+  .p-metrics {
+    display: grid; grid-template-columns: repeat(3, 1fr); gap: 0;
+    background: rgba(18,28,23,.72);
+    border: 1px solid var(--line);
+    border-radius: 16px;
+    padding: 14px 6px;
+    margin-bottom: 12px;
+  }
+  .p-metrics .m { text-align: center; position: relative; }
+  .p-metrics .m + .m::before {
+    content: ""; position: absolute; left: 0; top: 8px; bottom: 8px;
+    width: 1px; background: var(--line);
+  }
+  .p-metrics .v { font-size: 22px; font-weight: 800; letter-spacing: -.4px; }
+  .p-metrics .l { font-size: 11px; color: var(--muted); margin-top: 4px; }
+  .p-card {
+    background: rgba(18,28,23,.72);
+    border: 1px solid var(--line);
+    border-radius: 16px;
+    padding: 14px;
+    margin-bottom: 10px;
+  }
+  .p-card h4 { font-size: 13px; font-weight: 700; margin-bottom: 10px; }
+  .p-input {
+    background: rgba(8,14,11,.55); border: 1px solid var(--line);
+    border-radius: 12px; padding: 12px; color: var(--faint); font-size: 13px; margin-bottom: 8px;
+  }
+  .p-btn {
+    background: linear-gradient(180deg, #9ad9a9, #6fbf82);
+    color: #0a120e; text-align: center; border-radius: 12px;
+    padding: 12px; font-weight: 800; font-size: 13px;
+  }
+  .p-user { display: flex; gap: 12px; align-items: center; }
+  .p-av {
+    width: 44px; height: 44px; border-radius: 14px;
+    background: linear-gradient(145deg, #8fd19f, #3f7a52);
+    display: grid; place-items: center; font-weight: 800; color: #0a120e;
+  }
+  .p-meta b { display: block; font-size: 15px; }
+  .p-meta span { font-size: 12px; color: var(--muted); }
+  .p-line {
+    display: flex; align-items: center; margin-top: 14px; padding-top: 12px;
+    border-top: 1px solid var(--line);
+  }
+  .p-line .s { flex: 1; text-align: center; }
+  .p-line .s .n { font-size: 16px; font-weight: 750; }
+  .p-line .s .l { font-size: 11px; color: var(--faint); margin-top: 3px; }
+  .p-line .sep { width: 1px; height: 26px; background: var(--line); }
+  .p-acts { display: flex; gap: 8px; margin-top: 12px; }
+  .p-acts div {
+    flex: 1; text-align: center; font-size: 12px; font-weight: 700;
+    padding: 10px 0; border-radius: 10px; color: var(--muted);
+    border: 1px solid var(--line);
+  }
+  .p-acts .x { color: var(--danger); border-color: rgba(232,149,149,.28); }
+  .p-tab {
+    display: grid; grid-template-columns: repeat(4,1fr);
+    border-top: 1px solid var(--line); padding: 10px 6px 14px;
+  }
+  .p-tab div {
+    text-align: center; font-size: 11px; color: var(--faint);
+    display: flex; flex-direction: column; align-items: center; gap: 4px;
+  }
+  .p-tab .on { color: var(--green); font-weight: 700; }
+  .dot { width: 16px; height: 16px; border-radius: 5px; background: currentColor; opacity: .22; }
+  .p-tab .on .dot { opacity: 1; background: var(--green); }
+
+  .note {
+    background: rgba(16,24,20,.8); border: 1px solid var(--line);
+    border-radius: 18px; padding: 16px 18px; color: var(--muted);
+    font-size: 13px; line-height: 1.7;
+  }
+  .note h4 { color: var(--text); margin-bottom: 8px; font-size: 14px; }
+  .note ul { padding-left: 18px; }
+  .note li { margin: 4px 0; }
+  .note strong { color: var(--green); font-weight: 700; }
+
+  @media (max-width: 980px) {
+    .shell { grid-template-columns: 1fr; }
+    .rail { flex-direction: row; justify-content: flex-start; }
+    .rail .sp { display: none; }
+    .metrics, .row, .mobile-block { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+  <div class="stage">
+    <div class="tagline"><i></i> E2 · 弱化方框 · 数字用排版层级而不是套盒</div>
+
+    <div class="shell">
+      <aside class="rail">
+        <div class="brand">抖</div>
+        <div class="nav on" title="主页">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 10.5 12 4l8 6.5V20a1 1 0 0 1-1 1h-5v-6H10v6H5a1 1 0 0 1-1-1v-9.5z"/></svg>
+        </div>
+        <div class="nav" title="监控">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 12a8 8 0 0 1 16 0"/><path d="M12 12v8"/><circle cx="12" cy="12" r="2"/></svg>
+        </div>
+        <div class="nav" title="用户">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 19a4 4 0 0 0-8 0"/><circle cx="12" cy="9" r="3"/></svg>
+        </div>
+        <div class="nav" title="作品">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="5" width="16" height="14" rx="2"/><path d="m10 9 5 3-5 3V9z"/></svg>
+        </div>
+        <div class="nav" title="列表">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 7h12M8 12h12M8 17h12"/><path d="M4 7h.01M4 12h.01M4 17h.01"/></svg>
+        </div>
+        <div class="sp"></div>
+        <div class="nav" title="设置">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9c.3.6.9 1 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>
+        </div>
+      </aside>
+
+      <section class="main">
+        <div class="top">
+          <div class="title">
+            <div class="orb">◉</div>
+            <div>
+              <h1>主页</h1>
+              <p>指标用字重与分割线组织，不再套一层层小方框</p>
+            </div>
+          </div>
+          <div class="live"><b></b>运行中 · Cookie 正常</div>
+        </div>
+
+        <!-- top metrics: one number focus OR soft pair, no nested boxes -->
+        <div class="metrics">
+          <div class="metric-card">
+            <div class="head">
+              <div class="label">监控用户</div>
+              <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/></svg></div>
+            </div>
+            <div class="value-row"><div class="value">1</div><div class="unit">人</div></div>
+            <div class="foot"><span>全部活跃</span><em>100%</em></div>
+          </div>
+
+          <div class="metric-card">
+            <div class="head">
+              <div class="label">作品动态</div>
+              <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="m10 9 5 3-5 3z"/></svg></div>
+            </div>
+            <div class="pair">
+              <div class="item"><div class="k">今日新增</div><div class="n">0</div><div class="s">待发现</div></div>
+              <div class="item"><div class="k">已下载</div><div class="n">1</div><div class="s">累计</div></div>
+            </div>
+          </div>
+
+          <div class="metric-card">
+            <div class="head">
+              <div class="label">同步质量</div>
+              <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M3 21v-5h5"/><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M16 3h5v5"/></svg></div>
+            </div>
+            <div class="pair">
+              <div class="item"><div class="k">今日同步</div><div class="n">12</div><div class="s">次</div></div>
+              <div class="item"><div class="k">成功率</div><div class="n">100%</div><div class="s">近 24h</div></div>
+            </div>
+          </div>
+
+          <div class="metric-card">
+            <div class="head">
+              <div class="label">系统状态</div>
+              <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg></div>
+            </div>
+            <div class="value-row"><div class="value">健康</div></div>
+            <div class="foot"><span>Cookie 1/1 · 队列 0</span><em>稳定</em></div>
+          </div>
+        </div>
+
+        <div class="row">
+          <div class="panel">
+            <div class="panel-h">
+              <h2>同步活跃</h2>
+              <div class="hint">近 24 段 · 柱高表示密度</div>
+            </div>
+            <div class="activity" id="activity"></div>
+            <div class="activity-foot"><span>较早</span><span>最近</span></div>
+          </div>
+          <div class="panel">
+            <div class="panel-h">
+              <h2>系统健康</h2>
+              <div class="hint">实时</div>
+            </div>
+            <div class="health-list">
+              <div class="health-row"><span class="l">Cookie Pool</span><span class="r ok">1/1 alive</span></div>
+              <div class="health-row"><span class="l">Crawler</span><span class="r ok">idle / ready</span></div>
+              <div class="health-row"><span class="l">Notify</span><span class="r ok">Telegram OK</span></div>
+              <div class="health-row"><span class="l">Queue</span><span class="r warn">0 pending</span></div>
+            </div>
+            <div class="add">
+              <h3>添加用户</h3>
+              <div class="field">
+                <div class="input">抖音号 / sec_uid / 主页链接</div>
+                <button class="btn">开始监控</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="row">
+          <div class="panel">
+            <div class="panel-h">
+              <h2>监控用户</h2>
+              <div class="hint">1 人在监</div>
+            </div>
+            <div class="user">
+              <div class="av">李</div>
+              <div class="user-main">
+                <div class="name-line"><b>李佳琦Austin</b><span class="pill">监控中</span></div>
+                <div class="uid">ID 947172008 · 刚刚同步</div>
+                <div class="stats-line">
+                  <div class="s"><div class="n">1</div><div class="l">作品</div></div>
+                  <div class="sep"></div>
+                  <div class="s"><div class="n">0</div><div class="l">今日新增</div></div>
+                  <div class="sep"></div>
+                  <div class="s"><div class="n">0</div><div class="l">失败</div></div>
+                  <div class="sep"></div>
+                  <div class="s"><div class="n ok">OK</div><div class="l">Cookie</div></div>
+                </div>
+                <div class="actions">
+                  <button class="ghost">同步</button>
+                  <button class="ghost">详情</button>
+                  <button class="ghost danger">移除</button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="panel">
+            <div class="panel-h">
+              <h2>趋势</h2>
+              <div class="chips">
+                <span class="chip on">作品</span>
+                <span class="chip">同步</span>
+                <span class="chip">失败</span>
+              </div>
+            </div>
+            <div class="trend-kpis">
+              <div class="k"><div class="l">今日新增</div><div class="v">0</div></div>
+              <div class="k"><div class="l">同步次数</div><div class="v">12</div></div>
+              <div class="k"><div class="l">失败</div><div class="v">0</div></div>
+            </div>
+            <div class="chart">
+              <div class="grid"></div>
+              <svg viewBox="0 0 600 150" preserveAspectRatio="none">
+                <path d="M0,120 C80,118 140,110 200,100 C280,86 340,80 400,78 C470,76 530,74 600,72"
+                      fill="none" stroke="#8fd19f" stroke-width="2.2" stroke-linecap="round"/>
+                <path d="M0,120 C80,118 140,110 200,100 C280,86 340,80 400,78 C470,76 530,74 600,72 L600,150 L0,150 Z"
+                      fill="url(#g2)" opacity=".28"/>
+                <defs>
+                  <linearGradient id="g2" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stop-color="#8fd19f"/>
+                    <stop offset="100%" stop-color="#8fd19f" stop-opacity="0"/>
+                  </linearGradient>
+                </defs>
+              </svg>
+            </div>
+            <div class="xlabels">
+              <span>0:00</span><span>4:00</span><span>8:00</span><span>12:00</span><span>16:00</span><span>20:00</span><span>24:00</span>
+            </div>
+          </div>
+        </div>
+      </section>
+    </div>
+
+    <div class="mobile-block">
+      <div class="phone">
+        <div class="p-status"><span>9:41</span><span>5G ■■■</span></div>
+        <div class="p-head"><h3>主页</h3><span>● 运行中</span></div>
+        <div class="p-body">
+          <div class="p-metrics">
+            <div class="m"><div class="v">1</div><div class="l">监控用户</div></div>
+            <div class="m"><div class="v">0</div><div class="l">新增作品</div></div>
+            <div class="m"><div class="v">0</div><div class="l">运行天数</div></div>
+          </div>
+          <div class="p-card">
+            <h4>添加用户</h4>
+            <div class="p-input">抖音号 / 主页链接</div>
+            <div class="p-btn">开始监控</div>
+          </div>
+          <div class="p-card">
+            <h4>监控用户</h4>
+            <div class="p-user">
+              <div class="p-av">李</div>
+              <div class="p-meta">
+                <b>李佳琦Austin</b>
+                <span>947172008 · 刚刚同步</span>
+              </div>
+            </div>
+            <div class="p-line">
+              <div class="s"><div class="n">1</div><div class="l">作品</div></div>
+              <div class="sep"></div>
+              <div class="s"><div class="n">0</div><div class="l">新增</div></div>
+              <div class="sep"></div>
+              <div class="s"><div class="n">0</div><div class="l">失败</div></div>
+              <div class="sep"></div>
+              <div class="s"><div class="n ok">OK</div><div class="l">状态</div></div>
+            </div>
+            <div class="p-acts"><div>同步</div><div>详情</div><div class="x">移除</div></div>
+          </div>
+        </div>
+        <div class="p-tab">
+          <div class="on"><div class="dot"></div>主页</div>
+          <div><div class="dot"></div>监控</div>
+          <div><div class="dot"></div>用户</div>
+          <div><div class="dot"></div>设置</div>
+        </div>
+      </div>
+
+      <div class="note">
+        <h4>这一版改了什么</h4>
+        <ul>
+          <li><strong>去掉</strong> 用户卡里 4 个小方格数字盒</li>
+          <li><strong>改成</strong> 数字 + 细分割线的横排指标</li>
+          <li><strong>顶部统计</strong> 一卡一主数字，或双指标用中线分隔，不再套娃</li>
+          <li><strong>系统健康</strong> 用列表行，不用 2×2 小卡片墙</li>
+          <li><strong>热力方阵</strong> 换成更轻的柱状活跃度，减少“方块感”</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const box = document.getElementById('activity');
+    for (let i = 0; i < 32; i++) {
+      const el = document.createElement('div');
+      el.className = 'bar';
+      const t = (Math.sin(i * 0.55) + 1) / 2;
+      const boost = i > 22 ? 0.25 : 0;
+      const score = Math.min(1, t * 0.8 + boost + (i % 7 === 0 ? 0.3 : 0));
+      const h = 12 + score * 72;
+      el.style.height = h + 'px';
+      if (score > 0.25) el.classList.add('on1');
+      if (score > 0.45) el.classList.add('on2');
+      if (score > 0.65) el.classList.add('on3');
+      if (score > 0.82) el.classList.add('on4');
+      box.appendChild(el);
+    }
+  </script>
+</body>
+</html>

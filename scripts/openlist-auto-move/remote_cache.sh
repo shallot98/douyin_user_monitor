@@ -7,6 +7,8 @@ OPENLIST_MOVER_REMOTE_CACHE_LOADED=1
 
 REMOTE_LIST_PAGE_JSON=""
 REMOTE_LIST_CACHE_DIR=""
+# 失效时清理的分页数上限（目录页数通常远小于此）
+REMOTE_LIST_CACHE_INVALIDATE_MAX_PAGES="${REMOTE_LIST_CACHE_INVALIDATE_MAX_PAGES:-20}"
 
 remote_list_cache_default_dir() {
   printf '%s/runtime/.openlist-auto-move.remote-cache.%s' "${OPENLIST_MOVER_PROJECT_DIR}" "$$"
@@ -65,6 +67,23 @@ remote_list_cache_file() {
   local key_hash
   key_hash=$(remote_list_cache_key "${target_dir}" "${page}" | sha256sum | awk '{ print $1 }')
   printf '%s/%s.json' "${REMOTE_LIST_CACHE_DIR}" "${key_hash}"
+}
+
+# 单个目录的缓存失效：刚往这个目录写过东西，再校验前必须丢掉旧列表，
+# 否则会一直读到写入前的快照（备份落地校验就踩过这个坑）。
+invalidate_remote_dir_cache() {
+  local target_dir="$1"
+  [[ "${REMOTE_LIST_CACHE_ENABLED}" == "true" ]] || return 0
+  [[ -n "${REMOTE_LIST_CACHE_DIR}" && -d "${REMOTE_LIST_CACHE_DIR}" ]] || return 0
+
+  local page=1 cache_file
+  while (( page <= REMOTE_LIST_CACHE_INVALIDATE_MAX_PAGES )); do
+    cache_file=$(remote_list_cache_file "${target_dir}" "${page}")
+    rm -f -- "${cache_file}"
+    page=$((page + 1))
+  done
+  REMOTE_LIST_PAGE_JSON=""
+  return 0
 }
 
 load_remote_dir_page() {

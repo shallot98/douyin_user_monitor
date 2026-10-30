@@ -4,14 +4,13 @@ from pathlib import Path
 from unittest.mock import patch
 
 from fastapi.testclient import TestClient
+from record_helpers import patch_monitor_users
 
-from douyin_user_monitor.api import monitor as monitor_api
 from douyin_user_monitor.main import app
 from douyin_user_monitor.monitor.notifier import NoopMonitorNotifier
 from douyin_user_monitor.monitor.service import MonitorService
 from douyin_user_monitor.monitor.storage import MonitorStorage, build_default_state
 from douyin_user_monitor.monitor.user_sync import UserSyncService
-
 
 SAMPLE_PROFILE = {
     "user": {
@@ -77,7 +76,6 @@ class MonitorServiceTests(unittest.IsolatedAsyncioTestCase):
                     "last_aweme_id": None,
                     "downloaded_count": 0,
                     "downloaded_aweme_ids": [],
-                    "download_records": [],
                     "last_error": None,
                 }
             )
@@ -127,7 +125,7 @@ class AvatarProxyRouteTests(unittest.TestCase):
     def test_proxy_user_avatar_returns_local_image_response(self):
         users = [{"id": "user-1", "avatar_url": "https://example.com/avatar.jpeg"}]
         with (
-            patch.object(monitor_api.monitor_service, "list_users", return_value=users),
+            patch_monitor_users(users),
             patch("douyin_user_monitor.api.monitor.httpx.AsyncClient", FakeAvatarClient),
         ):
             response = self.client.get("/api/monitor/users/user-1/avatar")
@@ -139,7 +137,7 @@ class AvatarProxyRouteTests(unittest.TestCase):
 
     def test_proxy_user_avatar_rejects_missing_avatar(self):
         users = [{"id": "user-1", "avatar_url": None}]
-        with patch.object(monitor_api.monitor_service, "list_users", return_value=users):
+        with patch_monitor_users(users):
             response = self.client.get("/api/monitor/users/user-1/avatar")
 
         self.assertEqual(response.status_code, 404)

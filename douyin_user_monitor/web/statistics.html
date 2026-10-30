@@ -2,792 +2,569 @@
 <html lang="zh-CN">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>用户统计中心 | Douyin Monitor</title>
+  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
+  <meta http-equiv="Pragma" content="no-cache" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <title>用户统计中心 | Monitor</title>
+  <link rel="stylesheet" href="/static/common.css?v=theme-20261006a" />
   <style>
-    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+    /* statistics page-only styles; shell/sidebar/tabbar come from common.css */
 
-    :root {
-      --bg-body: #f1f5f9;
-      --bg-surface: #ffffff;
-      --bg-sidebar: #1e293b;
-      --bg-sidebar-hover: #334155;
-      --text-main: #1e293b;
-      --text-muted: #64748b;
-      --text-lighter: #94a3b8;
-      --text-inverse: #f8fafc;
-      --border-color: #e2e8f0;
-      --primary: #4f46e5;
-      --primary-hover: #4338ca;
-      --primary-light: #e0e7ff;
-      --success: #10b981;
-      --success-light: #d1fae5;
-      --warning: #f59e0b;
-      --warning-light: #fef3c7;
-      --danger: #ef4444;
-      --danger-light: #fee2e2;
-      --cyan: #06b6d4;
-      --cyan-light: #cffafe;
-      --radius-sm: 4px;
-      --radius: 8px;
-      --radius-lg: 12px;
-      --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
-      --shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px -1px rgba(0, 0, 0, 0.1);
-      --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -2px rgba(0, 0, 0, 0.1);
-      font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-    }
-
-    * { box-sizing: border-box; margin: 0; padding: 0; }
-
-    body {
-      background-color: var(--bg-body);
-      color: var(--text-main);
-      -webkit-font-smoothing: antialiased;
-      line-height: 1.5;
-      display: flex;
-      height: 100vh;
-      overflow: hidden;
-    }
-
-    .sidebar {
-      width: 260px;
-      background-color: var(--bg-sidebar);
-      color: var(--text-inverse);
-      display: flex;
-      flex-direction: column;
+    /* 头像 → 作品列表入口 */
+    .user-avatar-link {
+      display: block;
       flex-shrink: 0;
-      transition: all 0.3s ease;
-      z-index: 40;
-    }
-    .sidebar-header {
-      height: 64px;
-      display: flex;
-      align-items: center;
-      padding: 0 24px;
-      font-size: 18px;
-      font-weight: 700;
-      letter-spacing: -0.5px;
-      gap: 10px;
-      background-color: rgba(15, 23, 42, 0.2);
-    }
-    .sidebar-header svg { width: 28px; height: 28px; color: #818cf8; }
-    .sidebar-nav {
-      flex: 1;
-      padding: 24px 16px;
-      display: flex;
-      flex-direction: column;
-      gap: 8px;
-      overflow-y: auto;
-    }
-    .nav-label {
-      font-size: 12px;
-      text-transform: uppercase;
-      color: var(--text-muted);
-      font-weight: 600;
-      margin: 8px 0 4px 8px;
-      letter-spacing: 0.5px;
-    }
-    .nav-item {
-      display: flex;
-      align-items: center;
-      gap: 12px;
-      padding: 10px 12px;
-      border-radius: var(--radius);
-      color: var(--text-lighter);
+      border-radius: 14px;
       text-decoration: none;
-      font-size: 14px;
-      font-weight: 500;
-      cursor: pointer;
-      transition: all 0.2s;
+      transition: transform 0.15s ease, box-shadow 0.15s ease;
     }
-    .nav-item:hover {
-      background-color: var(--bg-sidebar-hover);
-      color: var(--text-inverse);
-    }
-    .nav-item.active {
-      background-color: rgba(79, 70, 229, 0.15);
-      color: #818cf8;
-    }
-    .nav-item svg { width: 20px; height: 20px; flex-shrink: 0; }
-
-    .app-wrapper {
-      flex: 1;
-      display: flex;
-      flex-direction: column;
-      min-width: 0;
-      overflow: hidden;
+    .user-avatar-link:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 6px 16px rgba(14, 165, 233, 0.28);
     }
 
-    .top-header {
-      height: 64px;
-      background-color: var(--bg-surface);
-      border-bottom: 1px solid var(--border-color);
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      padding: 0 24px;
-      flex-shrink: 0;
-      z-index: 30;
-    }
-    .header-right {
-      display: flex;
-      align-items: center;
-      gap: 12px;
-      flex-wrap: wrap;
-      justify-content: flex-end;
-    }
-    .btn.mobile-sidebar-toggle { display: none; }
-    .status-badge, .soft-badge {
-      display: inline-flex;
-      align-items: center;
-      gap: 8px;
-      padding: 6px 12px;
-      border: 1px solid var(--border-color);
-      border-radius: 999px;
-      font-size: 13px;
-      font-weight: 600;
-      background: var(--bg-body);
-    }
-    .soft-badge strong { color: var(--text-main); }
-    .status-dot {
-      width: 8px;
-      height: 8px;
-      border-radius: 50%;
-      background: var(--text-lighter);
-    }
-    .status-dot.running {
-      background: var(--success);
-      box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.2);
-    }
-
-    .main-content {
-      flex: 1;
-      overflow-y: auto;
-      padding: 32px 24px;
-    }
-    .content-container {
-      max-width: 1320px;
-      margin: 0 auto;
-      display: flex;
-      flex-direction: column;
-      gap: 24px;
-    }
-
-    .page-header {
-      display: flex;
-      justify-content: space-between;
-      align-items: flex-end;
-      gap: 16px;
-      flex-wrap: wrap;
-    }
-    .page-title {
-      font-size: 30px;
-      font-weight: 800;
-      color: var(--text-main);
-      letter-spacing: -0.8px;
-    }
-    .page-subtitle {
-      margin-top: 6px;
-      color: var(--text-muted);
-      font-size: 14px;
-    }
-    .page-actions {
-      display: flex;
-      gap: 12px;
-      flex-wrap: wrap;
-    }
-
-    .btn {
-      display: inline-flex;
+    /* 作品浮层：盖在本页之上，不做页面跳转，返回时表格状态与滚动位置原样保留 */
+    .works-overlay {
+      position: fixed;
+      inset: 0;
+      z-index: 70;
+      display: none;
       align-items: center;
       justify-content: center;
-      gap: 8px;
-      padding: 10px 16px;
-      border: 1px solid transparent;
-      border-radius: var(--radius-sm);
-      font-size: 14px;
-      font-weight: 500;
-      font-family: inherit;
-      cursor: pointer;
-      transition: all 0.2s;
-      text-decoration: none;
+      padding: 24px;
+      background: rgba(15, 23, 42, 0.42);
+      backdrop-filter: blur(4px);
     }
-    .btn svg { width: 18px; height: 18px; }
-    .btn-sm {
-      padding: 6px 10px;
-      font-size: 12px;
-      min-height: 32px;
-    }
-    .btn-primary { background: var(--primary); color: white; }
-    .btn-primary:hover { background: var(--primary-hover); }
-    .btn-secondary {
+    .works-overlay.show { display: flex; }
+    .works-overlay-panel {
+      display: flex;
+      flex-direction: column;
+      width: 100%;
+      max-width: 1180px;
+      height: 92vh;
+      overflow: hidden;
       background: var(--bg-surface);
-      color: var(--text-main);
-      border-color: var(--border-color);
-      box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+      border-radius: var(--radius-lg);
+      box-shadow: 0 24px 60px rgba(15, 23, 42, 0.28);
     }
-    .btn-secondary:hover { background: var(--bg-body); border-color: #cbd5e1; }
-    .btn-icon {
-      background: transparent;
-      border: none;
-      cursor: pointer;
-      color: var(--text-muted);
-      display: inline-flex;
+    .works-overlay-head {
+      display: flex;
       align-items: center;
-      justify-content: center;
+      justify-content: space-between;
+      gap: 10px;
+      padding: 12px 16px;
+      border-bottom: 1px solid var(--border-color);
+      flex-shrink: 0;
+    }
+    .works-overlay-title { font-size: 14px; font-weight: 700; }
+    .works-overlay-frame { flex: 1; min-height: 0; width: 100%; border: 0; }
+    @media (max-width: 1024px) {
+      .works-overlay { padding: 0; }
+      .works-overlay-panel { height: 100%; border-radius: 0; }
     }
 
-    .hero-panel {
-      background: linear-gradient(135deg, #312e81 0%, #4338ca 38%, #06b6d4 100%);
-      color: white;
-      border-radius: 20px;
-      padding: 28px;
-      box-shadow: var(--shadow-md);
+    .summary-bar {
       display: grid;
-      grid-template-columns: 1.4fr 1fr;
-      gap: 24px;
-      overflow: hidden;
-      position: relative;
+      grid-template-columns: repeat(6, minmax(0, 1fr));
+      gap: 0;
+      background: rgba(255, 255, 255, 0.72);
+      border: 1px solid var(--border-color);
+      border-radius: calc(var(--radius-lg) + 4px);
+      padding: 12px 8px;
+      box-shadow: var(--shadow-sm);
+      backdrop-filter: blur(8px);
     }
-    .hero-panel::after {
+    body.theme-dark .summary-bar {
+      background: #172033;
+      -webkit-backdrop-filter: none;
+      backdrop-filter: none;
+    }
+    .summary-item {
+      position: relative;
+      padding: 8px 14px;
+      min-width: 0;
+      border: 0;
+      background: transparent;
+      text-align: left;
+      cursor: pointer;
+      border-radius: 12px;
+      transition: background 0.15s ease;
+      width: 100%;
+      font: inherit;
+      color: inherit;
+    }
+    .summary-item:hover { background: var(--bg-elevated); }
+    .summary-item:focus-visible {
+      outline: 2px solid var(--primary);
+      outline-offset: 2px;
+    }
+    .summary-item + .summary-item::before {
       content: "";
       position: absolute;
-      inset: auto -80px -80px auto;
-      width: 220px;
-      height: 220px;
-      border-radius: 50%;
-      background: rgba(255, 255, 255, 0.08);
-      filter: blur(4px);
+      left: 0;
+      top: 10px;
+      bottom: 10px;
+      width: 1px;
+      background: var(--border-color);
+      opacity: 0.55;
     }
-    .hero-title {
-      font-size: 14px;
-      font-weight: 700;
-      letter-spacing: 0.12em;
-      text-transform: uppercase;
-      opacity: 0.8;
-    }
-    .hero-headline {
-      margin-top: 12px;
-      font-size: 34px;
-      line-height: 1.15;
-      font-weight: 800;
-      letter-spacing: -1px;
-      max-width: 620px;
-    }
-    .hero-description {
-      margin-top: 14px;
-      color: rgba(255, 255, 255, 0.82);
-      max-width: 620px;
-      font-size: 15px;
-    }
-    .hero-metrics {
-      display: grid;
-      grid-template-columns: repeat(2, minmax(0, 1fr));
-      gap: 14px;
-      align-content: start;
-    }
-    .hero-metric {
-      background: rgba(255, 255, 255, 0.12);
-      border: 1px solid rgba(255, 255, 255, 0.18);
-      border-radius: 16px;
-      padding: 16px;
-      backdrop-filter: blur(6px);
-    }
-    .hero-metric-label {
+    .summary-label {
       font-size: 12px;
-      text-transform: uppercase;
-      letter-spacing: 0.08em;
-      opacity: 0.72;
+      color: var(--text-muted);
+      font-weight: 600;
     }
-    .hero-metric-value {
-      margin-top: 6px;
-      font-size: 26px;
-      font-weight: 800;
-      letter-spacing: -0.8px;
+    .summary-value {
+      margin-top: 4px;
+      font-size: 22px;
+      font-weight: 780;
+      letter-spacing: -0.5px;
+      color: var(--text-main);
+      line-height: 1.15;
+    }
+    .summary-help {
+      margin-top: 4px;
+      font-size: 11px;
+      color: var(--text-lighter);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
     }
 
-    .kpi-grid {
-      display: grid;
-      grid-template-columns: repeat(4, minmax(0, 1fr));
-      gap: 24px;
-    }
-    .stat-card, .card {
+    .stats-toolbar {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      padding: 14px 16px;
       background: var(--bg-surface);
       border: 1px solid var(--border-color);
       border-radius: var(--radius-lg);
       box-shadow: var(--shadow-sm);
     }
-    .stat-card {
-      padding: 20px;
+    .stats-toolbar-top {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px 16px;
+      flex-wrap: wrap;
+    }
+    .stats-search-wrap {
+      position: relative;
+      flex: 1 1 260px;
+      min-width: min(100%, 220px);
+      max-width: 420px;
+    }
+    .stats-search-wrap .input-search {
+      width: 100%;
+      min-width: 0;
+      padding-left: 40px;
+    }
+    .stats-search-icon {
+      position: absolute;
+      left: 13px;
+      top: 50%;
+      transform: translateY(-50%);
+      width: 16px;
+      height: 16px;
+      color: var(--text-lighter);
+      pointer-events: none;
+      display: inline-flex;
+    }
+    .stats-search-icon svg { width: 16px; height: 16px; }
+    .stats-toolbar-meta {
       display: flex;
       flex-direction: column;
-      gap: 10px;
+      align-items: flex-end;
+      gap: 4px;
+      margin-left: auto;
+      min-width: 0;
     }
-    .stat-card-icon {
-      width: 42px;
-      height: 42px;
-      border-radius: 14px;
+    .toolbar-hint {
+      font-size: 12px;
+      font-weight: 650;
+      color: var(--text-main);
+      white-space: nowrap;
+    }
+    .toolbar-generated {
+      font-size: 12px;
+      color: var(--text-lighter);
+      white-space: nowrap;
+    }
+    .filter-chips {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    .filter-chip {
+      border: 1px solid var(--border-color);
+      background: var(--bg-elevated);
+      color: var(--text-muted);
+      border-radius: 999px;
+      padding: 7px 14px;
+      font-size: 12px;
+      font-weight: 650;
+      cursor: pointer;
+      transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+    }
+    .filter-chip:hover { border-color: var(--border-strong); color: var(--text-main); }
+    .filter-chip.active {
+      background: var(--primary-light);
+      border-color: var(--border-strong);
+      color: var(--primary);
+    }
+    /* 沉默天数：选中“沉默”后才可选，和 chip 同一行 */
+    .filter-chip-select {
+      border: 1px solid var(--border-color);
+      background: var(--bg-elevated);
+      color: var(--text-main);
+      border-radius: 999px;
+      padding: 6px 10px;
+      font-size: 12px;
+      font-weight: 650;
+    }
+    .filter-chip-select:disabled { opacity: .5; }
+    .filter-sep { width: 1px; height: 20px; background: var(--border-color); margin: 0 2px; }
+    .filter-chip.value-chip.active { background: var(--warn-light); color: #b45309; }
+    .value-flag { font-size: 11px; }
+    .score-low { color: #b45309 !important; }
+    .toolbar-controls {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    .toolbar-controls label {
       display: inline-flex;
       align-items: center;
-      justify-content: center;
-    }
-    .stat-card-icon svg { width: 20px; height: 20px; }
-    .stat-label {
-      color: var(--text-muted);
-      font-size: 12px;
-      text-transform: uppercase;
-      letter-spacing: 0.08em;
-      font-weight: 700;
-    }
-    .stat-value {
-      font-size: 28px;
-      font-weight: 800;
-      letter-spacing: -0.8px;
-      color: var(--text-main);
-      line-height: 1.1;
-    }
-    .stat-help {
-      font-size: 13px;
-      color: var(--text-muted);
-    }
-
-    .analytics-grid {
-      display: grid;
-      grid-template-columns: 1.55fr 1fr;
-      gap: 24px;
-      align-items: start;
-    }
-    .card-header {
-      padding: 20px 24px;
-      border-bottom: 1px solid var(--border-color);
-      background: #f8fafc;
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      gap: 12px;
-    }
-    .card-title {
-      font-size: 16px;
-      font-weight: 700;
-      color: var(--text-main);
-    }
-    .card-subtitle {
+      gap: 6px;
       font-size: 12px;
       color: var(--text-muted);
+      font-weight: 600;
     }
-    .card-body {
-      padding: 24px;
+    .toolbar-controls select {
+      border: 1px solid var(--border-color);
+      background: var(--bg-elevated);
+      color: var(--text-main);
+      border-radius: 10px;
+      padding: 6px 10px;
+      font-size: 12px;
+      font-weight: 650;
+      min-height: 34px;
     }
 
-    .table-list {
+    .stack-col {
       display: flex;
       flex-direction: column;
-    }
-    .rank-row {
-      display: grid;
-      grid-template-columns: 60px minmax(0, 1.5fr) 1fr 140px;
       gap: 16px;
+      min-width: 0;
+    }
+
+    .card-header { background: var(--bg-elevated); }
+    .card-subtitle {
+      margin-top: 3px;
+      font-size: 12px;
+      color: var(--text-muted);
+      font-weight: 500;
+    }
+
+    .table-list { display: flex; flex-direction: column; }
+    .rank-row {
+      display: flex;
       align-items: center;
-      padding: 16px 24px;
+      gap: 10px 12px;
+      padding: 8px 14px;
       border-bottom: 1px solid var(--border-color);
+      min-width: 0;
     }
     .rank-row:last-child { border-bottom: none; }
     .rank-badge {
-      width: 36px;
-      height: 36px;
-      border-radius: 12px;
+      width: 28px;
+      height: 28px;
+      border-radius: 9px;
       display: inline-flex;
       align-items: center;
       justify-content: center;
       font-weight: 800;
+      font-size: 12px;
       background: var(--primary-light);
       color: var(--primary);
+      flex-shrink: 0;
+    }
+    .rank-main {
+      flex: 1;
+      min-width: 0;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px 16px;
     }
     .user-identity {
       display: flex;
       align-items: center;
-      gap: 14px;
-      min-width: 0;
-    }
-    .user-avatar {
-      width: 42px;
-      height: 42px;
-      border-radius: 50%;
-      background: var(--primary-light);
-      color: var(--primary);
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-weight: 700;
-      overflow: hidden;
-      flex-shrink: 0;
-    }
-    .user-avatar img { width: 100%; height: 100%; object-fit: cover; display: block; }
-    .user-name {
-      font-weight: 700;
-      color: var(--text-main);
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
-    }
-    .user-meta {
-      margin-top: 4px;
-      font-size: 12px;
-      color: var(--text-muted);
-      display: flex;
       gap: 10px;
-      flex-wrap: wrap;
-    }
-    .metric-stack {
-      display: flex;
-      flex-direction: column;
-      gap: 8px;
-    }
-    .metric-stack strong {
-      font-size: 22px;
-      font-weight: 800;
-      color: var(--text-main);
-      letter-spacing: -0.6px;
-    }
-    .metric-stack span {
-      font-size: 13px;
-      color: var(--text-muted);
-    }
-    .metric-stack.actions {
-      align-items: flex-start;
-    }
-
-    .insight-grid {
-      display: grid;
-      grid-template-columns: repeat(3, minmax(0, 1fr));
-      gap: 16px;
-      margin-bottom: 18px;
-    }
-    .insight-card {
-      border: 1px solid var(--border-color);
-      border-radius: 16px;
-      padding: 16px;
-      background: linear-gradient(180deg, #fff 0%, #f8fafc 100%);
-    }
-    .insight-card h4 {
-      font-size: 13px;
-      color: var(--text-muted);
-      margin-bottom: 8px;
-      font-weight: 700;
-      text-transform: uppercase;
-      letter-spacing: 0.06em;
-    }
-    .insight-card strong {
-      display: block;
-      font-size: 24px;
-      font-weight: 800;
-      letter-spacing: -0.7px;
-      color: var(--text-main);
-      margin-bottom: 6px;
-    }
-    .insight-card p {
-      color: var(--text-muted);
-      font-size: 13px;
-    }
-
-    .stacked-bar {
-      width: 100%;
-      height: 14px;
-      overflow: hidden;
-      border-radius: 999px;
-      background: #e5e7eb;
-      display: flex;
-      margin-bottom: 16px;
-    }
-    .stacked-segment.video { background: linear-gradient(90deg, #4f46e5 0%, #6366f1 100%); }
-    .stacked-segment.image { background: linear-gradient(90deg, #ec4899 0%, #f472b6 100%); }
-    .stacked-segment.empty { background: linear-gradient(90deg, #cbd5e1 0%, #94a3b8 100%); }
-
-    .legend-list {
-      display: flex;
-      flex-direction: column;
-      gap: 14px;
-    }
-    .legend-item {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      gap: 12px;
-      font-size: 14px;
-    }
-    .legend-left {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      color: var(--text-main);
-      font-weight: 600;
-    }
-    .legend-dot {
-      width: 10px;
-      height: 10px;
-      border-radius: 50%;
-    }
-    .legend-value {
-      color: var(--text-muted);
-      font-size: 13px;
-    }
-
-    .user-list {
-      display: flex;
-      flex-direction: column;
-      gap: 12px;
-    }
-    .user-list-item {
-      border: 1px solid var(--border-color);
-      border-radius: 16px;
-      padding: 14px 16px;
-      display: flex;
-      justify-content: space-between;
-      gap: 16px;
-      align-items: center;
-      background: #fff;
-    }
-    .user-list-main {
-      display: flex;
-      align-items: center;
-      gap: 12px;
       min-width: 0;
       flex: 1;
     }
-    .user-list-content { min-width: 0; }
-    .user-list-title {
+    .user-identity .user-name {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      min-width: 0;
+      font-size: 14px;
       font-weight: 700;
       color: var(--text-main);
+    }
+    .user-identity .user-name-text {
+      min-width: 0;
       white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;
     }
-    .user-list-meta {
-      margin-top: 4px;
-      color: var(--text-muted);
-      font-size: 12px;
+    .user-identity .user-meta,
+    .rank-meta {
       display: flex;
-      gap: 10px;
       flex-wrap: wrap;
+      gap: 4px 10px;
+      margin-top: 3px;
+      font-size: 12px;
+      color: var(--text-muted);
     }
-    .user-list-side {
+    .rank-metrics {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      flex-shrink: 0;
+      white-space: nowrap;
+    }
+    .rank-metric {
       display: flex;
       flex-direction: column;
       align-items: flex-end;
-      gap: 8px;
+      gap: 1px;
+      line-height: 1.15;
+    }
+    .rank-metric strong {
+      font-size: 16px;
+      font-weight: 750;
+      letter-spacing: -0.3px;
+      color: var(--text-main);
+    }
+    .rank-metric span,
+    .rank-metric-note {
+      font-size: 11px;
+      color: var(--text-muted);
+    }
+    .rank-metric-note {
+      text-align: right;
+      max-width: 150px;
+      white-space: normal;
+    }
+    .row-actions {
+      display: flex;
+      flex-wrap: nowrap;
+      gap: 6px;
+      justify-content: flex-end;
       flex-shrink: 0;
     }
-    .status-reason {
-      margin-top: 6px;
+    .rank-row .pill {
+      padding: 3px 8px;
+      font-size: 11px;
+    }
+    .row-error {
       color: var(--danger);
       font-size: 12px;
-      line-height: 1.5;
+      margin-top: 4px;
     }
+
     .pill {
       display: inline-flex;
       align-items: center;
       justify-content: center;
       border-radius: 999px;
-      padding: 6px 10px;
+      padding: 5px 10px;
       font-size: 12px;
       font-weight: 700;
       white-space: nowrap;
     }
-    .pill.warning { background: var(--warning-light); color: #b45309; }
+    .pill.warning { background: var(--warn-light); color: #b45309; }
     .pill.danger { background: var(--danger-light); color: #b91c1c; }
     .pill.primary { background: var(--primary-light); color: var(--primary); }
     .pill.success { background: var(--success-light); color: #047857; }
-    .pill.secondary { background: #e2e8f0; color: #475569; }
+    .pill.secondary { background: var(--border-color); color: #475569; }
 
-    .note-box {
-      margin-top: 18px;
-      padding: 16px;
-      border-radius: 14px;
-      background: #f8fafc;
-      border: 1px dashed #cbd5e1;
-      color: var(--text-muted);
-      font-size: 13px;
-      line-height: 1.7;
-    }
-
-    .overlay {
-      position: fixed;
-      top: 0;
-      left: 0;
-      right: 0;
-      bottom: 0;
-      background: rgba(15, 23, 42, 0.5);
-      z-index: 1000;
-      opacity: 0;
-      pointer-events: none;
-      transition: opacity 0.3s;
-      backdrop-filter: blur(2px);
-    }
-    .overlay.show { opacity: 1; pointer-events: auto; }
-    #sidebarOverlay {
-      z-index: 39;
-      background: rgba(15, 23, 42, 0.28);
-      backdrop-filter: none;
-    }
-    #settingsOverlay { z-index: 1000; }
-
-    .drawer {
-      position: fixed;
-      top: 0;
-      right: -400px;
-      width: 100%;
-      max-width: 400px;
-      height: 100vh;
-      background: var(--bg-surface);
-      box-shadow: -4px 0 24px rgba(0, 0, 0, 0.1);
-      z-index: 1001;
-      transition: right 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+    .pagination-bar {
       display: flex;
-      flex-direction: column;
-    }
-    .drawer.show { right: 0; }
-    .drawer-header {
-      padding: 24px;
-      border-bottom: 1px solid var(--border-color);
-      display: flex;
-      justify-content: space-between;
       align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      flex-wrap: wrap;
+      padding: 12px 14px;
+      border-top: 1px solid var(--border-color);
+      background: var(--bg-elevated);
     }
-    .drawer-body {
-      padding: 24px;
-      overflow-y: auto;
-      flex: 1;
-      display: flex;
-      flex-direction: column;
-      gap: 24px;
-    }
-    .form-group { display: flex; flex-direction: column; gap: 8px; }
-    .form-row { display: flex; gap: 12px; }
-    .flex-1 { flex: 1; }
-    .form-label {
-      font-size: 13px;
+    .pagination-meta {
+      font-size: 12px;
       color: var(--text-muted);
       font-weight: 600;
     }
-    .input {
-      width: 100%;
-      padding: 10px 16px;
-      border: 1px solid var(--border-color);
-      border-radius: var(--radius-sm);
-      font-size: 14px;
-      color: var(--text-main);
-      outline: none;
-    }
-    .input:focus { border-color: var(--primary); box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.2); }
-    .help-text {
-      color: var(--text-muted);
-      font-size: 13px;
-    }
-    .w-full { width: 100%; }
-
-    .toast-container {
-      position: fixed;
-      bottom: 24px;
-      right: 24px;
-      display: flex;
-      flex-direction: column;
-      gap: 12px;
-      z-index: 9999;
-    }
-    .toast {
-      background: var(--text-main);
-      color: white;
-      padding: 16px 20px;
-      border-radius: var(--radius);
-      box-shadow: var(--shadow-md);
+    .pagination-controls {
       display: flex;
       align-items: center;
-      gap: 12px;
-      width: 320px;
-      transform: translateX(120%);
-      opacity: 0;
-      transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+      gap: 6px;
+      flex-wrap: wrap;
     }
-    .toast.show { transform: translateX(0); opacity: 1; }
-    .toast-success { border-left: 4px solid var(--success); }
-    .toast-error { border-left: 4px solid var(--danger); }
-    .toast svg { width: 20px; height: 20px; flex-shrink: 0; }
+    .pagination-controls .btn[disabled] {
+      opacity: 0.45;
+      cursor: not-allowed;
+    }
+    .page-indicator {
+      font-size: 12px;
+      font-weight: 700;
+      color: var(--text-main);
+      min-width: 64px;
+      text-align: center;
+    }
+
+    .soft-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 6px 10px;
+      border-radius: 999px;
+      background: var(--primary-light);
+      border: 1px solid var(--border-strong);
+      font-size: 12px;
+      font-weight: 650;
+      color: var(--accent);
+    }
+    .soft-badge strong { color: var(--text-main); font-weight: 750; }
 
     .empty-state {
-      padding: 28px 18px;
+      padding: 24px 16px;
       text-align: center;
       color: var(--text-muted);
-      font-size: 14px;
+      font-size: 13px;
       border: 1px dashed var(--border-color);
-      border-radius: 16px;
-      background: #f8fafc;
+      border-radius: 14px;
+      background: var(--bg-elevated);
+      margin: 12px;
     }
 
     @media (max-width: 1180px) {
-      .hero-panel,
-      .analytics-grid { grid-template-columns: 1fr; }
-      .kpi-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-      .insight-grid { grid-template-columns: 1fr; }
-      .rank-row { grid-template-columns: 54px minmax(0, 1.4fr) 1fr; }
-      .rank-row > :last-child { grid-column: 2 / 4; }
-      .sidebar { position: fixed; left: -260px; height: 100vh; z-index: 40; }
-      .sidebar.show { left: 0; }
-      .btn.mobile-sidebar-toggle { display: inline-flex; }
+      .summary-bar { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+      .summary-item:nth-child(4)::before { display: none; }
+      .rank-metrics { gap: 10px; }
+      .rank-metric-note { max-width: 120px; }
     }
-
     @media (max-width: 720px) {
-      .kpi-grid { grid-template-columns: 1fr; }
-      .hero-metrics { grid-template-columns: 1fr; }
+      .summary-bar { grid-template-columns: 1fr 1fr; }
+      .summary-item + .summary-item::before { display: none; }
+      .summary-item { padding: 10px 8px; }
+      .table-list {
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+        overscroll-behavior-x: contain;
+        scrollbar-width: none;
+        -ms-overflow-style: none;
+      }
+      .table-list::-webkit-scrollbar {
+        display: none;
+        width: 0;
+        height: 0;
+      }
       .rank-row {
-        grid-template-columns: 1fr;
-        align-items: flex-start;
+        min-width: 920px;
+        align-items: center;
+        flex-wrap: nowrap;
+        flex-direction: row;
       }
-      .user-list-item {
-        flex-direction: column;
-        align-items: flex-start;
+      .rank-main {
+        flex: 1 1 auto;
+        min-width: 0;
+        flex-wrap: nowrap;
+        align-items: center;
       }
+      .rank-metrics {
+        width: auto;
+        justify-content: flex-end;
+        padding-left: 0;
+        flex-shrink: 0;
+      }
+      .rank-metric { align-items: flex-end; }
+      .rank-row .row-actions {
+        width: auto;
+        justify-content: flex-end;
+        padding-left: 0;
+        flex-wrap: nowrap;
+        flex-shrink: 0;
+      }
+      .stats-search-wrap { flex: 1 1 100%; max-width: none; }
+      .stats-toolbar-meta { width: 100%; align-items: flex-start; margin-left: 0; }
+      .toolbar-hint, .toolbar-generated { white-space: normal; }
     }
   </style>
 </head>
 <body>
   <aside class="sidebar" id="sidebar">
     <div class="sidebar-header">
-      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
-        <path stroke-linecap="round" stroke-linejoin="round" d="M14.25 9.75 16.5 12l-2.25 2.25m-4.5 0L7.5 12l2.25-2.25M6 20.25h12A2.25 2.25 0 0 0 20.25 18V6A2.25 2.25 0 0 0 18 3.75H6A2.25 2.25 0 0 0 3.75 6v12A2.25 2.25 0 0 0 6 20.25Z" />
-      </svg>
-      <span id="sidebarTitle">Douyin Monitor</span>
+      <div class="sidebar-brand">抖</div>
+      <span id="sidebarTitle">用户监控台</span>
     </div>
     <nav class="sidebar-nav">
-      <div class="nav-label">平台</div>
-      <div class="platform-tabs" style="display:flex; gap:4px; padding:0 8px; margin-bottom:8px; position: relative; z-index: 2; flex-shrink: 0;">
-        <button type="button" class="platform-tab" data-platform="douyin" onclick="switchPlatform('douyin')" style="flex:1; padding: 8px 12px; border: none; border-radius: var(--radius-sm); cursor: pointer; font-size: 13px; font-weight: 600; background: var(--primary); color: var(--text-inverse); transition: all 0.2s;">抖音</button>
-      </div>
-      <div class="nav-label">Menu</div>
-      <a class="nav-item" href="/api/monitor/dashboard" onclick="return navigateToPage('/api/monitor/dashboard')">
+      <a class="nav-item" href="/api/monitor/dashboard" onclick="return navigateToPage('/api/monitor/dashboard')" title="数据大盘">
         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6A2.25 2.25 0 0 1 6 3.75h2.25A2.25 2.25 0 0 1 10.5 6v2.25a2.25 2.25 0 0 1-2.25 2.25H6a2.25 2.25 0 0 1-2.25-2.25V6ZM3.75 15.75A2.25 2.25 0 0 1 6 13.5h2.25a2.25 2.25 0 0 1 2.25 2.25V18a2.25 2.25 0 0 1-2.25 2.25H6A2.25 2.25 0 0 1 3.75 18v-2.25ZM13.5 6a2.25 2.25 0 0 1 2.25-2.25H18A2.25 2.25 0 0 1 20.25 6v2.25A2.25 2.25 0 0 1 18 10.5h-2.25a2.25 2.25 0 0 1-2.25-2.25V6ZM13.5 15.75a2.25 2.25 0 0 1 2.25-2.25H18a2.25 2.25 0 0 1 2.25 2.25V18A2.25 2.25 0 0 1 18 20.25h-2.25A2.25 2.25 0 0 1 13.5 18v-2.25Z" /></svg>
         数据大盘
       </a>
-      <a class="nav-item active" href="/api/monitor/statistics/dashboard" onclick="return navigateToPage('/api/monitor/statistics/dashboard')">
+      <a class="nav-item active" href="/api/monitor/statistics/dashboard" onclick="return navigateToPage('/api/monitor/statistics/dashboard')" title="用户统计">
         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M7.5 3.75h9A2.25 2.25 0 0 1 18.75 6v12A2.25 2.25 0 0 1 16.5 20.25h-9A2.25 2.25 0 0 1 5.25 18V6A2.25 2.25 0 0 1 7.5 3.75Zm1.5 4.5h6m-6 3h6m-6 3h3" /></svg>
         用户统计
       </a>
-      <a class="nav-item" onclick="toggleSettings()">
+      <a class="nav-item" href="/api/monitor/library/dashboard" onclick="return navigateToPage('/api/monitor/library/dashboard')" title="作品库">
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M3.375 19.5h17.25m-17.25 0a1.125 1.125 0 0 1-1.125-1.125M3.375 19.5h1.5C5.496 19.5 6 18.996 6 18.375m-3.75 0V5.625m0 12.75v-1.5c0-.621.504-1.125 1.125-1.125m18.375 2.625V5.625m0 12.75c0 .621-.504 1.125-1.125 1.125m1.125-1.125v-1.5c0-.621-.504-1.125-1.125-1.125m0 3.75h-1.5A1.125 1.125 0 0 1 18 18.375M20.625 4.5H3.375m17.25 0c.621 0 1.125.504 1.125 1.125M20.625 4.5h-1.5C18.504 4.5 18 5.004 18 5.625m3.75 0v1.5c0 .621-.504 1.125-1.125 1.125M3.375 4.5c-.621 0-1.125.504-1.125 1.125M3.375 4.5h1.5C5.496 4.5 6 5.004 6 5.625m-3.75 0v1.5c0 .621.504 1.125 1.125 1.125m0 0h1.5m-1.5 0c-.621 0-1.125.504-1.125 1.125v1.5c0 .621.504 1.125 1.125 1.125m1.5-3.75C5.496 8.25 6 7.746 6 7.125v-1.5M4.875 8.25C5.496 8.25 6 8.754 6 9.375v1.5m0-5.25v5.25m0-5.25C6 5.004 6.504 4.5 7.125 4.5h9.75c.621 0 1.125.504 1.125 1.125m1.125 2.625h1.5m-1.5 0A1.125 1.125 0 0 1 18 7.125v-1.5m1.125 2.625c-.621 0-1.125.504-1.125 1.125v1.5m2.625-2.625c.621 0 1.125.504 1.125 1.125v1.5c0 .621-.504 1.125-1.125 1.125M18 5.625v5.25M7.125 12h9.75m-9.75 0A1.125 1.125 0 0 1 6 10.875M7.125 12C6.504 12 6 12.504 6 13.125m0-2.25C6 11.496 5.496 12 4.875 12M18 10.875c0 .621-.504 1.125-1.125 1.125M18 10.875c0 .621.504 1.125 1.125 1.125m-2.25 0c.621 0 1.125.504 1.125 1.125m-12 5.25v-5.25m0 5.25c0 .621.504 1.125 1.125 1.125h9.75c.621 0 1.125-.504 1.125-1.125m-12 0v-1.5c0-.621-.504-1.125-1.125-1.125M18 18.375v-5.25m0 5.25v-1.5c0-.621.504-1.125 1.125-1.125M18 13.125v1.5c0 .621.504 1.125 1.125 1.125M18 13.125c0-.621.504-1.125 1.125-1.125M6 13.125v1.5c0 .621-.504 1.125-1.125 1.125M6 13.125C6 12.504 5.496 12 4.875 12m-1.5 0h1.5m-1.5 0c-.621 0-1.125.504-1.125 1.125v1.5c0 .621.504 1.125 1.125 1.125M19.125 12h1.5m0 0c.621 0 1.125.504 1.125 1.125v1.5c0 .621-.504 1.125-1.125 1.125m-17.25 0h1.5m14.25 0h1.5" /></svg>
+        作品库
+      </a>
+      <a class="nav-item" href="/api/monitor/swipe/dashboard" onclick="return navigateToPage('/api/monitor/swipe/dashboard')" title="刷视频">
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" /><path stroke-linecap="round" stroke-linejoin="round" d="M15.91 11.672a.375.375 0 0 1 0 .656l-5.603 3.113a.375.375 0 0 1-.557-.328V8.887c0-.286.307-.466.557-.327l5.603 3.112Z" /></svg>
+        刷视频
+      </a>
+      <a class="nav-item" href="/api/monitor/cookies/dashboard" onclick="return navigateToPage('/api/monitor/cookies/dashboard')" title="Cookie 池">
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 5.25a3 3 0 0 1 3 3m3 0a6 6 0 0 1-7.029 5.912c-.563-.097-1.159.026-1.563.43L10.5 17.25H8.25v2.25H6v2.25H2.25v-2.818c0-.597.237-1.17.659-1.591l6.499-6.499c.404-.404.527-1 .43-1.563A6 6 0 1 1 21.75 8.25Z" /></svg>
+        Cookie 池
+      </a>
+      <a class="nav-item" href="/api/monitor/settings/dashboard" onclick="return navigateToPage('/api/monitor/settings/dashboard')" title="调度配置">
         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M9.594 3.94c.09-.542.56-.94 1.11-.94h2.593c.55 0 1.02.398 1.11.94l.213 1.281c.063.374.313.686.645.87.074.04.147.083.22.127.325.196.72.257 1.075.124l1.217-.456a1.125 1.125 0 0 1 1.37.49l1.296 2.247a1.125 1.125 0 0 1-.26 1.431l-1.003.827c-.293.241-.438.613-.43.992a7.723 7.723 0 0 1 0 .255c-.008.378.137.75.43.991l1.004.827c.424.35.534.955.26 1.43l-1.298 2.247a1.125 1.125 0 0 1-1.369.491l-1.217-.456c-.355-.133-.75-.072-1.076.124a6.47 6.47 0 0 1-.22.128c-.331.183-.581.495-.644.869l-.213 1.281c-.09.543-.56.94-1.11.94h-2.594c-.55 0-1.019-.398-1.11-.94l-.213-1.281c-.062-.374-.312-.686-.644-.87a6.52 6.52 0 0 1-.22-.127c-.325-.196-.72-.257-1.076-.124l-1.217.456a1.125 1.125 0 0 1-1.369-.49l-1.297-2.247a1.125 1.125 0 0 1 .26-1.431l1.004-.827c.292-.24.437-.613.43-.991a6.932 6.932 0 0 1 0-.255c.007-.38-.138-.751-.43-.992l-1.004-.827a1.125 1.125 0 0 1-.26-1.43l1.297-2.247a1.125 1.125 0 0 1 1.37-.491l1.216.456c.356.133.751.072 1.076-.124.072-.044.146-.086.22-.128.332-.183.582-.495.644-.869l.214-1.28Z" /><path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" /></svg>
         调度配置
       </a>
-      <a class="nav-item" onclick="refreshAll()">
+      <a class="nav-item" href="/api/monitor/api/dashboard" onclick="return navigateToPage('/api/monitor/api/dashboard')" title="解析 API">
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M17.25 6.75 22.5 12l-5.25 5.25m-10.5 0L1.5 12l5.25-5.25m7.5-3-4.5 16.5" /></svg>
+        解析 API
+      </a>
+      <div class="nav-spacer"></div>
+      <a class="nav-item theme-toggle" onclick="return toggleTheme()" title="切换暗黑模式" aria-label="切换暗黑模式">
+        <svg class="theme-icon theme-icon-moon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.6" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79Z" /></svg>
+        <svg class="theme-icon theme-icon-sun" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.6" stroke="currentColor"><circle cx="12" cy="12" r="3.5" /><path stroke-linecap="round" d="M12 2v2m0 16v2M4.93 4.93l1.42 1.42m11.3 11.3 1.42 1.42M2 12h2m16 0h2M4.93 19.07l1.42-1.42m11.3-11.3 1.42-1.42" /></svg>
+        主题模式
+      </a>
+      <a class="nav-item" onclick="refreshAll()" title="刷新">
         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0 3.181 3.183a8.25 8.25 0 0 0 13.803-3.7M4.031 9.865a8.25 8.25 0 0 1 13.803-3.7l3.181 3.182m0-4.991v4.99" /></svg>
-        刷新统计
+        刷新
       </a>
     </nav>
   </aside>
 
   <div class="app-wrapper">
     <header class="top-header">
-      <div style="display:flex; align-items:center; gap:16px;">
-        <button class="btn btn-secondary mobile-sidebar-toggle" onclick="toggleSidebar()" style="border:none; box-shadow:none; padding:4px;">
-          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" style="width:24px; height:24px;"><path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5" /></svg>
+      <div style="display:flex;align-items:center;gap:12px;">
+        <button class="btn btn-secondary btn-sm mobile-sidebar-toggle" onclick="toggleSidebar()" aria-label="菜单">
+          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" style="width:22px;height:22px;"><path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5" /></svg>
         </button>
+        <div class="title-with-orb">
+          <div class="title-orb">◉</div>
+          <div>
+            <div style="font-size:15px;font-weight:750;">统计</div>
+            <div style="font-size:11px;color:var(--text-muted);">用户分析</div>
+          </div>
+        </div>
       </div>
       <div class="header-right">
         <div class="soft-badge" title="download_records 结构覆盖率">
@@ -806,19 +583,12 @@
         <div class="page-header">
           <div>
             <h1 class="page-title">用户统计中心</h1>
-            <div class="page-subtitle">
-              用同一套监控台模板，把累计下载、内容结构、沉默用户与监控健康度集中展示。
-            </div>
+            <p class="page-subtitle">
+              统一用户表 · 摘要筛选 · 行内操作
+              <span class="ui-build-chip" title="UI build">UI theme-20260921b</span>
+            </p>
           </div>
           <div class="page-actions">
-            <a class="btn btn-secondary" href="/api/monitor/dashboard">
-              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M10.5 19.5 3 12m0 0 7.5-7.5M3 12h18" /></svg>
-              返回大盘
-            </a>
-            <button class="btn btn-secondary" onclick="toggleSettings()">
-              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M10.5 6h9.75M3.75 6h3m3 12h10.5m-16.5 0h3m2.25-6h12m-18 0h3" /></svg>
-              调度配置
-            </button>
             <button class="btn btn-primary" onclick="refreshAll()">
               <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0 3.181 3.183a8.25 8.25 0 0 0 13.803-3.7M4.031 9.865a8.25 8.25 0 0 1 13.803-3.7l3.181 3.182m0-4.991v4.99" /></svg>
               立即刷新
@@ -826,323 +596,188 @@
           </div>
         </div>
 
-        <section class="hero-panel">
-          <div>
-            <div class="hero-title">Analytics Overview</div>
-            <div class="hero-headline" id="heroHeadline">正在汇总用户统计数据…</div>
-            <div class="hero-description" id="heroDescription">
-              页面会根据本地状态文件中的下载记录，生成下载规模、内容结构与沉默用户清单。
-            </div>
+        <section class="summary-bar" aria-label="统计摘要">
+          <button type="button" class="summary-item" onclick="onSummaryClick('users')" title="查看全部监控用户">
+            <div class="summary-label">监控用户</div>
+            <div class="summary-value" id="summaryUsers">-</div>
+            <div class="summary-help" id="summaryUsersHelp">启/停统计</div>
+          </button>
+          <div class="summary-item" style="cursor:default;" aria-hidden="false">
+            <div class="summary-label">下载作品</div>
+            <div class="summary-value" id="summaryWorks">-</div>
+            <div class="summary-help" id="summaryWorksHelp">人均与结构</div>
           </div>
-          <div class="hero-metrics">
-            <div class="hero-metric">
-              <div class="hero-metric-label">累计下载作品</div>
-              <div class="hero-metric-value" id="heroWorks">-</div>
-            </div>
-            <div class="hero-metric">
-              <div class="hero-metric-label">已归档结构作品</div>
-              <div class="hero-metric-value" id="heroStructuredWorks">-</div>
-            </div>
-            <div class="hero-metric">
-              <div class="hero-metric-label">近 7 天无发布</div>
-              <div class="hero-metric-value" id="heroSilent7d">-</div>
-            </div>
-            <div class="hero-metric">
-              <div class="hero-metric-label">近 30 天无发布</div>
-              <div class="hero-metric-value" id="heroSilent30d">-</div>
-            </div>
+          <div class="summary-item" style="cursor:default;">
+            <div class="summary-label">结构覆盖率</div>
+            <div class="summary-value" id="summaryCoverage">-</div>
+            <div class="summary-help" id="summaryCoverageHelp">已归档作品</div>
           </div>
+          <button type="button" class="summary-item" onclick="onSummaryClick('silent')" title="筛选沉默用户（天数在筛选栏里选，默认 30 天）">
+            <div class="summary-label">沉默 7d / 30d</div>
+            <div class="summary-value" id="summarySilent">-</div>
+            <div class="summary-help" id="summarySilentHelp">无发布时间</div>
+          </button>
+          <button type="button" class="summary-item" onclick="onSummaryClick('low_value')" title="筛选低价值用户：90 天以上没发作品，或已评分 ≥5 条且擦边均分低于 1.5">
+            <div class="summary-label">低价值用户</div>
+            <div class="summary-value" id="summaryLowValue">-</div>
+            <div class="summary-help" id="summaryLowValueHelp">长期沉默 / 擦边低</div>
+          </button>
+          <button type="button" class="summary-item" onclick="onSummaryClick('abnormal')" title="筛选异常账号">
+            <div class="summary-label">异常账号</div>
+            <div class="summary-value" id="summaryAbnormal">-</div>
+            <div class="summary-help" id="summaryAbnormalHelp">注销 / 封禁</div>
+          </button>
         </section>
 
-        <section class="kpi-grid">
-          <div class="stat-card">
-            <div class="stat-card-icon" style="background: var(--primary-light); color: var(--primary);">
-              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 6a3.75 3.75 0 1 1-7.5 0 3.75 3.75 0 0 1 7.5 0ZM4.501 20.118a7.5 7.5 0 0 1 14.998 0A17.933 17.933 0 0 1 12 21.75c-2.676 0-5.216-.584-7.499-1.632Z" /></svg>
+        <div class="stats-toolbar" aria-label="列表筛选">
+          <div class="stats-toolbar-top">
+            <div class="stats-search-wrap">
+              <span class="stats-search-icon" aria-hidden="true">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z" /></svg>
+              </span>
+              <input
+                id="statsSearchInput"
+                type="search"
+                class="input input-search"
+                placeholder="搜索昵称 / sec_uid / uid"
+                oninput="handleStatsSearch()"
+                autocomplete="off"
+              />
             </div>
-            <div class="stat-label">监控用户</div>
-            <div class="stat-value" id="metricUsers">-</div>
-            <div class="stat-help" id="metricUsersHelp">-</div>
-          </div>
-
-          <div class="stat-card">
-            <div class="stat-card-icon" style="background: #e0f2fe; color: #0284c7;">
-              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25m2.25 0H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9Z" /></svg>
+            <div class="toolbar-controls">
+              <label>
+                排序
+                <select id="sortBySelect" onchange="onSortByChange()">
+                  <option value="downloads">下载数</option>
+                  <option value="last_publish">最近发布</option>
+                  <option value="last_check">最近检查</option>
+                  <option value="last_download">最近下载</option>
+                  <option value="created:desc">添加时间（新→旧）</option>
+                  <option value="created:asc">添加时间（旧→新）</option>
+                  <option value="nickname">昵称</option>
+                  <option value="last_publish:asc">最久未发布</option>
+                  <option value="avg_score:asc">擦边均分（低→高）</option>
+                  <option value="avg_score:desc">擦边均分（高→低）</option>
+                  <option value="high_score_ratio:asc">高分作品占比（低→高）</option>
+                  <option value="high_score_ratio:desc">高分作品占比（高→低）</option>
+                </select>
+              </label>
+              <label>
+                每页
+                <select id="pageSizeSelect" onchange="onPageSizeChange()">
+                  <option value="20">20</option>
+                  <option value="50">50</option>
+                  <option value="100">100</option>
+                </select>
+              </label>
             </div>
-            <div class="stat-label">累计下载作品</div>
-            <div class="stat-value" id="metricWorks">-</div>
-            <div class="stat-help" id="metricWorksHelp">-</div>
-          </div>
-
-          <div class="stat-card">
-            <div class="stat-card-icon" style="background: #ede9fe; color: #6366f1;">
-              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m15.75 10.5 4.72-4.72a.75.75 0 0 1 1.28.53v11.38a.75.75 0 0 1-1.28.53l-4.72-4.72M4.5 18.75h9a2.25 2.25 0 0 0 2.25-2.25v-9a2.25 2.25 0 0 0-2.25-2.25h-9A2.25 2.25 0 0 0 2.25 7.5v9a2.25 2.25 0 0 0 2.25 2.25Z" /></svg>
+            <div class="stats-toolbar-meta">
+              <div class="toolbar-hint" id="listCountHint">列表待加载</div>
+              <div class="toolbar-generated" id="generatedAtHint">生成时间（上海）：-</div>
             </div>
-            <div class="stat-label">已归档视频</div>
-            <div class="stat-value" id="metricVideos">-</div>
-            <div class="stat-help" id="metricVideosHelp">-</div>
           </div>
-
-          <div class="stat-card">
-            <div class="stat-card-icon" style="background: #fce7f3; color: #ec4899;">
-              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m2.25 15.75 5.159-5.159a2.25 2.25 0 0 1 3.182 0l5.159 5.159m-1.5-1.5 1.409-1.409a2.25 2.25 0 0 1 3.182 0l2.909 2.909m-18 3.75h16.5a1.5 1.5 0 0 0 1.5-1.5V6a1.5 1.5 0 0 0-1.5-1.5H3.75A1.5 1.5 0 0 0 2.25 6v12a1.5 1.5 0 0 0 1.5 1.5Zm10.5-11.25h.008v.008h-.008V8.25Zm.375 0a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Z" /></svg>
-            </div>
-            <div class="stat-label">已归档图集 / 图片</div>
-            <div class="stat-value" id="metricImages">-</div>
-            <div class="stat-help" id="metricImagesHelp">-</div>
+          <div class="filter-chips" role="group" aria-label="状态筛选">
+            <button type="button" class="filter-chip active" data-filter="all" onclick="setStatusFilter('all')">全部</button>
+            <button type="button" class="filter-chip" data-filter="enabled" onclick="setStatusFilter('enabled')">启用</button>
+            <button type="button" class="filter-chip" data-filter="paused" onclick="setStatusFilter('paused')">暂停</button>
+            <button type="button" class="filter-chip" data-filter="abnormal" onclick="setStatusFilter('abnormal')">异常</button>
+            <button type="button" class="filter-chip" data-filter="silent" onclick="setStatusFilter('silent')">沉默</button>
+            <select id="silentDaysSelect" class="filter-chip-select" onchange="onSilentDaysChange()" aria-label="沉默天数" title="多少天没发作品算沉默">
+              <option value="7">≥7 天</option>
+              <option value="30">≥30 天</option>
+              <option value="60">≥60 天</option>
+              <option value="90">≥90 天</option>
+              <option value="180">≥180 天</option>
+            </select>
+            <button type="button" class="filter-chip" data-filter="publish_unknown" onclick="setStatusFilter('publish_unknown')">未知发布</button>
+            <span class="filter-sep" aria-hidden="true"></span>
+            <button type="button" class="filter-chip value-chip" data-filter="low_value" onclick="setStatusFilter('low_value')" id="lowValueChip">低价值</button>
+            <button type="button" class="filter-chip value-chip" data-filter="low_score" onclick="setStatusFilter('low_score')" id="lowScoreChip">擦边低</button>
+            <button type="button" class="filter-chip" data-filter="score_pending" onclick="setStatusFilter('score_pending')" id="scorePendingChip">待评分</button>
           </div>
-        </section>
+        </div>
 
-        <section class="analytics-grid">
-          <div style="display:flex; flex-direction:column; gap:24px;">
-            <div class="card">
-              <div class="card-header">
-                <div>
-                  <div class="card-title">下载规模排行</div>
-                  <div class="card-subtitle">按累计下载作品数排序，辅以本地归档结构信息</div>
-                </div>
-                <span class="pill primary" id="rankCountBadge">TOP -</span>
+        <div class="stack-col">
+          <div class="card" id="monitor-users">
+            <div class="card-header">
+              <div>
+                <div class="card-title">监控用户</div>
+                <div class="card-subtitle">服务端筛选 · 分页 · 行内操作（检查 / 回填 / 复制 / 启停 / 删除）</div>
               </div>
-              <div id="topUsers" class="table-list">
-                <div class="empty-state">正在加载排行数据…</div>
-              </div>
+              <span class="pill primary" id="rankCountBadge">-</span>
             </div>
-
-            <div class="card">
-              <div class="card-header">
-                <div>
-                  <div class="card-title">沉默监测</div>
-                  <div class="card-subtitle">把“最近没更新”的账号单独拎出来看</div>
-                </div>
-              </div>
-              <div class="card-body">
-                <div class="insight-grid">
-                  <div class="insight-card">
-                    <h4>近 7 天活跃</h4>
-                    <strong id="activeUsers7d">-</strong>
-                    <p>最近一周内有发布时间记录的监控用户</p>
-                  </div>
-                  <div class="insight-card">
-                    <h4>近 30 天活跃</h4>
-                    <strong id="activeUsers30d">-</strong>
-                    <p>最近一个月仍有发布时间记录的监控用户</p>
-                  </div>
-                  <div class="insight-card">
-                    <h4>无作品记录</h4>
-                    <strong id="unknownUsersCount">-</strong>
-                    <p>目前无法判定活跃度，建议重点排查抓取链路</p>
-                  </div>
-                  <div class="insight-card">
-                    <h4>异常账号</h4>
-                    <strong id="deactivatedUsersCount">-</strong>
-                    <p>已明确识别为注销或封禁的监控用户</p>
-                  </div>
-                </div>
-                <div class="analytics-grid" style="grid-template-columns: 1fr 1fr; gap:16px;">
-                  <div>
-                    <div style="font-size:14px; font-weight:700; margin-bottom:12px;">最近 7 天无发布</div>
-                    <div id="silentUsers7d" class="user-list">
-                      <div class="empty-state">正在加载用户列表…</div>
-                    </div>
-                  </div>
-                  <div>
-                    <div style="font-size:14px; font-weight:700; margin-bottom:12px;">最近 30 天无发布</div>
-                    <div id="silentUsers30d" class="user-list">
-                      <div class="empty-state">正在加载用户列表…</div>
-                    </div>
-                  </div>
-                </div>
+            <div id="userTableList" class="table-list">
+              <div class="empty-state">正在加载用户表…</div>
+            </div>
+            <div class="pagination-bar" id="userTablePagination">
+              <div class="pagination-meta" id="paginationMeta">共 0 人</div>
+              <div class="pagination-controls">
+                <button type="button" class="btn btn-secondary btn-sm" id="pageFirstBtn" onclick="goPage(1)" title="首页">«</button>
+                <button type="button" class="btn btn-secondary btn-sm" id="pagePrevBtn" onclick="goPage(tableState.page - 1)" title="上一页">‹</button>
+                <span class="page-indicator" id="pageIndicator">1 / 1</span>
+                <button type="button" class="btn btn-secondary btn-sm" id="pageNextBtn" onclick="goPage(tableState.page + 1)" title="下一页">›</button>
+                <button type="button" class="btn btn-secondary btn-sm" id="pageLastBtn" onclick="goPage(tableState.totalPages)" title="末页">»</button>
               </div>
             </div>
           </div>
-
-          <div style="display:flex; flex-direction:column; gap:24px;">
-            <div class="card">
-              <div class="card-header">
-                <div>
-                  <div class="card-title">内容结构总览</div>
-                  <div class="card-subtitle">当前结构分析覆盖率与视频 / 图集构成</div>
-                </div>
-              </div>
-              <div class="card-body">
-                <div class="stacked-bar">
-                  <div id="videoSegment" class="stacked-segment video" style="width:0%;"></div>
-                  <div id="imageSegment" class="stacked-segment image" style="width:0%;"></div>
-                  <div id="emptySegment" class="stacked-segment empty" style="width:100%;"></div>
-                </div>
-                <div class="legend-list">
-                  <div class="legend-item">
-                    <div class="legend-left"><span class="legend-dot" style="background:#6366f1;"></span>已归档视频</div>
-                    <div class="legend-value" id="legendVideos">-</div>
-                  </div>
-                  <div class="legend-item">
-                    <div class="legend-left"><span class="legend-dot" style="background:#ec4899;"></span>已归档图集</div>
-                    <div class="legend-value" id="legendImages">-</div>
-                  </div>
-                  <div class="legend-item">
-                    <div class="legend-left"><span class="legend-dot" style="background:#94a3b8;"></span>未覆盖作品</div>
-                    <div class="legend-value" id="legendUncovered">-</div>
-                  </div>
-                </div>
-                <div class="note-box" id="coverageNote">
-                  正在计算覆盖说明…
-                </div>
-              </div>
-            </div>
-
-            <div class="card">
-              <div class="card-header">
-                <div>
-                  <div class="card-title">已注销 / 已封禁用户</div>
-                  <div class="card-subtitle">仅展示已获得明确状态信号的账号，可直接暂停或恢复监控</div>
-                </div>
-                <span class="pill danger" id="deactivatedUsersBadge">-</span>
-              </div>
-              <div class="card-body">
-                <div id="deactivatedUsers" class="user-list">
-                  <div class="empty-state">正在加载用户列表…</div>
-                </div>
-              </div>
-            </div>
-
-            <div class="card">
-              <div class="card-header">
-                <div>
-                  <div class="card-title">待补数据用户</div>
-                  <div class="card-subtitle">没有最近发布时间记录，无法判断 7 天 / 30 天活跃度</div>
-                </div>
-              </div>
-              <div class="card-body">
-                <div id="unknownUsers" class="user-list">
-                  <div class="empty-state">正在加载用户列表…</div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </section>
+        </div>
       </div>
     </main>
   </div>
-
   <div id="sidebarOverlay" class="overlay" onclick="toggleSidebar()"></div>
-  <div id="settingsOverlay" class="overlay" onclick="toggleSettings()"></div>
-  <div id="settingsDrawer" class="drawer">
-    <div class="drawer-header">
-      <h2 style="margin:0; font-size:18px; display:flex; align-items:center; gap:8px; font-weight:600;">
-        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" style="width:20px;height:20px;color:var(--text-muted);"><path stroke-linecap="round" stroke-linejoin="round" d="M9.594 3.94c.09-.542.56-.94 1.11-.94h2.593c.55 0 1.02.398 1.11.94l.213 1.281c.063.374.313.686.645.87.074.04.147.083.22.127.325.196.72.257 1.075.124l1.217-.456a1.125 1.125 0 0 1 1.37.49l1.296 2.247a1.125 1.125 0 0 1-.26 1.431l-1.003.827c-.293.241-.438.613-.43.992a7.723 7.723 0 0 1 0 .255c-.008.378.137.75.43.991l1.004.827c.424.35.534.955.26 1.43l-1.298 2.247a1.125 1.125 0 0 1-1.369.491l-1.217-.456c-.355-.133-.75-.072-1.076.124a6.47 6.47 0 0 1-.22.128c-.331.183-.581.495-.644.869l-.213 1.281c-.09.543-.56.94-1.11.94h-2.594c-.55 0-1.019-.398-1.11-.94l-.213-1.281c-.062-.374-.312-.686-.644-.87a6.52 6.52 0 0 1-.22-.127c-.325-.196-.72-.257-1.076-.124l-1.217.456a1.125 1.125 0 0 1-1.369-.49l-1.297-2.247a1.125 1.125 0 0 1 .26-1.431l1.004-.827c.292-.24.437-.613.43-.991a6.932 6.932 0 0 1 0-.255c.007-.38-.138-.751-.43-.992l-1.004-.827a1.125 1.125 0 0 1-.26-1.43l1.297-2.247a1.125 1.125 0 0 1 1.37-.491l1.216.456c.356.133.751.072 1.076-.124.072-.044.146-.086.22-.128.332-.183.582-.495.644-.869l.214-1.28Z" /><path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" /></svg>
-        调度与系统配置
-      </h2>
-      <button class="btn-icon" onclick="toggleSettings()"><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" /></svg></button>
-    </div>
-    <div class="drawer-body">
-      <section>
-        <h3 style="font-size:16px; font-weight:700; margin-bottom:16px;">任务调度策略</h3>
-        <div class="form-group douyin-only">
-          <label class="form-label">监控模式</label>
-          <select id="monitorMode" class="input" onchange="onModeChanged()">
-            <option value="interval">定时轮询 (Interval)</option>
-            <option value="coverage">覆盖轮询 (Coverage)</option>
-          </select>
-        </div>
-        <div class="form-row">
-          <div class="form-group flex-1">
-            <label class="form-label">间隔小时 (Interval)</label>
-            <input id="intervalHours" type="number" class="input" min="0.01" step="0.01" value="0.05" />
-          </div>
-          <div class="form-group flex-1 douyin-only">
-            <label class="form-label">覆盖小时 (Coverage)</label>
-            <input id="coverageHours" type="number" class="input" min="0.1" step="0.1" value="24" />
-          </div>
-        </div>
-        <p class="help-text" id="modeHint"></p>
-        <button class="btn btn-primary w-full" onclick="applySettings()" style="margin-top:12px;">保存配置并应用</button>
-      </section>
+  <div class="works-overlay" id="worksOverlay" onclick="onWorksOverlayBackdrop(event)">
+    <div class="works-overlay-panel">
+      <div class="works-overlay-head">
+        <div class="works-overlay-title">作品浏览</div>
+        <button class="btn-icon" onclick="closeWorksOverlay()" aria-label="关闭作品浏览">
+          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.8" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" /></svg>
+        </button>
+      </div>
+      <iframe class="works-overlay-frame" id="worksFrame" title="用户作品列表"></iframe>
     </div>
   </div>
 
   <div id="toast-container" class="toast-container"></div>
 
+  <script src="/static/common.js?v=live-20260929a"></script>
   <script>
     const Icons = {
+      play: `<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M5.25 5.653c0-.856.917-1.398 1.667-.986l11.54 6.347a1.125 1.125 0 0 1 0 1.972l-11.54 6.347a1.125 1.125 0 0 1-1.667-.986V5.653Z" /></svg>`,
+      pause: `<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 5.25v13.5m-7.5-13.5v13.5" /></svg>`,
+      bolt: `<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m3.75 13.5 10.5-11.25L12 10.5h8.25L9.75 21.75 12 13.5H3.75Z" /></svg>`,
+      trash: `<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0" /></svg>`,
       checkCircle: `<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75 11.25 15 15 9.75M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" /></svg>`,
       exclamation: `<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3Z" /></svg>`,
       clipboard: `<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M15.666 3.888A2.25 2.25 0 0 0 13.5 2.25h-3c-1.03 0-1.9.693-2.166 1.638m7.332 0c.055.194.084.4.084.612v0a.75.75 0 0 1-.75.75H9.75a.75.75 0 0 1-.75-.75v0c0-.212.03-.418.084-.612m7.332 0c.646.049 1.288.11 1.927.184 1.1.128 1.907 1.077 1.907 2.185V19.5a2.25 2.25 0 0 1-2.25 2.25H6.75A2.25 2.25 0 0 1 4.5 19.5V6.257c0-1.108.806-2.057 1.907-2.185a48.208 48.208 0 0 1 1.927-.184" /></svg>`
     };
 
-    let currentPlatform = "douyin";
-    localStorage.setItem('monitor_platform', 'douyin');
     let refreshSeq = 0;
-    const PLATFORM_CONFIG = {
-      douyin: { api: "/api/monitor", label: "抖音" },
+    let tableSeq = 0;
+    let searchTimer = null;
+    let cachedSummary = null;
+    let cachedGeneratedAt = null;
+
+    const tableState = {
+      search: "",
+      monitor: "all",
+      account: "all",
+      activity: "all",
+      value: "all",
+      silentDays: 30,
+      sortBy: "downloads",
+      sortOrder: "desc",
+      page: 1,
+      pageSize: 20,
+      items: [],
+      total: 0,
+      totalPages: 1,
+      loading: false,
+      statusFilter: "all",
     };
-    const API_BASE = () => (PLATFORM_CONFIG[currentPlatform] || PLATFORM_CONFIG.douyin).api;
-
-    function updatePlatformTabs(platform) {
-      document.querySelectorAll('.platform-tab').forEach(btn => {
-        const isActive = btn.dataset.platform === platform;
-        btn.classList.toggle('active', isActive);
-        btn.style.background = isActive ? 'var(--primary)' : 'var(--bg-sidebar-hover)';
-        btn.style.color = isActive ? 'var(--text-inverse)' : 'var(--text-lighter)';
-        btn.setAttribute('aria-pressed', isActive ? 'true' : 'false');
-      });
-    }
-
-    function showPlatformLoading() {
-      const loading = '<div style="padding: 24px; text-align: center; color: var(--text-muted);">加载中...</div>';
-      ["silentUsers7d", "silentUsers30d", "deactivatedUsers", "unknownUsers", "topUsers"].forEach(id => {
-        const el = document.getElementById(id);
-        if (el) el.innerHTML = loading;
-      });
-      const headline = document.getElementById("heroHeadline");
-      if (headline) headline.textContent = "正在切换平台...";
-    }
-
-    function switchPlatform(platform) {
-      if (!PLATFORM_CONFIG[platform]) return;
-      const changed = currentPlatform !== platform;
-      currentPlatform = platform;
-      localStorage.setItem('monitor_platform', platform);
-      updatePlatformTabs(platform);
-      const cfg = PLATFORM_CONFIG[platform];
-      const titleEl = document.getElementById("sidebarTitle");
-      if (titleEl) titleEl.textContent = `${cfg.label} Monitor`;
-      if (changed) showPlatformLoading();
-      refreshAll();
-    }
-
-    function toggleSettings() {
-      document.getElementById("settingsDrawer").classList.toggle("show");
-      document.getElementById("settingsOverlay").classList.toggle("show");
-    }
-
-    function toggleSidebar() {
-      if (!isMobileViewport()) {
-        closeSidebarMobile();
-        return false;
-      }
-      document.getElementById("sidebar").classList.toggle("show");
-      document.getElementById("sidebarOverlay").classList.toggle("show");
-      return false;
-    }
-
-    function closeSidebarMobile() {
-      document.getElementById("sidebar").classList.remove("show");
-      document.getElementById("sidebarOverlay").classList.remove("show");
-    }
 
     function isMobileViewport() {
-      return window.innerWidth <= 1024;
+      return window.matchMedia("(max-width: 1024px)").matches;
     }
-
-    function navigateToPage(path) {
-      closeSidebarMobile();
-      if (window.location.pathname === path) return false;
-      window.location.assign(path);
-      return false;
-    }
-
-    window.addEventListener("resize", () => {
-      if (!isMobileViewport()) closeSidebarMobile();
-    });
 
     function escapeHtml(value) {
       return String(value ?? "")
@@ -1161,125 +796,10 @@
       return `${Number(value || 0).toFixed(1)}%`;
     }
 
-    const SHANGHAI_TIME_ZONE = "Asia/Shanghai";
-    const SHANGHAI_OFFSET_SUFFIX = "+08:00";
-    const SHANGHAI_TIME_FORMATTER = new Intl.DateTimeFormat("zh-CN", {
-      timeZone: SHANGHAI_TIME_ZONE,
-      year: "numeric",
-      month: "2-digit",
-      day: "2-digit",
-      hour: "2-digit",
-      minute: "2-digit",
-      second: "2-digit",
-      hourCycle: "h23",
-    });
-
-    function normalizeTimeInput(value) {
-      const text = String(value || "").trim();
-      if (!text) return "";
-      const normalized = text.includes("T") ? text : text.replace(" ", "T");
-      if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(normalized)) return normalized;
-      if (/[zZ]$|[+-]\d{2}:\d{2}$/.test(normalized)) return normalized;
-      return `${normalized}${SHANGHAI_OFFSET_SUFFIX}`;
-    }
-
-    function parseTimeValue(value) {
-      const normalized = normalizeTimeInput(value);
-      if (!normalized) return null;
-      const parsed = new Date(normalized);
-      return Number.isNaN(parsed.getTime()) ? null : parsed;
-    }
-
-    function formatTimeParts(date) {
-      return SHANGHAI_TIME_FORMATTER.formatToParts(date).reduce((accumulator, part) => {
-        if (part.type !== "literal") accumulator[part.type] = part.value;
-        return accumulator;
-      }, {});
-    }
-
-    function formatTime(value, emptyText = "暂无") {
-      const rawText = String(value || "").trim();
-      if (!rawText) return emptyText;
-      const parsed = parseTimeValue(rawText);
-      if (!parsed) return rawText.replace("T", " ").replace(/(\.\d+)?([+-]\d{2}:\d{2}|Z)$/i, "");
-      const parts = formatTimeParts(parsed);
-      return `${parts.year}-${parts.month}-${parts.day} ${parts.hour}:${parts.minute}:${parts.second}`;
-    }
-
     function formatDays(value) {
       if (value == null) return "未知";
       if (Number(value) <= 0) return "今天";
       return `${value} 天前`;
-    }
-
-    function formatBytes(bytes) {
-      const size = Number(bytes || 0);
-      if (size <= 0) return "0 B";
-      const units = ["B", "KB", "MB", "GB", "TB"];
-      let value = size;
-      let unitIndex = 0;
-      while (value >= 1024 && unitIndex < units.length - 1) {
-        value /= 1024;
-        unitIndex += 1;
-      }
-      const digits = value >= 100 || unitIndex === 0 ? 0 : 1;
-      return `${value.toFixed(digits)} ${units[unitIndex]}`;
-    }
-
-    function renderUserAvatar(user) {
-      const initial = escapeHtml((user.nickname || user.sec_user_id || "?").charAt(0).toUpperCase());
-      const avatarUrl = String(user.avatar_url || "").trim();
-      if (!avatarUrl) return `<div class="user-avatar">${initial}</div>`;
-      const userId = encodeURIComponent(String(user.id || "").trim());
-      if (!userId) return `<div class="user-avatar">${initial}</div>`;
-      const version = encodeURIComponent(String(user.last_publish_at || user.last_download_at || avatarUrl));
-      const safeUrl = `${API_BASE()}/users/${userId}/avatar?v=${version}`;
-      return `<div class="user-avatar"><img src="${safeUrl}" alt="${initial}" loading="lazy" onerror="this.remove();this.parentElement.textContent=this.alt;" /></div>`;
-    }
-
-    function getAccountStatusLabel(user) {
-      return escapeHtml(String(user.account_status_label || "正常").trim() || "正常");
-    }
-
-    function getAccountStatusPillClass(user) {
-      const status = String(user.account_status || "normal").trim();
-      if (status === "deleted") return "danger";
-      if (status === "banned") return "warning";
-      return "secondary";
-    }
-
-    function renderToggleUserButton(user) {
-      const paused = !user.enabled;
-      const label = paused ? "启用" : "暂停";
-      return `<button class="btn btn-secondary btn-sm" onclick="toggleUser('${user.id}', ${paused})">${label}</button>`;
-    }
-
-    function copyUserProfile(profileUrl, nickname) {
-      if (!profileUrl) { showToast('该用户没有主页链接', 'error'); return; }
-      let textToCopy = profileUrl;
-      if (!profileUrl.includes('v.douyin.com')) {
-        textToCopy = `打开抖音搜索，查看TA的更多作品 ${profileUrl}`;
-      }
-      navigator.clipboard.writeText(textToCopy).then(() => {
-        showToast(`已复制 ${nickname} 的抖音分享`);
-      }).catch(() => {
-        const ta = document.createElement('textarea');
-        ta.value = textToCopy; document.body.appendChild(ta); ta.select();
-        document.execCommand('copy'); document.body.removeChild(ta);
-        showToast(`已复制 ${nickname} 的抖音分享`);
-      });
-    }
-
-    function renderCopyUserButton(user) {
-      const profileUrl = (user.profile_url || '').replace(/'/g, "\\'");
-      const nickname = (user.nickname || user.sec_user_id || '').replace(/'/g, "\\'");
-      return `<button class="btn btn-secondary btn-sm" onclick="copyUserProfile('${profileUrl}', '${nickname}')" title="复制主页链接">${Icons.clipboard} 复制</button>`;
-    }
-
-    function renderAccountReason(user) {
-      const reason = String(user.account_status_reason || "").trim();
-      if (!reason) return "";
-      return `<div class="status-reason">${escapeHtml(reason)}</div>`;
     }
 
     function showToast(message, type = "success") {
@@ -1295,25 +815,459 @@
       }, 3000);
     }
 
-    async function api(path, options = {}) {
-      const base = API_BASE();
-      const response = await fetch(`${base}${path}`, {
-        headers: { "Content-Type": "application/json" },
-        ...options,
-      });
-      const data = await response.json().catch(() => ({}));
-      if (!response.ok || data.code !== 200) {
-        throw new Error(data?.detail?.message || data?.detail || data?.message || "请求失败");
-      }
-      return data.data;
+    // 头像是作品列表的入口；user.id 是服务端 uuid，可安全插进 href
+    function worksPageUrl(userId) {
+      return `/api/monitor/works/dashboard?user_id=${encodeURIComponent(userId)}`;
     }
 
-    function onModeChanged() {
-      const mode = document.getElementById("monitorMode").value;
-      const hint = document.getElementById("modeHint");
-      hint.textContent = mode === "coverage"
-        ? "覆盖模式：系统将 Coverage 小时数均分给所有监控用户并加入随机抖动。"
-        : "定时模式：每隔 Interval 小时对全量用户触发一次抓取。";
+    function wrapAvatarWithWorksLink(user, innerHtml) {
+      const userId = String(user.id || "").trim();
+      if (!userId) return innerHtml;
+      // 保留 href：Ctrl/Cmd/中键仍可在新标签页打开独立作品页
+      return `<a class="user-avatar-link" href="${worksPageUrl(userId)}" onclick="return onAvatarClick(event, '${userId}')" title="查看作品列表">${innerHtml}</a>`;
+    }
+
+    // --- 作品浮层：不跳页，所以返回时筛选/页码/滚动位置都还在 ---
+    const worksOverlayState = { open: false };
+
+    function onAvatarClick(event, userId) {
+      // 带修饰键或非左键时交回浏览器，走原生新标签页行为
+      if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return true;
+      if (typeof event.button === "number" && event.button !== 0) return true;
+      event.preventDefault();
+      openWorksOverlay(userId);
+      return false;
+    }
+
+    function openWorksOverlay(userId) {
+      const id = String(userId || "").trim();
+      if (!id) return;
+      document.getElementById("worksFrame").src = `${worksPageUrl(id)}&embed=1`;
+      document.getElementById("worksOverlay").classList.add("show");
+      worksOverlayState.open = true;
+      // 压一个历史条目，让浏览器返回键关掉浮层而不是离开本页
+      history.pushState({ worksOverlay: id }, "");
+    }
+
+    function closeWorksOverlay(options = {}) {
+      if (!worksOverlayState.open) return;
+      worksOverlayState.open = false;
+      document.getElementById("worksOverlay").classList.remove("show");
+      // 清空 iframe 让里面的视频停止拉流，否则代理连接会挂着继续下载
+      document.getElementById("worksFrame").src = "about:blank";
+      if (!options.fromHistory) history.back();
+    }
+
+    function onWorksOverlayBackdrop(event) {
+      if (event.target === document.getElementById("worksOverlay")) closeWorksOverlay();
+    }
+
+    window.addEventListener("popstate", () => closeWorksOverlay({ fromHistory: true }));
+
+    window.addEventListener("message", (event) => {
+      if (event.origin !== window.location.origin) return;
+      if (event.data && event.data.type === "works:close") closeWorksOverlay();
+    });
+
+    document.addEventListener("keydown", (event) => {
+      if (event.key === "Escape") closeWorksOverlay();
+    });
+
+    function renderUserAvatar(user) {
+      const initial = escapeHtml((user.nickname || user.sec_user_id || "?").charAt(0).toUpperCase());
+      const avatarUrl = String(user.avatar_url || "").trim();
+      if (!avatarUrl) return wrapAvatarWithWorksLink(user, `<div class="user-avatar">${initial}</div>`);
+      const userId = encodeURIComponent(String(user.id || "").trim());
+      if (!userId) return `<div class="user-avatar">${initial}</div>`;
+      // 只随头像地址变化，巡检刷新 updated_at 不再让浏览器缓存失效
+      const version = encodeURIComponent(avatarUrl);
+      const safeUrl = `${API_BASE}/users/${userId}/avatar?v=${version}`;
+      const avatarHtml = `<div class="user-avatar"><img src="${safeUrl}" alt="${initial}" loading="lazy" onerror="this.remove();this.parentElement.textContent=this.alt;" /></div>`;
+      return wrapAvatarWithWorksLink(user, avatarHtml);
+    }
+
+    function getAccountStatusLabel(user) {
+      return escapeHtml(String(user.account_status_label || "正常").trim() || "正常");
+    }
+
+    function getAccountStatusPillClass(user) {
+      const status = String(user.account_status || "normal").trim();
+      if (status === "deleted") return "danger";
+      if (status === "banned") return "warning";
+      if (status && status !== "normal") return "warning";
+      return "secondary";
+    }
+
+    function getHistorySync(user) {
+      return user && typeof user.history_sync === "object" && user.history_sync ? user.history_sync : {};
+    }
+
+    function formatHistorySync(historySync) {
+      const status = String(historySync.status || "idle").trim();
+      const labelMap = {
+        pending: "待回填",
+        running: "回填中",
+        paused: "已暂停",
+        completed: "已完成",
+        failed: "部分失败",
+        idle: "未启动",
+      };
+      const label = labelMap[status] || status || "未启动";
+      const pages = Number(historySync.processed_pages || 0);
+      const downloaded = Number(historySync.downloaded_items || 0);
+      return `历史: ${label} · 页数 ${pages} · 已补 ${downloaded}`;
+    }
+
+    function isHistorySyncActive(historySync) {
+      const status = String((historySync || {}).status || "").trim();
+      return ["pending", "running", "failed"].includes(status);
+    }
+
+    function renderToggleUserButton(user) {
+      const paused = !user.enabled;
+      const label = paused ? `${Icons.play} 启用` : `${Icons.pause} 暂停`;
+      const title = paused ? "启用" : "暂停";
+      return `<button class="btn btn-secondary btn-sm" onclick="toggleUser('${user.id}', ${paused})" title="${title}">${label}</button>`;
+    }
+
+    function renderCopyUserButton(user) {
+      const profileUrl = jsAttr(user.profile_url || "");
+      const nickname = jsAttr(user.nickname || user.sec_user_id || "");
+      return `<button class="btn btn-secondary btn-sm" onclick="copyUserProfile('${profileUrl}', '${nickname}')" title="复制主页链接">${Icons.clipboard} 复制</button>`;
+    }
+
+    function renderHistoryAction(user) {
+      const historySync = getHistorySync(user);
+      if (String(historySync.status || "") === "paused") {
+        return `<button class="btn btn-secondary btn-sm" onclick="resumeHistoryBackfill('${user.id}')" title="继续历史回填">继续回填</button>`;
+      }
+      if (isHistorySyncActive(historySync)) {
+        return `<button class="btn btn-secondary btn-sm" onclick="pauseHistoryBackfill('${user.id}')" title="暂停历史回填">暂停回填</button>`;
+      }
+      const label = String(historySync.status || "") === "completed" ? "重扫历史" : "补历史";
+      return `<button class="btn btn-secondary btn-sm" onclick="startHistoryBackfill('${user.id}')" title="启动历史回填">${label}</button>`;
+    }
+
+    function scrollToUserTable() {
+      const el = document.getElementById("monitor-users");
+      if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+
+    function syncFilterChips() {
+      document.querySelectorAll(".filter-chip").forEach((chip) => {
+        chip.classList.toggle("active", chip.dataset.filter === tableState.statusFilter);
+      });
+      const daysEl = document.getElementById("silentDaysSelect");
+      if (daysEl) daysEl.value = String(tableState.silentDays);
+    }
+
+    // 沉默天数改了：直接切到“沉默”筛选
+    function onSilentDaysChange() {
+      const el = document.getElementById("silentDaysSelect");
+      const days = Number(el?.value || 30);
+      tableState.silentDays = [7, 30, 60, 90, 180].includes(days) ? days : 30;
+      applyFilterPreset("silent");
+    }
+
+    // 排序下拉取值支持 "field" 与 "field:order" 两种形式，后者用于同一字段的正/倒序（添加时间）
+    function parseSortOption(raw) {
+      const [field, order] = String(raw || "").trim().split(":");
+      const sortBy = field || "downloads";
+      if (order === "asc" || order === "desc") return { sortBy, sortOrder: order };
+      return { sortBy, sortOrder: sortBy === "nickname" ? "asc" : "desc" };
+    }
+
+    function currentSortOptionValue(selectEl) {
+      const field = tableState.sortBy || "downloads";
+      const explicit = `${field}:${tableState.sortOrder || "desc"}`;
+      const hasExplicit = selectEl
+        && Array.from(selectEl.options).some((opt) => opt.value === explicit);
+      return hasExplicit ? explicit : field;
+    }
+
+    function syncToolbarControls() {
+      const sortEl = document.getElementById("sortBySelect");
+      const sizeEl = document.getElementById("pageSizeSelect");
+      if (sortEl) sortEl.value = currentSortOptionValue(sortEl);
+      if (sizeEl) sizeEl.value = String(tableState.pageSize);
+    }
+
+    function applyFilterPreset(preset, { resetPage = true, scroll = true } = {}) {
+      tableState.monitor = "all";
+      tableState.account = "all";
+      tableState.activity = "all";
+      tableState.value = "all";
+      tableState.statusFilter = preset || "all";
+
+      switch (preset) {
+        case "enabled":
+          tableState.monitor = "enabled";
+          break;
+        case "paused":
+          tableState.monitor = "paused";
+          break;
+        case "abnormal":
+          tableState.account = "abnormal";
+          break;
+        case "silent":
+          tableState.activity = `silent_${tableState.silentDays}d`;
+          break;
+        case "low_value":
+        case "low_score":
+        case "score_pending":
+          tableState.value = preset;
+          break;
+        case "publish_unknown":
+          tableState.activity = "publish_unknown";
+          break;
+        case "all":
+        default:
+          tableState.statusFilter = "all";
+          break;
+      }
+
+      if (resetPage) tableState.page = 1;
+      syncFilterChips();
+      if (scroll) scrollToUserTable();
+      loadUserTable();
+    }
+
+    function setStatusFilter(nextFilter) {
+      applyFilterPreset(nextFilter || "all");
+    }
+
+    function applyActivityFilter(activity) {
+      tableState.monitor = "all";
+      tableState.account = "all";
+      tableState.value = "all";
+      tableState.activity = activity || "all";
+      tableState.statusFilter = activity === "silent_7d"
+        ? "silent"
+        : activity === "publish_unknown"
+          ? "publish_unknown"
+          : "all";
+      if (activity === "silent_30d") {
+        // no dedicated chip; clear active chip visual to avoid lying
+        tableState.statusFilter = "silent";
+      }
+      tableState.page = 1;
+      syncFilterChips();
+      if (activity === "silent_30d") {
+        // keep silent chip active as nearest match
+        document.querySelectorAll(".filter-chip").forEach((chip) => {
+          chip.classList.toggle("active", chip.dataset.filter === "silent");
+        });
+      }
+      scrollToUserTable();
+      loadUserTable();
+    }
+
+    function onSummaryClick(kind) {
+      if (kind === "users") applyFilterPreset("all");
+      else if (kind === "silent") applyFilterPreset("silent");
+      else if (kind === "abnormal") applyFilterPreset("abnormal");
+      else if (kind === "low_value") applyFilterPreset("low_value");
+    }
+
+    function handleStatsSearch() {
+      const input = document.getElementById("statsSearchInput");
+      const next = String(input?.value || "");
+      if (searchTimer) clearTimeout(searchTimer);
+      searchTimer = setTimeout(() => {
+        tableState.search = next;
+        tableState.page = 1;
+        loadUserTable();
+      }, 300);
+    }
+
+    function onSortByChange() {
+      const el = document.getElementById("sortBySelect");
+      const parsed = parseSortOption(el?.value);
+      tableState.sortBy = parsed.sortBy;
+      tableState.sortOrder = parsed.sortOrder;
+      tableState.page = 1;
+      loadUserTable();
+    }
+
+    function onPageSizeChange() {
+      const el = document.getElementById("pageSizeSelect");
+      const next = Number(el?.value || 20);
+      tableState.pageSize = [20, 50, 100].includes(next) ? next : 20;
+      tableState.page = 1;
+      loadUserTable();
+    }
+
+    function goPage(page) {
+      const target = Math.max(1, Math.min(Number(page) || 1, tableState.totalPages || 1));
+      if (target === tableState.page && tableState.items.length) return;
+      tableState.page = target;
+      loadUserTable();
+    }
+
+    function buildUsersQuery() {
+      const params = new URLSearchParams();
+      params.set("page", String(tableState.page || 1));
+      params.set("page_size", String(tableState.pageSize || 20));
+      params.set("sort_by", tableState.sortBy || "downloads");
+      params.set("sort_order", tableState.sortOrder || "desc");
+      params.set("monitor", tableState.monitor || "all");
+      params.set("account", tableState.account || "all");
+      params.set("activity", tableState.activity || "all");
+      params.set("value", tableState.value || "all");
+      const keyword = String(tableState.search || "").trim();
+      if (keyword) params.set("search", keyword);
+      return params.toString();
+    }
+
+    function updateToolbarHint() {
+      const filterLabel = {
+        all: "全部",
+        enabled: "启用",
+        paused: "暂停",
+        abnormal: "异常",
+        silent: `沉默 ≥${tableState.silentDays} 天`,
+        publish_unknown: "未知发布",
+        low_value: "低价值",
+        low_score: "擦边低",
+        score_pending: "待评分",
+      }[tableState.statusFilter] || "全部";
+      const keyword = String(tableState.search || "").trim();
+      let hint = `${filterLabel} · 共 ${formatNumber(tableState.total)} 人`;
+      if (keyword) hint += ` · “${keyword}”`;
+      if (tableState.loading) hint += " · 加载中…";
+      document.getElementById("listCountHint").textContent = hint;
+      document.getElementById("rankCountBadge").textContent = `共 ${formatNumber(tableState.total)}`;
+    }
+
+    function renderPagination() {
+      const totalPages = Math.max(1, Number(tableState.totalPages || 1));
+      const page = Math.max(1, Math.min(Number(tableState.page || 1), totalPages));
+      document.getElementById("paginationMeta").textContent =
+        `共 ${formatNumber(tableState.total)} 人 · 每页 ${tableState.pageSize}`;
+      document.getElementById("pageIndicator").textContent = `${page} / ${totalPages}`;
+      const atFirst = page <= 1;
+      const atLast = page >= totalPages;
+      document.getElementById("pageFirstBtn").disabled = atFirst;
+      document.getElementById("pagePrevBtn").disabled = atFirst;
+      document.getElementById("pageNextBtn").disabled = atLast;
+      document.getElementById("pageLastBtn").disabled = atLast;
+    }
+
+    function renderUserTableRows() {
+      const root = document.getElementById("userTableList");
+      const items = Array.isArray(tableState.items) ? tableState.items : [];
+      if (tableState.loading && !items.length) {
+        root.innerHTML = `<div class="empty-state">正在加载用户表…</div>`;
+        return;
+      }
+      if (!items.length) {
+        const keyword = String(tableState.search || "").trim();
+        const msg = keyword || tableState.statusFilter !== "all"
+          ? "没有匹配当前筛选的用户"
+          : "暂无监控用户";
+        root.innerHTML = `<div class="empty-state">${escapeHtml(msg)}</div>`;
+        return;
+      }
+
+      const baseRank = (Math.max(1, tableState.page) - 1) * Math.max(1, tableState.pageSize);
+      root.innerHTML = items.map((user, index) => {
+        const rank = baseRank + index + 1;
+        const paused = !user.enabled;
+        const historySync = getHistorySync(user);
+        const isAbnormal = String(user.account_status || "normal").trim() !== "normal";
+        const pillClass = isAbnormal
+          ? getAccountStatusPillClass(user)
+          : (paused ? "secondary" : "success");
+        const pillText = isAbnormal
+          ? getAccountStatusLabel(user)
+          : (paused ? "已暂停" : "监控中");
+        const worksLabel = `视频 ${formatNumber(user.known_video_posts)} / 图集 ${formatNumber(user.known_image_posts)}`;
+        const publishValue = user.activity_known
+          ? escapeHtml(formatDays(user.days_since_last_publish))
+          : "暂无";
+        const publishNote = user.activity_known
+          ? `发布 ${escapeHtml(formatTime(user.last_publish_at, "—"))}`
+          : "无发布时间";
+        const metaHtml = [
+          `最近检查 ${escapeHtml(formatTime(user.last_checked_at, "暂无"))}`,
+          `添加 ${escapeHtml(formatTime(user.created_at, "未知"))}`,
+          escapeHtml(formatHistorySync(historySync)),
+        ].map((bit) => `<span>${bit}</span>`).join("");
+        const errorHtml = user.last_error
+          ? `<div class="row-error">异常: ${escapeHtml(user.last_error)}</div>`
+          : "";
+        const downloads = user.total_downloaded_works ?? user.downloaded_count ?? 0;
+        const scoreMetric = renderScoreMetric(user);
+        const valueFlags = renderValueFlags(user);
+        return `
+          <div class="rank-row">
+            <div class="rank-badge">#${rank}</div>
+            <div class="rank-main">
+              <div class="user-identity">
+                ${renderUserAvatar(user)}
+                <div class="user-details">
+                  <div class="user-name">
+                    <span class="user-name-text">${escapeHtml(user.nickname || user.sec_user_id || "-")}</span>
+                    <span class="pill ${pillClass}">${pillText}</span>
+                    ${valueFlags}
+                  </div>
+                  <div class="rank-meta">${metaHtml}</div>
+                  ${errorHtml}
+                </div>
+              </div>
+              <div class="rank-metrics">
+                <div class="rank-metric">
+                  <strong>${formatNumber(downloads)}</strong>
+                  <span>${worksLabel}</span>
+                </div>
+                <div class="rank-metric">
+                  <strong>${publishValue}</strong>
+                  <span class="rank-metric-note">${publishNote}</span>
+                </div>
+                ${scoreMetric}
+              </div>
+            </div>
+            <div class="row-actions">
+              <button class="btn btn-secondary btn-sm" onclick="runUserOnce('${user.id}')" title="单独检查">${Icons.bolt} 检查</button>
+              ${renderHistoryAction(user)}
+              ${renderCopyUserButton(user)}
+              ${renderToggleUserButton(user)}
+              <button class="btn btn-secondary btn-sm" style="color: var(--danger);" onclick="deleteUser('${user.id}')" title="删除">${Icons.trash}</button>
+            </div>
+          </div>
+        `;
+      }).join("");
+    }
+
+    // 阈值来自接口 windows，前端不写死
+    let valueWindows = { long_silent_days: 90, low_score_min_scored: 5, low_score_avg_below: 1.5, high_score_min: 3 };
+
+    function renderScoreMetric(user) {
+      const scored = Number(user.scored_works || 0);
+      const total = Number(user.structured_work_count || 0);
+      const coverage = `已评 ${formatNumber(scored)}/${formatNumber(total)}`;
+      if (!scored) {
+        return `<div class="rank-metric" title="还没有已评分的作品，后台补评完成后才有擦边分"><strong>—</strong><span class="rank-metric-note">擦边 · 待评分</span></div>`;
+      }
+      const avg = Number(user.avg_borderline_score).toFixed(1);
+      const low = user.low_value_reasons?.includes("low_score");
+      const high = `≥${valueWindows.high_score_min} 分 ${formatNumber(user.high_score_works)} 条`;
+      const pending = user.is_score_pending ? ` · 样本不足 ${valueWindows.low_score_min_scored} 条，不判擦边低` : "";
+      const title = `擦边均分 ${avg}（最高 ${user.max_borderline_score}）· ${high} · ${coverage}${pending}`;
+      return `<div class="rank-metric" title="${escapeHtml(title)}"><strong class="${low ? "score-low" : ""}">${avg}</strong><span class="rank-metric-note">擦边均分 · ${escapeHtml(high)} · ${escapeHtml(coverage)}</span></div>`;
+    }
+
+    function renderValueFlags(user) {
+      const reasons = Array.isArray(user.low_value_reasons) ? user.low_value_reasons : [];
+      return reasons.map((reason) => {
+        if (reason === "long_silent") {
+          return `<span class="pill warning value-flag" title="最近一次发布早于 ${valueWindows.long_silent_days} 天">长期沉默</span>`;
+        }
+        if (reason === "low_score") {
+          return `<span class="pill warning value-flag" title="已评分 ≥${valueWindows.low_score_min_scored} 条且擦边均分 < ${valueWindows.low_score_avg_below}">擦边低</span>`;
+        }
+        return "";
+      }).join("");
     }
 
     function renderStatus(status, summary) {
@@ -1326,218 +1280,95 @@
         dot.classList.remove("running");
         text.textContent = "已停止";
       }
-
-      document.getElementById("coverageBadge").textContent = formatPercent(summary.structured_coverage_percent);
-      if (status.mode) document.getElementById("monitorMode").value = status.mode;
-      if (status.interval_hours != null) document.getElementById("intervalHours").value = String(status.interval_hours);
-      if (status.coverage_hours != null) document.getElementById("coverageHours").value = String(status.coverage_hours);
-      onModeChanged();
-    }
-
-    function renderSummary(data) {
-      const summary = data.summary || {};
-      document.getElementById("heroHeadline").textContent = `已监控 ${formatNumber(summary.total_users)} 位用户，累计下载 ${formatNumber(summary.total_downloaded_works)} 个作品。`;
-      document.getElementById("heroDescription").textContent = `本页按本地归档记录分析视频 / 图集结构，并把最近 7 天与 30 天未发布的账号拆分出来单独观察。统计生成时间（上海）：${formatTime(data.generated_at)}。`;
-      document.getElementById("heroWorks").textContent = formatNumber(summary.total_downloaded_works);
-      document.getElementById("heroStructuredWorks").textContent = formatNumber(summary.structured_work_count);
-      document.getElementById("heroSilent7d").textContent = formatNumber(summary.silent_users_7d);
-      document.getElementById("heroSilent30d").textContent = formatNumber(summary.silent_users_30d);
-
-      document.getElementById("metricUsers").textContent = formatNumber(summary.total_users);
-      document.getElementById("metricUsersHelp").textContent = `启用 ${formatNumber(summary.enabled_users)} / 暂停 ${formatNumber(summary.paused_users)} / 异常 ${formatNumber(summary.abnormal_users)}`;
-      document.getElementById("metricWorks").textContent = formatNumber(summary.total_downloaded_works);
-      document.getElementById("metricWorksHelp").textContent = `人均 ${summary.avg_downloaded_works_per_user || 0} 个作品`;
-      document.getElementById("metricVideos").textContent = formatNumber(summary.known_video_posts);
-      document.getElementById("metricVideosHelp").textContent = `基于 ${formatNumber(summary.structured_work_count)} 条已归档作品记录`;
-      document.getElementById("metricImages").textContent = `${formatNumber(summary.known_image_posts)} / ${formatNumber(summary.known_image_assets)}`;
-      document.getElementById("metricImagesHelp").textContent = `图集 ${formatNumber(summary.known_image_posts)}，图片 ${formatNumber(summary.known_image_assets)}`;
-
-      document.getElementById("activeUsers7d").textContent = formatNumber(summary.active_users_7d);
-      document.getElementById("activeUsers30d").textContent = formatNumber(summary.active_users_30d);
-      document.getElementById("unknownUsersCount").textContent = formatNumber(summary.unknown_publish_users);
-      document.getElementById("deactivatedUsersCount").textContent = formatNumber(summary.abnormal_users);
-      document.getElementById("deactivatedUsersBadge").textContent = `注销 ${formatNumber(summary.deleted_users)} / 封禁 ${formatNumber(summary.banned_users)}`;
-      document.getElementById("rankCountBadge").textContent = `TOP ${formatNumber((data.rankings?.top_downloaded_users || []).length)}`;
-    }
-
-    function renderCoverage(summary) {
-      const structured = Number(summary.structured_work_count || 0);
-      const uncovered = Math.max(0, Number(summary.total_downloaded_works || 0) - structured);
-      const videos = Number(summary.known_video_posts || 0);
-      const images = Number(summary.known_image_posts || 0);
-      const base = Math.max(1, videos + images + uncovered);
-      const videoPercent = (videos / base) * 100;
-      const imagePercent = (images / base) * 100;
-      const uncoveredPercent = Math.max(0, 100 - videoPercent - imagePercent);
-
-      document.getElementById("videoSegment").style.width = `${videoPercent}%`;
-      document.getElementById("imageSegment").style.width = `${imagePercent}%`;
-      document.getElementById("emptySegment").style.width = `${uncoveredPercent}%`;
-      document.getElementById("legendVideos").textContent = `${formatNumber(videos)} 条`;
-      document.getElementById("legendImages").textContent = `${formatNumber(images)} 条图集 / ${formatNumber(summary.known_image_assets)} 张图`;
-      document.getElementById("legendUncovered").textContent = `${formatNumber(uncovered)} 条`;
-      document.getElementById("coverageNote").innerHTML = `
-        <div><strong style="color:var(--text-main);">结构覆盖率：</strong>${formatPercent(summary.structured_coverage_percent)}</div>
-        <div>说明：累计作品数使用总下载计数；视频 / 图集拆分使用本地保存的 <code>download_records</code>。当前已归档体量约 <strong>${formatBytes(summary.structured_total_size_bytes)}</strong>。</div>
-      `;
-    }
-
-    function renderTopUsers(users) {
-      const root = document.getElementById("topUsers");
-      if (!users.length) {
-        root.innerHTML = `<div class="empty-state">暂无排行数据</div>`;
-        return;
+      const coverageBadge = document.getElementById("coverageBadge");
+      if (coverageBadge) {
+        coverageBadge.textContent = formatPercent((summary || {}).structured_coverage_percent);
       }
-
-      root.innerHTML = users.map((user, index) => `
-        <div class="rank-row">
-          <div class="rank-badge">#${index + 1}</div>
-          <div class="user-identity">
-            ${renderUserAvatar(user)}
-            <div style="min-width:0;">
-              <div class="user-name">${escapeHtml(user.nickname || "-")}</div>
-              <div class="user-meta">
-                <span>${user.enabled ? "监控中" : "已暂停"}</span>
-                <span>最近检查 ${escapeHtml(formatTime(user.last_checked_at))}</span>
-              </div>
-            </div>
-          </div>
-          <div class="metric-stack">
-            <strong>${formatNumber(user.total_downloaded_works)}</strong>
-            <span>作品总量 · 视频 ${formatNumber(user.known_video_posts)} / 图集 ${formatNumber(user.known_image_posts)}</span>
-          </div>
-          <div class="metric-stack actions">
-            <strong>${escapeHtml(formatTime(user.last_publish_at))}</strong>
-            <span>${user.activity_known ? `最近发布 ${escapeHtml(formatDays(user.days_since_last_publish))}` : "暂无发布时间记录"}</span>
-            ${renderCopyUserButton(user)}
-            ${renderToggleUserButton(user)}
-          </div>
-        </div>
-      `).join("");
     }
 
-    function renderUserList(rootId, users, emptyMessage, pillClass, pillFormatter) {
-      const root = document.getElementById(rootId);
-      if (!users.length) {
-        root.innerHTML = `<div class="empty-state">${escapeHtml(emptyMessage)}</div>`;
-        return;
-      }
+    function renderSummary(summary, generatedAt) {
+      summary = summary || {};
+      document.getElementById("summaryUsers").textContent = formatNumber(summary.total_users);
+      document.getElementById("summaryUsersHelp").textContent =
+        `启用 ${formatNumber(summary.enabled_users)} / 暂停 ${formatNumber(summary.paused_users)}`;
 
-      root.innerHTML = users.slice(0, 10).map(user => `
-        <div class="user-list-item">
-          <div class="user-list-main">
-            ${renderUserAvatar(user)}
-            <div class="user-list-content">
-              <div class="user-list-title">${escapeHtml(user.nickname || "-")}</div>
-              <div class="user-list-meta">
-                <span>下载 ${formatNumber(user.total_downloaded_works)} 个作品</span>
-                <span>最近发布 ${escapeHtml(formatTime(user.last_publish_at))}</span>
-                <span>最近下载 ${escapeHtml(formatTime(user.last_download_at))}</span>
-              </div>
-            </div>
-          </div>
-          <div class="user-list-side">
-            <div class="pill ${pillClass}">${pillFormatter(user)}</div>
-            ${renderCopyUserButton(user)}
-            ${renderToggleUserButton(user)}
-          </div>
-        </div>
-      `).join("");
+      document.getElementById("summaryWorks").textContent = formatNumber(summary.total_downloaded_works);
+      document.getElementById("summaryWorksHelp").textContent =
+        `人均 ${summary.avg_downloaded_works_per_user || 0} · 视频 ${formatNumber(summary.known_video_posts)} / 图集 ${formatNumber(summary.known_image_posts)}`;
+
+      document.getElementById("summaryCoverage").textContent = formatPercent(summary.structured_coverage_percent);
+      document.getElementById("summaryCoverageHelp").textContent =
+        `已归档 ${formatNumber(summary.structured_work_count)} 条`;
+
+      document.getElementById("summarySilent").textContent =
+        `${formatNumber(summary.silent_users_7d)} / ${formatNumber(summary.silent_users_30d)}`;
+      document.getElementById("summarySilentHelp").textContent =
+        `未知发布 ${formatNumber(summary.unknown_publish_users)}`;
+
+      document.getElementById("summaryLowValue").textContent = formatNumber(summary.low_value_users);
+      document.getElementById("summaryLowValueHelp").textContent =
+        `长期沉默 ${formatNumber(summary.long_silent_users)} / 擦边低 ${formatNumber(summary.low_score_users)} · 待评分 ${formatNumber(summary.score_pending_users)}`;
+
+      document.getElementById("summaryAbnormal").textContent = formatNumber(summary.abnormal_users);
+      document.getElementById("summaryAbnormalHelp").textContent =
+        `注销 ${formatNumber(summary.deleted_users)} / 封禁 ${formatNumber(summary.banned_users)}`;
+
+      document.getElementById("generatedAtHint").textContent =
+        `生成时间（上海）：${formatTime(generatedAt, "暂无")}`;
     }
 
-    function renderUnknownUsers(users) {
-      const root = document.getElementById("unknownUsers");
-      if (!users.length) {
-        root.innerHTML = `<div class="empty-state">所有用户都有最近发布时间记录</div>`;
-        return;
+    async function loadUserTable() {
+      const seq = ++tableSeq;
+      tableState.loading = true;
+      updateToolbarHint();
+      try {
+        const data = await api(`/users?${buildUsersQuery()}`);
+        if (seq !== tableSeq) return;
+        tableState.items = Array.isArray(data.items) ? data.items : [];
+        tableState.page = Number(data.page || tableState.page || 1);
+        tableState.pageSize = Number(data.page_size || tableState.pageSize || 20);
+        tableState.total = Number(data.total || 0);
+        tableState.totalPages = Number(data.total_pages || 1);
+        if (data.windows) valueWindows = { ...valueWindows, ...data.windows };
+        if (data.applied) {
+          if (data.applied.sort_by) tableState.sortBy = data.applied.sort_by;
+          if (data.applied.sort_order) tableState.sortOrder = data.applied.sort_order;
+        }
+        syncToolbarControls();
+        tableState.loading = false;
+        renderUserTableRows();
+        renderPagination();
+        updateToolbarHint();
+      } catch (error) {
+        if (seq !== tableSeq) return;
+        tableState.loading = false;
+        updateToolbarHint();
+        document.getElementById("userTableList").innerHTML =
+          `<div class="empty-state">加载失败：${escapeHtml(error.message || "未知错误")}</div>`;
+        showToast(error.message, "error");
       }
-
-      root.innerHTML = users.slice(0, 10).map(user => `
-        <div class="user-list-item">
-          <div class="user-list-main">
-            ${renderUserAvatar(user)}
-            <div class="user-list-content">
-              <div class="user-list-title">${escapeHtml(user.nickname || "-")}</div>
-              <div class="user-list-meta">
-                <span>下载 ${formatNumber(user.total_downloaded_works)} 个作品</span>
-                <span>最近下载 ${escapeHtml(formatTime(user.last_download_at))}</span>
-                <span>${user.enabled ? "监控中" : "已暂停"}</span>
-              </div>
-            </div>
-          </div>
-          <div class="user-list-side">
-            <div class="pill warning">待补发布时间</div>
-            ${renderCopyUserButton(user)}
-            ${renderToggleUserButton(user)}
-          </div>
-        </div>
-      `).join("");
-    }
-
-    function renderDeactivatedUsers(users) {
-      const root = document.getElementById("deactivatedUsers");
-      if (!users.length) {
-        root.innerHTML = `<div class="empty-state">暂无已注销或已封禁用户</div>`;
-        return;
-      }
-
-      root.innerHTML = users.slice(0, 10).map(user => `
-        <div class="user-list-item">
-          <div class="user-list-main">
-            ${renderUserAvatar(user)}
-            <div class="user-list-content">
-              <div class="user-list-title">${escapeHtml(user.nickname || "-")}</div>
-              <div class="user-list-meta">
-                <span>状态更新时间 ${escapeHtml(formatTime(user.account_status_updated_at))}</span>
-                <span>最近检查 ${escapeHtml(formatTime(user.last_checked_at))}</span>
-                <span>${user.enabled ? "监控中" : "已暂停"}</span>
-              </div>
-              ${renderAccountReason(user)}
-            </div>
-          </div>
-          <div class="user-list-side">
-            <div class="pill ${getAccountStatusPillClass(user)}">${getAccountStatusLabel(user)}</div>
-            ${renderCopyUserButton(user)}
-            ${renderToggleUserButton(user)}
-          </div>
-        </div>
-      `).join("");
     }
 
     async function refreshAll() {
       const seq = ++refreshSeq;
-      const platform = currentPlatform;
+      // 用户表不依赖汇总，和 status/statistics 并行发起，少一轮串行往返
+      const tableTask = loadUserTable();
       try {
         const [status, statistics] = await Promise.all([
           api("/status"),
           api("/statistics"),
         ]);
-        // 丢弃过期请求，避免快速切换平台时旧数据回写覆盖当前视图
-        if (seq !== refreshSeq || platform !== currentPlatform) return;
-        renderStatus(status, statistics.summary || {});
-        renderSummary(statistics);
-        renderCoverage(statistics.summary || {});
-        renderTopUsers(statistics.rankings?.top_downloaded_users || []);
-        renderUserList(
-          "silentUsers7d",
-          statistics.lists?.silent_users_7d || [],
-          "最近 7 天内没有发现沉默用户",
-          "danger",
-          (user) => `${formatDays(user.days_since_last_publish)}`
-        );
-        renderUserList(
-          "silentUsers30d",
-          statistics.lists?.silent_users_30d || [],
-          "最近 30 天内没有发现长期沉默用户",
-          "warning",
-          (user) => `${formatDays(user.days_since_last_publish)}`
-        );
-        renderDeactivatedUsers(statistics.lists?.deactivated_users || []);
-        renderUnknownUsers(statistics.lists?.unknown_publish_users || []);
+        if (seq !== refreshSeq) return;
+        cachedSummary = statistics.summary || {};
+        cachedGeneratedAt = statistics.generated_at;
+        if (statistics.windows) valueWindows = { ...valueWindows, ...statistics.windows };
+        renderStatus(status, cachedSummary);
+        renderSummary(cachedSummary, cachedGeneratedAt);
       } catch (error) {
-        if (seq !== refreshSeq || platform !== currentPlatform) return;
+        if (seq !== refreshSeq) return;
         showToast(error.message, "error");
       }
+      await tableTask;
     }
 
     async function toggleUser(userId, enabled) {
@@ -1553,33 +1384,65 @@
       }
     }
 
-    async function startMonitor() {
+    async function deleteUser(userId) {
+      if (!confirm("确定要删除该用户的监控任务及相关数据吗？")) return;
       try {
-        const body = { mode: document.getElementById("monitorMode").value, interval_hours: Number(document.getElementById("intervalHours").value || "0.05"), coverage_hours: Number(document.getElementById("coverageHours").value || "24") };
-        await api("/start", { method: "POST", body: JSON.stringify(body) });
-        showToast("调度已更新 / 已启动");
+        await api(`/users/${userId}`, { method: "DELETE" });
+        showToast("用户已删除");
         await refreshAll();
       } catch (error) {
         showToast(error.message, "error");
       }
     }
 
-    async function stopMonitor() {
+    async function runUserOnce(userId) {
       try {
-        await api("/stop", { method: "POST" });
-        showToast("已停止");
+        showToast("已下发检查任务...");
+        const res = await api(`/users/${userId}/run_once`, { method: "POST" });
+        showToast(`下载了 ${res.downloaded_items || 0} 个作品`);
         await refreshAll();
       } catch (error) {
         showToast(error.message, "error");
       }
     }
 
-    const applySettings = startMonitor;
+    async function startHistoryBackfill(userId) {
+      try {
+        await api(`/users/${userId}/backfill/start`, { method: "POST" });
+        showToast("已启动历史回填");
+        await refreshAll();
+      } catch (error) {
+        showToast(error.message, "error");
+      }
+    }
 
-    // 初始化平台选择
-    switchPlatform(currentPlatform);
-    onModeChanged();
-    setInterval(refreshAll, 30000);
+    async function pauseHistoryBackfill(userId) {
+      try {
+        await api(`/users/${userId}/backfill/pause`, { method: "POST" });
+        showToast("已暂停历史回填");
+        await refreshAll();
+      } catch (error) {
+        showToast(error.message, "error");
+      }
+    }
+
+    async function resumeHistoryBackfill(userId) {
+      try {
+        await api(`/users/${userId}/backfill/resume`, { method: "POST" });
+        showToast("已恢复历史回填");
+        await refreshAll();
+      } catch (error) {
+        showToast(error.message, "error");
+      }
+    }
+
+    syncToolbarControls();
+    syncFilterChips();
+    refreshAll();
+    // 浮层打开时表格不可见，跳过轮询：省掉无谓请求，也避免关掉浮层瞬间表格刚被重绘
+    startLiveRefresh(() => {
+      if (!worksOverlayState.open) refreshAll();
+    });
   </script>
 </body>
 </html>

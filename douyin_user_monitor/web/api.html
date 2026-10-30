@@ -1,0 +1,494 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
+  <meta http-equiv="Pragma" content="no-cache" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <title>解析 API | Monitor</title>
+  <link rel="stylesheet" href="/static/common.css?v=theme-20261006a" />
+  <style>
+    .api-grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; max-width: 960px; }
+    .api-card { background: var(--bg-surface); border: 1px solid var(--border-color); border-radius: var(--radius-lg); box-shadow: var(--shadow-sm); overflow: hidden; }
+    .api-card .card-header { background: var(--bg-elevated, #f8fafc); border-bottom: 1px solid var(--border-color); padding: 16px 18px; }
+    .api-card .card-body { padding: 18px; }
+    .quality-badge { display: inline-flex; align-items: center; gap: 6px; background: var(--primary-light); color: var(--accent); border-radius: 999px; padding: 4px 10px; font-size: 12px; font-weight: 700; }
+    .quality-badge.fallback { background: #fff7ed; color: #c2410c; }
+    .quality-badge.image { background: #ecfdf5; color: #047857; }
+    .result-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 8px 0; }
+    .result-url { word-break: break-all; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 12px; background: var(--bg-elevated, #f8fafc); border: 1px solid var(--border-color); border-radius: 8px; padding: 10px 12px; flex: 1; min-width: 0; }
+    .image-list { display: grid; gap: 8px; margin-top: 8px; }
+    .image-list a { word-break: break-all; font-size: 12px; color: var(--accent); }
+    pre.code-block { background: #0f172a; color: #e2e8f0; border-radius: 10px; padding: 14px 16px; overflow-x: auto; font-size: 12px; line-height: 1.55; margin: 10px 0 0; }
+    .doc-table { width: 100%; border-collapse: collapse; font-size: 13px; margin-top: 8px; }
+    .doc-table th, .doc-table td { border: 1px solid var(--border-color); padding: 8px 10px; text-align: left; vertical-align: top; }
+    .doc-table th { background: var(--bg-elevated, #f8fafc); font-weight: 650; }
+    .warn-box { background: #fff7ed; border: 1px solid #fed7aa; color: #9a3412; border-radius: 10px; padding: 12px 14px; font-size: 13px; line-height: 1.5; margin-top: 10px; }
+    .meta-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 10px; margin-top: 10px; }
+    .meta-item { background: var(--bg-elevated, #f8fafc); border: 1px solid var(--border-color); border-radius: 8px; padding: 10px 12px; }
+    .meta-item .k { font-size: 11px; color: var(--text-muted); margin-bottom: 4px; }
+    .meta-item .v { font-size: 13px; font-weight: 600; word-break: break-all; }
+    .key-form { display: flex; flex-wrap: wrap; gap: 10px; align-items: flex-end; }
+    .key-form .form-group { margin: 0; flex: 1 1 200px; }
+    .key-form select.input { min-width: 180px; }
+    .key-new { display: none; margin-top: 14px; padding: 12px 14px; border-radius: 10px; background: #ecfdf5; border: 1px solid #a7f3d0; color: #065f46; font-size: 13px; line-height: 1.6; }
+    .key-new.show { display: block; }
+    body.theme-dark .key-new { background: rgba(16, 185, 129, .12); border-color: rgba(16, 185, 129, .35); color: #a7f3d0; }
+    .key-table { width: 100%; border-collapse: collapse; font-size: 13px; margin-top: 16px; }
+    .key-table th, .key-table td { border-bottom: 1px solid var(--border-color); padding: 9px 8px; text-align: left; vertical-align: middle; }
+    .key-table th { font-size: 12px; color: var(--text-muted); font-weight: 650; }
+    .key-table td.num { font-variant-numeric: tabular-nums; font-weight: 650; }
+    .key-table code { font-size: 12px; }
+    .scope-pill { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 11.5px; font-weight: 650; background: var(--primary-light); color: var(--accent); }
+    .scope-pill.full { background: #fef2f2; color: #b91c1c; }
+    .key-table-wrap { overflow-x: auto; }
+    #resultPanel { display: none; }
+    #resultPanel.show { display: block; }
+    #rawJson { max-height: 360px; }
+  </style>
+</head>
+<body>
+  <aside class="sidebar" id="sidebar">
+    <div class="sidebar-header">
+      <div class="sidebar-brand" aria-hidden="true">抖</div>
+      <span id="sidebarTitle">用户监控台</span>
+    </div>
+    <nav class="sidebar-nav">
+      <a class="nav-item" href="/api/monitor/dashboard" onclick="return navigateToPage('/api/monitor/dashboard')" title="数据大盘">
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6A2.25 2.25 0 0 1 6 3.75h2.25A2.25 2.25 0 0 1 10.5 6v2.25a2.25 2.25 0 0 1-2.25 2.25H6a2.25 2.25 0 0 1-2.25-2.25V6ZM3.75 15.75A2.25 2.25 0 0 1 6 13.5h2.25a2.25 2.25 0 0 1 2.25 2.25V18a2.25 2.25 0 0 1-2.25 2.25H6A2.25 2.25 0 0 1 3.75 18v-2.25ZM13.5 6a2.25 2.25 0 0 1 2.25-2.25H18A2.25 2.25 0 0 1 20.25 6v2.25A2.25 2.25 0 0 1 18 10.5h-2.25a2.25 2.25 0 0 1-2.25-2.25V6ZM13.5 15.75a2.25 2.25 0 0 1 2.25-2.25H18a2.25 2.25 0 0 1 2.25 2.25V18A2.25 2.25 0 0 1 18 20.25h-2.25A2.25 2.25 0 0 1 13.5 18v-2.25Z" /></svg>
+        数据大盘
+      </a>
+      <a class="nav-item" href="/api/monitor/statistics/dashboard" onclick="return navigateToPage('/api/monitor/statistics/dashboard')" title="用户统计">
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M7.5 3.75h9A2.25 2.25 0 0 1 18.75 6v12A2.25 2.25 0 0 1 16.5 20.25h-9A2.25 2.25 0 0 1 5.25 18V6A2.25 2.25 0 0 1 7.5 3.75Zm1.5 4.5h6m-6 3h6m-6 3h3" /></svg>
+        用户统计
+      </a>
+      <a class="nav-item" href="/api/monitor/library/dashboard" onclick="return navigateToPage('/api/monitor/library/dashboard')" title="作品库">
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M3.375 19.5h17.25m-17.25 0a1.125 1.125 0 0 1-1.125-1.125M3.375 19.5h1.5C5.496 19.5 6 18.996 6 18.375m-3.75 0V5.625m0 12.75v-1.5c0-.621.504-1.125 1.125-1.125m18.375 2.625V5.625m0 12.75c0 .621-.504 1.125-1.125 1.125m1.125-1.125v-1.5c0-.621-.504-1.125-1.125-1.125m0 3.75h-1.5A1.125 1.125 0 0 1 18 18.375M20.625 4.5H3.375m17.25 0c.621 0 1.125.504 1.125 1.125M20.625 4.5h-1.5C18.504 4.5 18 5.004 18 5.625m3.75 0v1.5c0 .621-.504 1.125-1.125 1.125M3.375 4.5c-.621 0-1.125.504-1.125 1.125M3.375 4.5h1.5C5.496 4.5 6 5.004 6 5.625m-3.75 0v1.5c0 .621.504 1.125 1.125 1.125m0 0h1.5m-1.5 0c-.621 0-1.125.504-1.125 1.125v1.5c0 .621.504 1.125 1.125 1.125m1.5-3.75C5.496 8.25 6 7.746 6 7.125v-1.5M4.875 8.25C5.496 8.25 6 8.754 6 9.375v1.5m0-5.25v5.25m0-5.25C6 5.004 6.504 4.5 7.125 4.5h9.75c.621 0 1.125.504 1.125 1.125m1.125 2.625h1.5m-1.5 0A1.125 1.125 0 0 1 18 7.125v-1.5m1.125 2.625c-.621 0-1.125.504-1.125 1.125v1.5m2.625-2.625c.621 0 1.125.504 1.125 1.125v1.5c0 .621-.504 1.125-1.125 1.125M18 5.625v5.25M7.125 12h9.75m-9.75 0A1.125 1.125 0 0 1 6 10.875M7.125 12C6.504 12 6 12.504 6 13.125m0-2.25C6 11.496 5.496 12 4.875 12M18 10.875c0 .621-.504 1.125-1.125 1.125M18 10.875c0 .621.504 1.125 1.125 1.125m-2.25 0c.621 0 1.125.504 1.125 1.125m-12 5.25v-5.25m0 5.25c0 .621.504 1.125 1.125 1.125h9.75c.621 0 1.125-.504 1.125-1.125m-12 0v-1.5c0-.621-.504-1.125-1.125-1.125M18 18.375v-5.25m0 5.25v-1.5c0-.621.504-1.125 1.125-1.125M18 13.125v1.5c0 .621.504 1.125 1.125 1.125M18 13.125c0-.621.504-1.125 1.125-1.125M6 13.125v1.5c0 .621-.504 1.125-1.125 1.125M6 13.125C6 12.504 5.496 12 4.875 12m-1.5 0h1.5m-1.5 0c-.621 0-1.125.504-1.125 1.125v1.5c0 .621.504 1.125 1.125 1.125M19.125 12h1.5m0 0c.621 0 1.125.504 1.125 1.125v1.5c0 .621-.504 1.125-1.125 1.125m-17.25 0h1.5m14.25 0h1.5" /></svg>
+        作品库
+      </a>
+      <a class="nav-item" href="/api/monitor/swipe/dashboard" onclick="return navigateToPage('/api/monitor/swipe/dashboard')" title="刷视频">
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" /><path stroke-linecap="round" stroke-linejoin="round" d="M15.91 11.672a.375.375 0 0 1 0 .656l-5.603 3.113a.375.375 0 0 1-.557-.328V8.887c0-.286.307-.466.557-.327l5.603 3.112Z" /></svg>
+        刷视频
+      </a>
+      <a class="nav-item" href="/api/monitor/cookies/dashboard" onclick="return navigateToPage('/api/monitor/cookies/dashboard')" title="Cookie 池">
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 5.25a3 3 0 0 1 3 3m3 0a6 6 0 0 1-7.029 5.912c-.563-.097-1.159.026-1.563.43L10.5 17.25H8.25v2.25H6v2.25H2.25v-2.818c0-.597.237-1.17.659-1.591l6.499-6.499c.404-.404.527-1 .43-1.563A6 6 0 1 1 21.75 8.25Z" /></svg>
+        Cookie 池
+      </a>
+      <a class="nav-item" href="/api/monitor/settings/dashboard" onclick="return navigateToPage('/api/monitor/settings/dashboard')" title="调度配置">
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M9.594 3.94c.09-.542.56-.94 1.11-.94h2.593c.55 0 1.02.398 1.11.94l.213 1.281c.063.374.313.686.645.87.074.04.147.083.22.127.325.196.72.257 1.075.124l1.217-.456a1.125 1.125 0 0 1 1.37.49l1.296 2.247a1.125 1.125 0 0 1-.26 1.431l-1.003.827c-.293.241-.438.613-.43.992a7.723 7.723 0 0 1 0 .255c-.008.378.137.75.43.991l1.004.827c.424.35.534.955.26 1.43l-1.298 2.247a1.125 1.125 0 0 1-1.369.491l-1.217-.456c-.355-.133-.75-.072-1.076.124a6.47 6.47 0 0 1-.22.128c-.331.183-.581.495-.644.869l-.213 1.281c-.09.543-.56.94-1.11.94h-2.594c-.55 0-1.019-.398-1.11-.94l-.213-1.281c-.062-.374-.312-.686-.644-.87a6.52 6.52 0 0 1-.22-.127c-.325-.196-.72-.257-1.076-.124l-1.217.456a1.125 1.125 0 0 1-1.369-.49l-1.297-2.247a1.125 1.125 0 0 1 .26-1.431l1.004-.827c.292-.24.437-.613.43-.991a6.932 6.932 0 0 1 0-.255c.007-.38-.138-.751-.43-.992l-1.004-.827a1.125 1.125 0 0 1-.26-1.43l1.297-2.247a1.125 1.125 0 0 1 1.37-.491l1.216.456c.356.133.751.072 1.076-.124.072-.044.146-.086.22-.128.332-.183.582-.495.644-.869l.214-1.28Z"/><path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z"/></svg>
+        调度配置
+      </a>
+      <a class="nav-item active" href="/api/monitor/api/dashboard" onclick="return navigateToPage('/api/monitor/api/dashboard')" title="解析 API">
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M17.25 6.75 22.5 12l-5.25 5.25m-10.5 0L1.5 12l5.25-5.25m7.5-3-4.5 16.5" /></svg>
+        解析 API
+      </a>
+      <div class="nav-spacer"></div>
+      <a class="nav-item theme-toggle" onclick="return toggleTheme()" title="切换暗黑模式" aria-label="切换暗黑模式">
+        <svg class="theme-icon theme-icon-moon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.6" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79Z" /></svg>
+        <svg class="theme-icon theme-icon-sun" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.6" stroke="currentColor"><circle cx="12" cy="12" r="3.5" /><path stroke-linecap="round" d="M12 2v2m0 16v2M4.93 4.93l1.42 1.42m11.3 11.3 1.42 1.42M2 12h2m16 0h2M4.93 19.07l1.42-1.42m11.3-11.3 1.42-1.42" /></svg>
+        主题模式
+      </a>
+      <a class="nav-item" onclick="location.reload()" title="刷新页面">
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0 3.181 3.183a8.25 8.25 0 0 0 13.803-3.7M4.031 9.865a8.25 8.25 0 0 1 13.803-3.7l3.181 3.182m0-4.991v4.99" /></svg>
+        刷新页面
+      </a>
+    </nav>
+  </aside>
+
+  <div class="app-wrapper">
+    <header class="top-header">
+      <div style="display:flex;align-items:center;gap:12px;">
+        <button class="btn btn-secondary btn-sm mobile-sidebar-toggle" onclick="toggleSidebar()" aria-label="菜单">
+          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" style="width:22px;height:22px;"><path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5" /></svg>
+        </button>
+        <div class="title-with-orb">
+          <div class="title-orb">◉</div>
+          <div>
+            <div style="font-size:15px;font-weight:750;">解析 API</div>
+            <div style="font-size:11px;color:var(--text-muted);">分享链接 → 媒体直链</div>
+          </div>
+        </div>
+      </div>
+      <div class="header-right">
+        <div class="status-badge">
+          <div class="status-dot" style="background:var(--accent)"></div>
+          <span>外部调用</span>
+        </div>
+      </div>
+    </header>
+
+    <main class="main-content">
+      <div class="content-container">
+        <div class="page-header">
+          <div>
+            <h1 class="page-title">抖音分享解析 API</h1>
+            <p class="page-subtitle">视频优先原画 · 图文返回图片列表 · 不落盘 · <span class="ui-build-chip">UI sky-20260809p</span></p>
+          </div>
+        </div>
+
+        <div class="api-grid">
+          <div class="api-card" id="keysCard">
+            <div class="card-header">
+              <div>
+                <div class="card-title">API Key 管理</div>
+                <div class="card-subtitle">给下载插件、快捷指令各发一个 Key · 可随时删除 · 按 Key 统计使用次数</div>
+              </div>
+            </div>
+            <div class="card-body">
+              <div class="key-form">
+                <div class="form-group">
+                  <label class="form-label" for="keyName">名称</label>
+                  <input id="keyName" class="input" maxlength="40" placeholder="例如：浏览器下载插件" autocomplete="off" />
+                </div>
+                <div class="form-group" style="flex:0 0 auto;">
+                  <label class="form-label" for="keyScope">权限</label>
+                  <select id="keyScope" class="input">
+                    <option value="parse">只能解析视频（推荐）</option>
+                    <option value="full">管理员权限</option>
+                  </select>
+                </div>
+                <button class="btn btn-primary" id="btnCreateKey" onclick="createKey()">新建 Key</button>
+              </div>
+              <div class="key-new" id="keyNewBox" role="status">
+                <strong>新 Key 只显示这一次，请现在复制保存：</strong>
+                <div class="result-row"><div class="result-url" id="keyNewValue"></div><button class="btn btn-secondary btn-sm" onclick="copyText(document.getElementById('keyNewValue').textContent)">复制 Key</button></div>
+                <div>下载插件接口地址：</div>
+                <div class="result-row"><div class="result-url" id="keyNewPluginUrl"></div><button class="btn btn-secondary btn-sm" onclick="copyText(document.getElementById('keyNewPluginUrl').textContent)">复制地址</button></div>
+              </div>
+              <div class="key-table-wrap">
+                <table class="key-table">
+                  <thead><tr><th>名称</th><th>Key</th><th>权限</th><th>使用次数</th><th>最近使用</th><th>创建时间</th><th></th></tr></thead>
+                  <tbody id="keyRows"><tr><td colspan="7" class="help-text">加载中…</td></tr></tbody>
+                </table>
+              </div>
+              <p class="help-text" style="margin-top:10px;line-height:1.6;">
+                “只能解析视频”的 Key 只能调 <code>/api/monitor/parse</code> 和 <code>/api/monitor/parse/plugin</code>，调其他接口一律 403；“管理员权限”能调所有接口，但不能再新建或删除 Key。
+                每次带 Key 的请求都计一次（包括被拒的）。Key 只存哈希，丢了就删掉重建。
+              </p>
+            </div>
+          </div>
+
+          <div class="api-card">
+            <div class="card-header">
+              <div>
+                <div class="card-title">在线试玩</div>
+                <div class="card-subtitle">粘贴分享口令 / v.douyin.com 短链 / video|note 长链</div>
+              </div>
+            </div>
+            <div class="card-body">
+              <div class="form-group">
+                <label class="form-label" for="parseText">分享文本</label>
+                <textarea id="parseText" class="input" rows="4" placeholder="例如：7.xx 复制打开抖音，看看【xxx】的作品 https://v.douyin.com/xxxxx/"></textarea>
+              </div>
+              <label style="display:inline-flex;align-items:center;gap:8px;font-size:13px;margin:4px 0 12px;">
+                <input type="checkbox" id="includeRaw" />
+                附带 raw（aweme_detail，体积较大）
+              </label>
+              <div style="display:flex;gap:10px;flex-wrap:wrap;">
+                <button class="btn btn-primary" id="btnParse" onclick="runParse()">解析</button>
+                <button class="btn btn-secondary" onclick="clearResult()">清空结果</button>
+              </div>
+              <p class="help-text" id="parseHint" style="margin-top:10px;">解析走 POST /api/monitor/parse，鉴权与页面其它接口相同。</p>
+            </div>
+          </div>
+
+          <div class="api-card" id="resultPanel">
+            <div class="card-header">
+              <div>
+                <div class="card-title">解析结果</div>
+                <div class="card-subtitle">主下载地址可一键复制；CDN 可能含签名时效</div>
+              </div>
+              <span class="quality-badge" id="qualityBadge">-</span>
+            </div>
+            <div class="card-body">
+              <div class="meta-grid" id="metaGrid"></div>
+              <div style="margin-top:14px;">
+                <div class="help-text" style="margin-bottom:6px;">download_url</div>
+                <div class="result-row">
+                  <div class="result-url" id="downloadUrl">-</div>
+                  <button class="btn btn-secondary btn-sm" onclick="copyText(document.getElementById('downloadUrl').textContent)">复制</button>
+                </div>
+              </div>
+              <div style="margin-top:12px;" id="originalBlock">
+                <div class="help-text" style="margin-bottom:6px;">original_play_url</div>
+                <div class="result-row">
+                  <div class="result-url" id="originalUrl">-</div>
+                  <button class="btn btn-secondary btn-sm" onclick="copyText(document.getElementById('originalUrl').textContent)">复制</button>
+                </div>
+              </div>
+              <div id="imageBlock" style="display:none;margin-top:12px;">
+                <div class="help-text">image_urls</div>
+                <div class="image-list" id="imageList"></div>
+              </div>
+              <div style="margin-top:14px;">
+                <div class="help-text">完整 JSON</div>
+                <pre class="code-block" id="rawJson"></pre>
+              </div>
+            </div>
+          </div>
+
+          <div class="api-card">
+            <div class="card-header">
+              <div>
+                <div class="card-title">调用文档</div>
+                <div class="card-subtitle">路径 · 鉴权 · 字段 · 错误信封 · CDN 注意</div>
+              </div>
+            </div>
+            <div class="card-body">
+              <h3 style="font-size:14px;margin:0 0 8px;">端点</h3>
+              <ul class="help-text" style="margin:0 0 12px 18px;line-height:1.7;">
+                <li><code>POST /api/monitor/parse</code> — JSON body <code>{"text":"...","include_raw":false}</code></li>
+                <li><code>GET /api/monitor/parse?text=...&amp;include_raw=0</code> — 便于 curl / 浏览器试玩</li>
+                <li>本页：<code>GET /api/monitor/api/dashboard</code></li>
+              </ul>
+
+              <h3 style="font-size:14px;margin:12px 0 8px;">鉴权</h3>
+              <p class="help-text" style="margin:0;line-height:1.6;">
+                用上方“API Key 管理”里新建的 Key，或环境变量里的系统 Key <code>DYMON_API_KEY</code>。请求头 <code>X-API-Key: &lt;key&gt;</code>，或 query <code>?api_key=&lt;key&gt;</code>。
+                缺少或错误的 Key 返回 <strong>401</strong>，权限不够返回 <strong>403</strong>。<br />
+                下载插件格式：<code>GET /api/monitor/parse/plugin?api_key=&lt;key&gt;&amp;url=&lt;抖音链接&gt;</code>，成功时 <code>data.url</code> / <code>data.video_url</code> 为视频直链。
+              </p>
+
+              <h3 style="font-size:14px;margin:14px 0 8px;">curl 示例</h3>
+              <pre class="code-block"># POST
+curl -sS -X POST 'http://HOST/api/monitor/parse' \
+  -H 'Content-Type: application/json' \
+  -H 'X-API-Key: YOUR_KEY' \
+  -d '{"text":"https://v.douyin.com/xxxxx/","include_raw":false}'
+
+# GET
+curl -sS 'http://HOST/api/monitor/parse?text=https%3A%2F%2Fv.douyin.com%2Fxxxxx%2F' \
+  -H 'X-API-Key: YOUR_KEY'</pre>
+
+              <h3 style="font-size:14px;margin:14px 0 8px;">成功响应 data 字段</h3>
+              <table class="doc-table">
+                <thead>
+                  <tr><th>字段</th><th>说明</th></tr>
+                </thead>
+                <tbody>
+                  <tr><td><code>aweme_id</code></td><td>作品 ID</td></tr>
+                  <tr><td><code>aweme_type</code> / <code>is_image_post</code></td><td>类型 / 是否图文</td></tr>
+                  <tr><td><code>desc</code> / <code>author</code> / <code>create_time</code></td><td>轻量元数据</td></tr>
+                  <tr><td><code>resolved_from</code></td><td>从文本抽出的源 URL</td></tr>
+                  <tr><td><code>download_url</code></td><td>主下载地址：视频优先原画 CDN；图文为首图</td></tr>
+                  <tr><td><code>original_play_url</code></td><td>原画 URL（失败为 null）</td></tr>
+                  <tr><td><code>video_source</code></td><td>bit_rate/fallback 元数据（含 <code>url</code>）</td></tr>
+                  <tr><td><code>quality_source</code></td><td><code>original</code> / <code>bit_rate</code> / <code>fallback</code> / <code>image</code></td></tr>
+                  <tr><td><code>image_urls</code></td><td>图文图片列表</td></tr>
+                  <tr><td><code>raw</code></td><td><code>include_raw=true</code> 时的 aweme_detail</td></tr>
+                </tbody>
+              </table>
+
+              <h3 style="font-size:14px;margin:14px 0 8px;">错误信封</h3>
+              <p class="help-text" style="margin:0;line-height:1.6;">
+                业务错误通常 HTTP 400，body 为 <code>{code, message, router, params}</code>（与现有 monitor 一致）。
+                常见 message：未找到有效抖音链接、无法解析作品 ID、获取作品详情失败、Cookie/上游异常透传。
+              </p>
+
+              <div class="warn-box">
+                <strong>CDN / Cookie 注意</strong><br />
+                1. 返回的直链常带签名，<strong>短时有效</strong>，请立即下载，勿持久化依赖。<br />
+                2. 解析用独立的 Cookie（服务器 <code>data/parse_cookies/*.txt</code>，轮流使用、出错换下一条），不占监控 Cookie 池；单作品接口对 Cookie 要求低，过期的游客 Cookie 也能用。目录为空时解析直接报错。<br />
+                3. 服务端<strong>不落盘、不代理流式下载</strong>；限流 / 独立 API Key 请自备网关。
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+<div id="sidebarOverlay" class="overlay" onclick="toggleSidebar()"></div>
+  <div id="toast-container" class="toast-container"></div>
+
+<script src="/static/common.js?v=live-20260929a"></script>
+  <script>
+    const Icons = { checkCircle: `<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75 11.25 15 15 9.75M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" /></svg>`, exclamation: `<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3Z" /></svg>` };
+
+    // isMobileViewport 各页断点不同（本页 1024），保留在本页由 common.js 在调用时引用。
+    function isMobileViewport() { return window.matchMedia("(max-width: 1024px)").matches; }
+
+    function showToast(message, type = 'success') {
+      const container = document.getElementById("toast-container");
+      const toast = document.createElement("div");
+      toast.className = `toast toast-${type}`;
+      toast.innerHTML = `<div style="color: ${type==='success'?'var(--success)':'var(--danger)'}">${type === 'success' ? Icons.checkCircle : Icons.exclamation}</div><div style="font-size:14px; font-weight:500;">${message}</div>`;
+      container.appendChild(toast);
+      requestAnimationFrame(() => { requestAnimationFrame(() => { toast.classList.add('show'); }); });
+      setTimeout(() => { toast.classList.remove('show'); setTimeout(() => toast.remove(), 300); }, 3000);
+    }
+
+    async function copyText(text) {
+      const value = String(text || "").trim();
+      if (!value || value === "-") {
+        showToast("无可复制内容", "error");
+        return;
+      }
+      try {
+        await navigator.clipboard.writeText(value);
+        showToast("已复制");
+      } catch (err) {
+        showToast("复制失败: " + (err && err.message ? err.message : err), "error");
+      }
+    }
+
+    function clearResult() {
+      document.getElementById("resultPanel").classList.remove("show");
+      document.getElementById("rawJson").textContent = "";
+      document.getElementById("parseHint").textContent = "解析走 POST /api/monitor/parse，鉴权与页面其它接口相同。";
+    }
+
+    function badgeClass(quality) {
+      if (quality === "image") return "quality-badge image";
+      if (quality === "original") return "quality-badge";
+      return "quality-badge fallback";
+    }
+
+    function renderResult(data) {
+      const panel = document.getElementById("resultPanel");
+      panel.classList.add("show");
+      const quality = data.quality_source || "-";
+      const badge = document.getElementById("qualityBadge");
+      badge.className = badgeClass(quality);
+      badge.textContent = quality;
+
+      const author = data.author || {};
+      const metas = [
+        ["aweme_id", data.aweme_id || "-"],
+        ["类型", data.is_image_post ? "图文" : "视频"],
+        ["作者", author.nickname || "-"],
+        ["create_time", data.create_time != null ? String(data.create_time) : "-"],
+        ["resolved_from", data.resolved_from || "-"],
+        ["desc", data.desc || "-"],
+      ];
+      document.getElementById("metaGrid").innerHTML = metas.map(([k, v]) =>
+        `<div class="meta-item"><div class="k">${k}</div><div class="v">${String(v).replace(/[<>&]/g, s => ({'<':'&lt;','>':'&gt;','&':'&amp;'}[s]))}</div></div>`
+      ).join("");
+
+      document.getElementById("downloadUrl").textContent = data.download_url || "-";
+      document.getElementById("originalUrl").textContent = data.original_play_url || "-";
+
+      const images = Array.isArray(data.image_urls) ? data.image_urls : [];
+      const imageBlock = document.getElementById("imageBlock");
+      const imageList = document.getElementById("imageList");
+      if (images.length) {
+        imageBlock.style.display = "block";
+        imageList.innerHTML = images.map((u, i) =>
+          `<a href="${u}" target="_blank" rel="noopener noreferrer">[${i + 1}] ${u}</a>`
+        ).join("");
+      } else {
+        imageBlock.style.display = "none";
+        imageList.innerHTML = "";
+      }
+
+      document.getElementById("rawJson").textContent = JSON.stringify(data, null, 2);
+    }
+
+    // ---- API Key 管理 ----
+    const SCOPE_LABELS = { parse: "只能解析", full: "管理员" };
+
+    function esc(value) {
+      return String(value ?? "").replace(/[&<>"']/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[ch]));
+    }
+
+    function renderKeys(items) {
+      const rows = (items || []).map((item) => {
+        const last = item.last_used_at ? `${esc(formatTime(item.last_used_at))}<br><span class="help-text">${esc(item.last_ip || "")}</span>` : '<span class="help-text">从未使用</span>';
+        const keyText = item.system ? '<span class="help-text">环境变量</span>' : `<code>${esc(item.prefix)}…</code>`;
+        const action = item.system
+          ? '<span class="help-text" title="在 /etc/douyin-monitor/auth.env 里修改">不可删除</span>'
+          : `<button class="btn btn-secondary btn-sm" style="color:var(--danger);" data-key-id="${esc(item.id)}" data-key-name="${esc(item.name)}">删除</button>`;
+        return `<tr>
+          <td>${esc(item.name)}</td>
+          <td>${keyText}</td>
+          <td><span class="scope-pill ${item.scope === "full" ? "full" : ""}">${esc(SCOPE_LABELS[item.scope] || item.scope)}</span></td>
+          <td class="num">${Number(item.use_count || 0).toLocaleString("zh-CN")}</td>
+          <td>${last}</td>
+          <td>${esc(formatTime(item.created_at))}</td>
+          <td>${action}</td>
+        </tr>`;
+      });
+      document.getElementById("keyRows").innerHTML = rows.join("") || '<tr><td colspan="7" class="help-text">暂无 Key</td></tr>';
+    }
+
+    async function loadKeys() {
+      try {
+        const data = await api("/api-keys");
+        renderKeys(data.items);
+      } catch (err) {
+        document.getElementById("keyRows").innerHTML = `<tr><td colspan="7" class="help-text">加载失败：${esc(err.message || err)}</td></tr>`;
+      }
+    }
+
+    async function createKey() {
+      const name = document.getElementById("keyName").value.trim();
+      const scope = document.getElementById("keyScope").value;
+      if (!name) {
+        showToast("请填写 Key 名称", "error");
+        document.getElementById("keyName").focus();
+        return;
+      }
+      if (scope === "full" && !confirm("管理员权限的 Key 能加删用户、改设置。确定要新建吗？")) return;
+      const btn = document.getElementById("btnCreateKey");
+      btn.disabled = true;
+      try {
+        const data = await api("/api-keys", { method: "POST", body: JSON.stringify({ name, scope }) });
+        document.getElementById("keyNewValue").textContent = data.key;
+        document.getElementById("keyNewPluginUrl").textContent =
+          `${location.origin}/api/monitor/parse/plugin?api_key=${encodeURIComponent(data.key)}&url=`;
+        document.getElementById("keyNewBox").classList.add("show");
+        document.getElementById("keyName").value = "";
+        showToast("已新建，记得复制保存");
+        loadKeys();
+      } catch (err) {
+        showToast(err.message || String(err), "error");
+      } finally {
+        btn.disabled = false;
+      }
+    }
+
+    async function deleteKey(id, name) {
+      if (!confirm(`删除 Key「${name}」？用它的插件/快捷指令会立即失效。`)) return;
+      try {
+        await api(`/api-keys/${encodeURIComponent(id)}`, { method: "DELETE" });
+        showToast("已删除");
+        loadKeys();
+      } catch (err) {
+        showToast(err.message || String(err), "error");
+      }
+    }
+
+    document.getElementById("keyRows").addEventListener("click", (event) => {
+      const button = event.target.closest("[data-key-id]");
+      if (button) deleteKey(button.dataset.keyId, button.dataset.keyName);
+    });
+    loadKeys();
+    startLiveRefresh(loadKeys, 30000);
+
+    async function runParse() {
+      const text = document.getElementById("parseText").value.trim();
+      if (!text) {
+        showToast("请粘贴分享文本或链接", "error");
+        return;
+      }
+      const includeRaw = document.getElementById("includeRaw").checked;
+      const btn = document.getElementById("btnParse");
+      btn.disabled = true;
+      document.getElementById("parseHint").textContent = "解析中…";
+      try {
+        const data = await api("/parse", {
+          method: "POST",
+          body: JSON.stringify({ text, include_raw: includeRaw }),
+        });
+        renderResult(data || {});
+        showToast("解析成功");
+        document.getElementById("parseHint").textContent = "解析完成。";
+      } catch (err) {
+        showToast(err.message || String(err), "error");
+        document.getElementById("parseHint").textContent = "解析失败：" + (err.message || err);
+      } finally {
+        btn.disabled = false;
+      }
+    }
+  </script>
+</body>
+</html>

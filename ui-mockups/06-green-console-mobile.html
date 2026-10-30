@@ -1,0 +1,59 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>E2 mobile</title>
+<style>
+:root{--bg:#0a120e;--line:rgba(134,201,149,.10);--text:#e8f3eb;--muted:#8aa394;--faint:#61786b;--green:#8fd19f;--green-soft:rgba(143,209,159,.12);--danger:#e89595}
+*{box-sizing:border-box;margin:0;padding:0}
+body{min-height:100vh;display:flex;justify-content:center;padding:24px;background:#050a08;font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Noto Sans SC",sans-serif;color:var(--text)}
+.phone{width:390px;background:linear-gradient(180deg,#101a15,#0a120e);border:1px solid var(--line);border-radius:28px;overflow:hidden;box-shadow:0 20px 60px rgba(0,0,0,.45)}
+.p-status{display:flex;justify-content:space-between;padding:12px 18px 0;font-size:12px;color:var(--muted);font-weight:600}
+.p-head{display:flex;justify-content:space-between;align-items:center;padding:10px 16px 8px}
+.p-head h3{font-size:20px;font-weight:750}
+.p-head span{font-size:11px;color:var(--green);background:var(--green-soft);border-radius:999px;padding:5px 9px;font-weight:700}
+.p-body{padding:6px 14px 14px}
+.p-metrics{display:grid;grid-template-columns:repeat(3,1fr);gap:0;background:rgba(18,28,23,.72);border:1px solid var(--line);border-radius:16px;padding:14px 6px;margin-bottom:12px}
+.p-metrics .m{text-align:center;position:relative}
+.p-metrics .m+.m::before{content:"";position:absolute;left:0;top:8px;bottom:8px;width:1px;background:var(--line)}
+.p-metrics .v{font-size:22px;font-weight:800;letter-spacing:-.4px}
+.p-metrics .l{font-size:11px;color:var(--muted);margin-top:4px}
+.p-card{background:rgba(18,28,23,.72);border:1px solid var(--line);border-radius:16px;padding:14px;margin-bottom:10px}
+.p-card h4{font-size:13px;font-weight:700;margin-bottom:10px}
+.p-input{background:rgba(8,14,11,.55);border:1px solid var(--line);border-radius:12px;padding:12px;color:var(--faint);font-size:13px;margin-bottom:8px}
+.p-btn{background:linear-gradient(180deg,#9ad9a9,#6fbf82);color:#0a120e;text-align:center;border-radius:12px;padding:12px;font-weight:800;font-size:13px}
+.p-user{display:flex;gap:12px;align-items:center}
+.p-av{width:44px;height:44px;border-radius:14px;background:linear-gradient(145deg,#8fd19f,#3f7a52);display:grid;place-items:center;font-weight:800;color:#0a120e}
+.p-meta b{display:block;font-size:15px}.p-meta span{font-size:12px;color:var(--muted)}
+.p-line{display:flex;align-items:center;margin-top:14px;padding-top:12px;border-top:1px solid var(--line)}
+.p-line .s{flex:1;text-align:center}.p-line .s .n{font-size:16px;font-weight:750}.p-line .s .l{font-size:11px;color:var(--faint);margin-top:3px}
+.p-line .sep{width:1px;height:26px;background:var(--line)}
+.ok{color:var(--green)}
+.p-acts{display:flex;gap:8px;margin-top:12px}
+.p-acts div{flex:1;text-align:center;font-size:12px;font-weight:700;padding:10px 0;border-radius:10px;color:var(--muted);border:1px solid var(--line)}
+.p-acts .x{color:var(--danger);border-color:rgba(232,149,149,.28)}
+.p-tab{display:grid;grid-template-columns:repeat(4,1fr);border-top:1px solid var(--line);padding:10px 6px 14px}
+.p-tab div{text-align:center;font-size:11px;color:var(--faint);display:flex;flex-direction:column;align-items:center;gap:4px}
+.p-tab .on{color:var(--green);font-weight:700}
+.dot{width:16px;height:16px;border-radius:5px;background:currentColor;opacity:.22}
+.p-tab .on .dot{opacity:1;background:var(--green)}
+</style></head><body>
+<div class="phone">
+<div class="p-status"><span>9:41</span><span>5G ■■■</span></div>
+<div class="p-head"><h3>主页</h3><span>● 运行中</span></div>
+<div class="p-body">
+<div class="p-metrics">
+<div class="m"><div class="v">1</div><div class="l">监控用户</div></div>
+<div class="m"><div class="v">0</div><div class="l">新增作品</div></div>
+<div class="m"><div class="v">0</div><div class="l">运行天数</div></div>
+</div>
+<div class="p-card"><h4>添加用户</h4><div class="p-input">抖音号 / 主页链接</div><div class="p-btn">开始监控</div></div>
+<div class="p-card"><h4>监控用户</h4>
+<div class="p-user"><div class="p-av">李</div><div class="p-meta"><b>李佳琦Austin</b><span>947172008 · 刚刚同步</span></div></div>
+<div class="p-line">
+<div class="s"><div class="n">1</div><div class="l">作品</div></div><div class="sep"></div>
+<div class="s"><div class="n">0</div><div class="l">新增</div></div><div class="sep"></div>
+<div class="s"><div class="n">0</div><div class="l">失败</div></div><div class="sep"></div>
+<div class="s"><div class="n ok">OK</div><div class="l">状态</div></div>
+</div>
+<div class="p-acts"><div>同步</div><div>详情</div><div class="x">移除</div></div>
+</div></div>
+<div class="p-tab"><div class="on"><div class="dot"></div>主页</div><div><div class="dot"></div>监控</div><div><div class="dot"></div>用户</div><div><div class="dot"></div>设置</div></div>
+</div></body></html>

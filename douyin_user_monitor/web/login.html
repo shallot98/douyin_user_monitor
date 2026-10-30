@@ -1,0 +1,396 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta name="robots" content="noindex" />
+  <meta name="theme-color" content="#f5f8fc" media="(prefers-color-scheme: light)" />
+  <meta name="theme-color" content="#0b1220" media="(prefers-color-scheme: dark)" />
+  <title>登录 · 用户监控台</title>
+  <!-- 不引 common.css：它的 body 是 flex + overflow:hidden，会让卡片缩在角落且键盘弹出后无法滚动 -->
+  <style>
+    :root {
+      --bg: #f5f8fc;
+      --orb-a: rgba(14, 165, 233, 0.28);
+      --orb-b: rgba(99, 102, 241, 0.20);
+      --orb-c: rgba(236, 72, 153, 0.14);
+      --card: rgba(255, 255, 255, 0.78);
+      --card-border: rgba(255, 255, 255, 0.9);
+      --card-shadow: 0 24px 60px -18px rgba(15, 23, 42, 0.22), 0 2px 6px rgba(15, 23, 42, 0.05);
+      --text: #0f172a;
+      --muted: #64748b;
+      --faint: #94a3b8;
+      --field: #f1f5f9;
+      --field-border: #e2e8f0;
+      --field-focus: #ffffff;
+      --primary: #0ea5e9;
+      --primary-2: #6366f1;
+      --ring: rgba(14, 165, 233, 0.22);
+      --danger: #e11d48;
+      --danger-bg: rgba(225, 29, 72, 0.08);
+      color-scheme: light;
+    }
+    :root[data-theme="dark"] {
+      --bg: #0b1220;
+      --orb-a: rgba(14, 165, 233, 0.30);
+      --orb-b: rgba(99, 102, 241, 0.26);
+      --orb-c: rgba(236, 72, 153, 0.12);
+      --card: rgba(17, 25, 42, 0.72);
+      --card-border: rgba(148, 163, 184, 0.14);
+      --card-shadow: 0 24px 70px -20px rgba(0, 0, 0, 0.65);
+      --text: #e8eef8;
+      --muted: #9fb0c8;
+      --faint: #6b7c96;
+      --field: rgba(30, 41, 59, 0.75);
+      --field-border: rgba(148, 163, 184, 0.16);
+      --field-focus: rgba(30, 41, 59, 0.95);
+      --ring: rgba(56, 189, 248, 0.25);
+      --danger: #fb7185;
+      --danger-bg: rgba(251, 113, 133, 0.10);
+      color-scheme: dark;
+    }
+
+    * { box-sizing: border-box; margin: 0; }
+    html, body { min-height: 100%; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Noto Sans SC", "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      -webkit-font-smoothing: antialiased;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    /* 背景：三团模糊光斑 + 极淡网格 */
+    .backdrop { position: fixed; inset: 0; overflow: hidden; pointer-events: none; z-index: 0; }
+    .orb { position: absolute; border-radius: 50%; filter: blur(70px); animation: drift 18s ease-in-out infinite alternate; }
+    .orb.a { width: 440px; height: 440px; background: var(--orb-a); top: -140px; right: -120px; }
+    .orb.b { width: 380px; height: 380px; background: var(--orb-b); bottom: -120px; left: -140px; animation-delay: -6s; }
+    .orb.c { width: 260px; height: 260px; background: var(--orb-c); top: 42%; left: 55%; animation-delay: -12s; }
+    .grid {
+      position: absolute; inset: 0;
+      background-image:
+        linear-gradient(to right, rgba(148, 163, 184, 0.08) 1px, transparent 1px),
+        linear-gradient(to bottom, rgba(148, 163, 184, 0.08) 1px, transparent 1px);
+      background-size: 36px 36px;
+      mask-image: radial-gradient(ellipse at center, #000 20%, transparent 72%);
+      -webkit-mask-image: radial-gradient(ellipse at center, #000 20%, transparent 72%);
+    }
+    @keyframes drift { to { transform: translate3d(-40px, 30px, 0) scale(1.08); } }
+
+    .shell {
+      position: relative; z-index: 1;
+      min-height: 100vh; min-height: 100dvh;
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      padding: max(28px, env(safe-area-inset-top)) 16px max(28px, env(safe-area-inset-bottom));
+    }
+
+    .card {
+      width: 100%; max-width: 400px;
+      padding: 36px 28px 28px;
+      background: var(--card);
+      border: 1px solid var(--card-border);
+      border-radius: 24px;
+      box-shadow: var(--card-shadow);
+      backdrop-filter: blur(22px) saturate(160%);
+      -webkit-backdrop-filter: blur(22px) saturate(160%);
+      animation: rise 0.5s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+    }
+    @keyframes rise { from { opacity: 0; transform: translateY(14px) scale(0.985); } }
+
+    .brand { display: flex; flex-direction: column; align-items: center; text-align: center; margin-bottom: 28px; }
+    .logo {
+      width: 60px; height: 60px; border-radius: 18px;
+      display: grid; place-items: center;
+      font-size: 26px; font-weight: 800; color: #fff;
+      background: linear-gradient(135deg, var(--primary) 0%, var(--primary-2) 100%);
+      box-shadow: 0 12px 28px -8px rgba(14, 165, 233, 0.55), inset 0 1px 0 rgba(255, 255, 255, 0.35);
+      margin-bottom: 18px;
+    }
+    .brand h1 { font-size: 22px; font-weight: 700; letter-spacing: 0.2px; }
+    .brand p { margin-top: 6px; font-size: 14px; color: var(--muted); }
+
+    .field { margin-bottom: 16px; }
+    .field label { display: block; font-size: 13px; font-weight: 600; color: var(--muted); margin: 0 0 8px 2px; }
+    .control { position: relative; }
+    .control .icon {
+      position: absolute; left: 14px; top: 50%; transform: translateY(-50%);
+      width: 18px; height: 18px; color: var(--faint); pointer-events: none; transition: color 0.2s;
+    }
+    .control input {
+      width: 100%; height: 50px;
+      padding: 0 46px 0 44px;
+      /* 16px 以上 iOS 聚焦时才不会自动放大页面 */
+      font: inherit; font-size: 16px; color: var(--text);
+      background: var(--field);
+      border: 1px solid var(--field-border);
+      border-radius: 14px;
+      outline: none;
+      transition: border-color 0.2s, box-shadow 0.2s, background 0.2s;
+      -webkit-appearance: none; appearance: none;
+    }
+    .control input::placeholder { color: var(--faint); }
+    .control input:focus { background: var(--field-focus); border-color: var(--primary); box-shadow: 0 0 0 4px var(--ring); }
+    .control:focus-within .icon { color: var(--primary); }
+    .reveal {
+      position: absolute; right: 6px; top: 50%; transform: translateY(-50%);
+      width: 38px; height: 38px; border: 0; border-radius: 10px;
+      display: grid; place-items: center;
+      background: transparent; color: var(--faint); cursor: pointer;
+    }
+    .reveal:hover, .reveal:focus-visible { color: var(--text); background: var(--ring); outline: none; }
+    .reveal svg { width: 19px; height: 19px; }
+    .reveal .eye-off { display: none; }
+    .reveal[aria-pressed="true"] .eye { display: none; }
+    .reveal[aria-pressed="true"] .eye-off { display: block; }
+
+    /* “记住我”做成开关 */
+    .remember {
+      display: flex; align-items: center; justify-content: space-between; gap: 12px;
+      margin: 6px 2px 22px; cursor: pointer; user-select: none;
+    }
+    .remember-text { font-size: 14px; color: var(--text); }
+    .remember-text small { display: block; font-size: 12px; color: var(--faint); margin-top: 2px; }
+    .switch { position: relative; flex-shrink: 0; width: 46px; height: 28px; }
+    .switch input { position: absolute; inset: 0; opacity: 0; margin: 0; cursor: pointer; }
+    .switch .track {
+      position: absolute; inset: 0; border-radius: 999px;
+      background: var(--field-border); transition: background 0.2s;
+    }
+    .switch .track::after {
+      content: ""; position: absolute; top: 3px; left: 3px;
+      width: 22px; height: 22px; border-radius: 50%;
+      background: #fff; box-shadow: 0 2px 6px rgba(15, 23, 42, 0.25);
+      transition: transform 0.22s cubic-bezier(0.3, 0.7, 0.4, 1);
+    }
+    .switch input:checked + .track { background: linear-gradient(135deg, var(--primary), var(--primary-2)); }
+    .switch input:checked + .track::after { transform: translateX(18px); }
+    .switch input:focus-visible + .track { box-shadow: 0 0 0 4px var(--ring); }
+
+    .submit {
+      position: relative; width: 100%; height: 50px;
+      border: 0; border-radius: 14px;
+      font: inherit; font-size: 16px; font-weight: 600; letter-spacing: 2px; color: #fff;
+      background: linear-gradient(135deg, var(--primary) 0%, var(--primary-2) 100%);
+      box-shadow: 0 12px 24px -10px rgba(14, 165, 233, 0.7);
+      cursor: pointer;
+      transition: transform 0.15s, box-shadow 0.2s, filter 0.2s;
+    }
+    .submit:hover { filter: brightness(1.06); box-shadow: 0 16px 30px -10px rgba(14, 165, 233, 0.75); }
+    .submit:active { transform: scale(0.985); }
+    .submit:focus-visible { outline: none; box-shadow: 0 0 0 4px var(--ring); }
+    .submit:disabled { cursor: progress; filter: saturate(0.7) brightness(0.95); }
+    .submit .spinner {
+      display: none; width: 18px; height: 18px; margin-right: 8px; vertical-align: -3px;
+      border: 2px solid rgba(255, 255, 255, 0.4); border-top-color: #fff; border-radius: 50%;
+      animation: spin 0.7s linear infinite;
+    }
+    .submit.loading .spinner { display: inline-block; }
+    .guest {
+      width: 100%; height: 44px; margin-top: 12px;
+      border: 1px solid var(--border, rgba(148, 163, 184, .35)); border-radius: 14px;
+      font: inherit; font-size: 15px; font-weight: 500; color: inherit; background: transparent;
+      cursor: pointer; transition: background 0.2s;
+    }
+    .guest:hover { background: rgba(148, 163, 184, .12); }
+    .guest:focus-visible { outline: none; box-shadow: 0 0 0 4px var(--ring); }
+    .guest:disabled { cursor: progress; opacity: .7; }
+    .guest[hidden] { display: none; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    .error {
+      display: none; align-items: center; gap: 8px;
+      margin-top: 14px; padding: 10px 12px;
+      font-size: 13px; color: var(--danger);
+      background: var(--danger-bg); border-radius: 12px;
+    }
+    .error.show { display: flex; }
+    .error svg { width: 16px; height: 16px; flex-shrink: 0; }
+    .shake { animation: shake 0.38s ease; }
+    @keyframes shake {
+      20%, 60% { transform: translateX(-6px); }
+      40%, 80% { transform: translateX(6px); }
+    }
+
+    .footer { margin-top: 22px; font-size: 12px; color: var(--faint); text-align: center; }
+
+    @media (max-width: 420px) {
+      .card { padding: 30px 20px 22px; border-radius: 22px; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after { animation: none !important; transition: none !important; }
+    }
+  </style>
+  <script>
+    // 与 common.js 共用主题键；没选过时跟随系统
+    (function () {
+      let theme = null;
+      try { theme = localStorage.getItem("douyin-monitor-theme"); } catch (_) {}
+      if (!theme) theme = matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+      document.documentElement.dataset.theme = theme;
+    })();
+  </script>
+</head>
+<body>
+  <div class="backdrop" aria-hidden="true">
+    <div class="grid"></div>
+    <div class="orb a"></div>
+    <div class="orb b"></div>
+    <div class="orb c"></div>
+  </div>
+
+  <main class="shell">
+    <section class="card" id="card">
+      <header class="brand">
+        <div class="logo" aria-hidden="true">抖</div>
+        <h1>欢迎回来</h1>
+        <p>登录用户监控台</p>
+      </header>
+
+      <!-- 真实的 form + autocomplete，浏览器 / iCloud 钥匙串才会提示“保存密码” -->
+      <form id="loginForm" method="post" action="/auth/login" novalidate>
+        <div class="field">
+          <label for="username">用户名</label>
+          <div class="control">
+            <svg class="icon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.7" stroke="currentColor" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 6a3.75 3.75 0 1 1-7.5 0 3.75 3.75 0 0 1 7.5 0ZM4.5 20.118a7.5 7.5 0 0 1 15 0A17.933 17.933 0 0 1 12 21.75c-2.676 0-5.216-.584-7.5-1.632Z" /></svg>
+            <input id="username" name="username" type="text" placeholder="请输入用户名" autocomplete="username"
+                   autocapitalize="off" autocorrect="off" spellcheck="false" required />
+          </div>
+        </div>
+
+        <div class="field">
+          <label for="password">密码</label>
+          <div class="control">
+            <svg class="icon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.7" stroke="currentColor" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M16.5 10.5V6.75a4.5 4.5 0 1 0-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 0 0 2.25-2.25v-6.75a2.25 2.25 0 0 0-2.25-2.25H6.75a2.25 2.25 0 0 0-2.25 2.25v6.75a2.25 2.25 0 0 0 2.25 2.25Z" /></svg>
+            <input id="password" name="password" type="password" placeholder="请输入密码" autocomplete="current-password" required />
+            <button class="reveal" id="reveal" type="button" aria-label="显示密码" aria-pressed="false">
+              <svg class="eye" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.7" stroke="currentColor" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M2.036 12.322a1.012 1.012 0 0 1 0-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178Z" /><path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" /></svg>
+              <svg class="eye-off" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.7" stroke="currentColor" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M3.98 8.223A10.477 10.477 0 0 0 1.934 12C3.226 16.338 7.244 19.5 12 19.5c.993 0 1.953-.138 2.863-.395M6.228 6.228A10.451 10.451 0 0 1 12 4.5c4.756 0 8.773 3.162 10.065 7.498a10.522 10.522 0 0 1-4.293 5.774M6.228 6.228 3 3m3.228 3.228 3.65 3.65m7.894 7.894L21 21m-3.228-3.228-3.65-3.65m0 0a3 3 0 1 0-4.243-4.243m4.242 4.242L9.88 9.88" /></svg>
+            </button>
+          </div>
+        </div>
+
+        <label class="remember" for="remember">
+          <span class="remember-text">记住我<small>30 天内免登录</small></span>
+          <span class="switch">
+            <input id="remember" name="remember" type="checkbox" role="switch" checked />
+            <span class="track"></span>
+          </span>
+        </label>
+
+        <button class="submit" id="submitBtn" type="submit"><span class="spinner" aria-hidden="true"></span><span id="submitText">登录</span></button>
+        <button class="guest" id="guestBtn" type="button" hidden>游客进入 · 只能刷视频</button>
+
+        <div class="error" id="loginError" role="alert" aria-live="polite">
+          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m9-.75a9 9 0 1 1-18 0 9 9 0 0 1 18 0Zm-9 3.75h.008v.008H12v-.008Z" /></svg>
+          <span id="loginErrorText"></span>
+        </div>
+      </form>
+    </section>
+    <p class="footer">Douyin User Monitor</p>
+  </main>
+
+  <script>
+    const form = document.getElementById("loginForm");
+    const card = document.getElementById("card");
+    const button = document.getElementById("submitBtn");
+    const buttonText = document.getElementById("submitText");
+    const errorBox = document.getElementById("loginError");
+    const errorText = document.getElementById("loginErrorText");
+    const reveal = document.getElementById("reveal");
+
+    // 桌面端自动聚焦；手机上不抢焦点，免得一进来就弹键盘挡住页面
+    if (matchMedia("(hover: hover) and (pointer: fine)").matches) form.username.focus();
+
+    reveal.addEventListener("click", () => {
+      const show = form.password.type === "password";
+      form.password.type = show ? "text" : "password";
+      reveal.setAttribute("aria-pressed", String(show));
+      reveal.setAttribute("aria-label", show ? "隐藏密码" : "显示密码");
+      form.password.focus();
+    });
+
+    function nextPath() {
+      const value = new URLSearchParams(location.search).get("next") || "/";
+      // 与后端 safe_next_path 同规则：只接受站内路径
+      return value.startsWith("/") && !value.startsWith("//") && !value.includes("\\") ? value : "/";
+    }
+
+    function showError(message) {
+      errorText.textContent = message;
+      errorBox.classList.add("show");
+      card.classList.remove("shake");
+      void card.offsetWidth; // 重新触发动画
+      card.classList.add("shake");
+    }
+
+    function setLoading(loading) {
+      button.disabled = loading;
+      button.classList.toggle("loading", loading);
+      buttonText.textContent = loading ? "登录中" : "登录";
+    }
+
+    async function storeCredential() {
+      // Chrome/Edge 支持显式保存；Safari 依赖表单提交 + 跳转来弹“保存密码”
+      if (!window.PasswordCredential || !navigator.credentials?.store) return;
+      try {
+        await navigator.credentials.store(new PasswordCredential(form));
+      } catch (_) {}
+    }
+
+    form.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const username = form.username.value.trim();
+      const password = form.password.value;
+      if (!username || !password) {
+        showError("请输入用户名和密码");
+        (username ? form.password : form.username).focus();
+        return;
+      }
+      // 提交前还原成密码框，否则浏览器不会把它识别为密码
+      form.password.type = "password";
+      reveal.setAttribute("aria-pressed", "false");
+      errorBox.classList.remove("show");
+      setLoading(true);
+      try {
+        const res = await fetch("/auth/login", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "same-origin",
+          body: JSON.stringify({ username, password, remember: form.remember.checked }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data?.detail || `登录失败（HTTP ${res.status}）`);
+        buttonText.textContent = "登录成功";
+        await storeCredential();
+        location.replace(nextPath());
+      } catch (error) {
+        setLoading(false);
+        showError(error.message || "登录失败");
+        form.password.select();
+      }
+    });
+
+    form.addEventListener("input", () => errorBox.classList.remove("show"));
+
+    // 开放了游客模式才显示入口；游客只能刷视频
+    const guestBtn = document.getElementById("guestBtn");
+    fetch("/auth/status", { cache: "no-store", credentials: "same-origin" })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((body) => { guestBtn.hidden = !body?.data?.guest_enabled; })
+      .catch((error) => console.warn("读取登录状态失败", error));
+    guestBtn.addEventListener("click", async () => {
+      guestBtn.disabled = true;
+      errorBox.classList.remove("show");
+      try {
+        const res = await fetch("/auth/guest", { method: "POST", credentials: "same-origin" });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data?.detail || `进入失败（HTTP ${res.status}）`);
+        location.replace(data.data.next);
+      } catch (error) {
+        guestBtn.disabled = false;
+        showError(error.message || "进入失败");
+      }
+    });
+  </script>
+</body>
+</html>

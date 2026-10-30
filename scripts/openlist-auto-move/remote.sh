@@ -164,12 +164,21 @@ finalize_move_file() {
     printf '%s' "${ACTION_COMPLETED}"
     return 0
   fi
+  if ! ensure_backup_copy "${token}" "${local_file_path}" "${src_dir}" "${dst_dir}" "${file_name}"; then
+    printf '%s' "${ACTION_WAIT}"
+    return 0
+  fi
 
   local cleanup_rc=1
   set +e
   resolve_existing_target_conflict "${token}" "${local_file_path}" "${dst_dir}" "${file_name}"
   cleanup_rc=$?
   set -e
+  finalize_local_cleanup "${cleanup_rc}" "${local_file_path}" "${reason}"
+}
+
+finalize_local_cleanup() {
+  local cleanup_rc="$1" local_file_path="$2" reason="$3"
   case "${cleanup_rc}" in
     0)
       unmark_file_pending "${local_file_path}"

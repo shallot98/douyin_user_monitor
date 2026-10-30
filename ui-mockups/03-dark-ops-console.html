@@ -1,0 +1,161 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
+<title>C · Dark Ops</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: ui-sans-serif, -apple-system, BlinkMacSystemFont, "PingFang SC", sans-serif;
+    background: #020617; min-height: 100vh; display: flex; justify-content: center; padding: 24px 12px; color: #e2e8f0;
+  }
+  .phone {
+    width: 390px; height: 844px; background: #070b16; border-radius: 36px; overflow: hidden;
+    border: 8px solid #020617; box-shadow: 0 25px 80px rgba(0,0,0,.6); position: relative;
+    display: flex; flex-direction: column;
+  }
+  .label-chip { position: absolute; top: 12px; right: 18px; z-index: 5; background: #a78bfa; color: #111;
+    font-size: 11px; font-weight: 800; padding: 5px 9px; border-radius: 999px; }
+  .status-bar { height: 44px; padding: 12px 22px 0; display: flex; justify-content: space-between;
+    font-size: 13px; font-weight: 600; color: #94a3b8; }
+  .head { padding: 6px 16px 12px; display: flex; justify-content: space-between; align-items: center; }
+  .head h1 { font-size: 18px; font-weight: 800; }
+  .head p { font-size: 11px; color: #64748b; margin-top: 2px; }
+  .run {
+    display: flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 700;
+    background: rgba(16,185,129,.12); color: #34d399; border: 1px solid rgba(16,185,129,.25);
+    padding: 7px 10px; border-radius: 999px;
+  }
+  .dot { width: 7px; height: 7px; border-radius: 50%; background: #34d399; box-shadow: 0 0 10px #34d399; }
+  .tabs {
+    display: flex; gap: 8px; padding: 0 16px 12px; overflow: hidden;
+  }
+  .tabs span {
+    font-size: 12px; color: #64748b; background: #0f172a; border: 1px solid #1e293b;
+    padding: 8px 12px; border-radius: 999px; white-space: nowrap;
+  }
+  .tabs .on { color: #c4b5fd; border-color: #5b21b6; background: rgba(91,33,182,.2); }
+  .scroll { flex: 1; padding: 0 14px 18px; overflow: hidden; }
+  .metrics {
+    display: grid; grid-template-columns: repeat(3,1fr); gap: 8px; margin-bottom: 12px;
+  }
+  .m {
+    background: linear-gradient(180deg, #10182b, #0b1220); border: 1px solid #1e293b;
+    border-radius: 14px; padding: 12px;
+  }
+  .m .l { font-size: 10px; color: #64748b; text-transform: uppercase; letter-spacing: .6px; }
+  .m .v { font-size: 22px; font-weight: 800; margin-top: 6px; color: #f8fafc; }
+  .m .s { font-size: 10px; color: #22c55e; margin-top: 4px; }
+  .panel {
+    background: #0b1220; border: 1px solid #1e293b; border-radius: 16px; padding: 14px; margin-bottom: 10px;
+  }
+  .panel h2 { font-size: 13px; color: #94a3b8; font-weight: 700; margin-bottom: 10px; letter-spacing: .3px; }
+  .health {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 8px;
+  }
+  .h {
+    background: #111827; border-radius: 12px; padding: 10px; border: 1px solid #1f2937;
+  }
+  .h b { display:block; font-size: 12px; margin-bottom: 4px; }
+  .h span { font-size: 11px; color: #64748b; }
+  .ok { color: #34d399; }
+  .warn { color: #fbbf24; }
+  .field {
+    background: #020617; border: 1px solid #1e293b; border-radius: 12px; padding: 12px; color: #475569;
+    font-size: 13px; margin-bottom: 8px;
+  }
+  .btn {
+    background: linear-gradient(90deg, #7c3aed, #4f46e5); color: #fff; text-align: center;
+    border-radius: 12px; padding: 12px; font-size: 13px; font-weight: 700;
+  }
+  .user {
+    display: flex; gap: 10px; align-items: flex-start;
+  }
+  .av {
+    width: 42px; height: 42px; border-radius: 12px; background: linear-gradient(135deg,#f59e0b,#ef4444);
+    display: grid; place-items: center; font-weight: 800;
+  }
+  .info { flex: 1; }
+  .info .n { font-size: 14px; font-weight: 700; }
+  .info .u { font-size: 11px; color: #64748b; margin: 2px 0 8px; }
+  .bars { display: grid; grid-template-columns: repeat(4,1fr); gap: 6px; }
+  .b { background: #111827; border-radius: 10px; padding: 8px 4px; text-align: center; }
+  .b strong { display:block; font-size: 12px; }
+  .b em { font-style: normal; font-size: 10px; color: #64748b; }
+  .ops { display: flex; gap: 6px; margin-top: 10px; }
+  .ops div {
+    flex: 1; text-align: center; font-size: 11px; font-weight: 700; padding: 9px 0;
+    border-radius: 10px; background: #111827; border: 1px solid #1f2937; color: #cbd5e1;
+  }
+  .ops .x { color: #f87171; border-color: #7f1d1d; background: rgba(127,29,29,.25); }
+  .log {
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 11px; color: #64748b; line-height: 1.7;
+  }
+  .log i { color: #34d399; font-style: normal; }
+</style>
+</head>
+<body>
+  <div class="phone">
+    <div class="label-chip">C · Dark Ops</div>
+    <div class="status-bar"><span>9:41</span><span>5G ■■■</span></div>
+    <div class="head">
+      <div>
+        <h1>监控控制台</h1>
+        <p>运维视角 · 状态优先</p>
+      </div>
+      <div class="run"><span class="dot"></span>RUNNING</div>
+    </div>
+    <div class="tabs">
+      <span class="on">Overview</span><span>Targets</span><span>Cookies</span><span>Config</span>
+    </div>
+    <div class="scroll">
+      <div class="metrics">
+        <div class="m"><div class="l">Users</div><div class="v">1</div><div class="s">1 online</div></div>
+        <div class="m"><div class="l">New</div><div class="v">0</div><div class="s">today</div></div>
+        <div class="m"><div class="l">Uptime</div><div class="v">0d</div><div class="s">stable</div></div>
+      </div>
+      <div class="panel">
+        <h2>SYSTEM HEALTH</h2>
+        <div class="health">
+          <div class="h"><b class="ok">Cookie Pool</b><span>1/1 alive</span></div>
+          <div class="h"><b class="ok">Crawler</b><span>idle / ready</span></div>
+          <div class="h"><b class="warn">Queue</b><span>0 pending</span></div>
+          <div class="h"><b class="ok">Notify</b><span>Telegram OK</span></div>
+        </div>
+      </div>
+      <div class="panel">
+        <h2>ADD TARGET</h2>
+        <div class="field">sec_uid / profile url</div>
+        <div class="btn">Deploy Monitor Job</div>
+      </div>
+      <div class="panel">
+        <h2>ACTIVE TARGET</h2>
+        <div class="user">
+          <div class="av">李</div>
+          <div class="info">
+            <div class="n">李佳琦Austin</div>
+            <div class="u">947172008 · last sync just now</div>
+            <div class="bars">
+              <div class="b"><strong>1</strong><em>posts</em></div>
+              <div class="b"><strong>0</strong><em>new</em></div>
+              <div class="b"><strong>0</strong><em>fail</em></div>
+              <div class="b"><strong>OK</strong><em>auth</em></div>
+            </div>
+            <div class="ops"><div>SYNC</div><div>OPEN</div><div class="x">DROP</div></div>
+          </div>
+        </div>
+      </div>
+      <div class="panel">
+        <h2>RECENT LOG</h2>
+        <div class="log">
+          <div><i>[ok]</i> sync user 947172008</div>
+          <div><i>[ok]</i> cookie probe passed</div>
+          <div><i>[ok]</i> no new aweme detected</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

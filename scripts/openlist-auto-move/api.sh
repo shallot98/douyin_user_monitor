@@ -139,10 +139,12 @@ path_relative_to_root() {
   printf '/'
 }
 
+# OpenList 任务名格式：「<kind> [/src_root](src_file) to [/dst_root](dst_rel)」，kind 为 move 或 copy
 build_move_task_name() {
   local src_dir="$1"
   local dst_dir="$2"
   local file_name="$3"
+  local kind="${4:-move}"
   local src_root src_rel dst_root dst_rel src_file
 
   src_root=$(path_root_name "${src_dir}")
@@ -150,7 +152,7 @@ build_move_task_name() {
   dst_root=$(path_root_name "${dst_dir}")
   dst_rel=$(path_relative_to_root "${dst_dir}")
   src_file=$([[ "${src_rel}" == "/" ]] && printf '/%s' "${file_name}" || printf '%s/%s' "${src_rel}" "${file_name}")
-  printf 'move [/%s](%s) to [/%s](%s)' "${src_root}" "${src_file}" "${dst_root}" "${dst_rel}"
+  printf '%s [/%s](%s) to [/%s](%s)' "${kind}" "${src_root}" "${src_file}" "${dst_root}" "${dst_rel}"
 }
 
 find_matching_undone_move_task() {
@@ -275,4 +277,96 @@ float_gt() {
   local left="$1"
   local right="$2"
   awk -v l="${left}" -v r="${right}" -v eps="${PENDING_PROGRESS_EPSILON}" 'BEGIN { exit !(l > r + eps) }'
+}
+
+is_d2_direct_upload_target() {
+  local dst_dir="${1:-${TARGET_BASE}}"
+  [[ "${D2_DIRECT_UPLOAD}" == "true" ]] && [[ "${dst_dir}" == /d2/* || "${dst_dir}" == "/d2" ]]
+}
+
+d2_transient_file() {
+  printf '%s' "${D2_TRANSIENT_FILE:-${PENDING_FILE}.d2-transient}"
+}
+
+# 打印该文件累计的连续临时失败次数（含本次）
+d2_transient_bump() {
+  local local_file_path="$1" state count
+  state=$(d2_transient_file)
+  count=$(awk -F'\t' -v p="${local_file_path}" '$2 == p {print $1; exit}' "${state}" 2>/dev/null || true)
+  count=$(( ${count:-0} + 1 ))
+  d2_transient_clear "${local_file_path}"
+  printf '%s\t%s\n' "${count}" "${local_file_path}" >> "${state}"
+  printf '%s' "${count}"
+}
+
+d2_transient_clear() {
+  local local_file_path="$1" state tmp
+  state=$(d2_transient_file)
+  [[ -f "${state}" ]] || return 0
+  tmp="${state}.tmp.$$"
+  awk -F'\t' -v p="${local_file_path}" '$2 != p' "${state}" > "${tmp}" && mv -f -- "${tmp}" "${state}"
+}
+
+# 返回 0 = 已上传；2 = 目标已存在；3 = 配额/容量；4 = 临时错误，下轮重试；1 = 失败
+d2_direct_upload_file() {
+  local local_file_path="$1"
+  local dst_dir="$2"
+  local file_name="$3"
+  local d2_rel="${dst_dir#/d2}"
+  local d2_path="${d2_rel}/${file_name}"
+  [[ "${d2_rel}" == "" || "${d2_rel}" == "/" ]] && d2_path="/${file_name}"
+
+  local py_bin="${D2_DIRECT_PYTHON}"
+  if [[ ! -x "${py_bin}" ]]; then
+    py_bin="python3"
+  fi
+
+  local out="" rc=0
+  set +e
+  out=$(PYTHONPATH="${OPENLIST_MOVER_PROJECT_DIR}${PYTHONPATH:+:${PYTHONPATH}}" \
+    "${py_bin}" -m scripts.cloud_playback.d2_upload \
+    --openlist-db "${OPENLIST_DB}" \
+    --mount-path "/d2" \
+    --insecure-block-tls \
+    --check-quota \
+    --exit-2-on-existing \
+    --file "${local_file_path}" \
+    --path "${d2_path}" 2>&1)
+  rc=$?
+  set -e
+
+  if [[ "${rc}" -eq 0 ]]; then
+    rm -f -- "${local_file_path}"
+    unmark_file_pending "${local_file_path}"
+    d2_transient_clear "${local_file_path}"
+    log "D2直传完成并清理本地源文件: file=${local_file_path}, dst=${dst_dir}/${file_name}"
+    return 0
+  fi
+
+  if [[ "${rc}" -eq 2 ]]; then
+    d2_transient_clear "${local_file_path}"
+    return 2
+  fi
+
+  local err_msg
+  err_msg=$(jq -r '.error // empty' <<< "${out}" 2>/dev/null || printf '')
+  [[ -z "${err_msg}" ]] && err_msg="${out}"
+  if is_capacity_limit_error "${err_msg}"; then
+    mark_capacity_limit_hit "${local_file_path}" "error=${err_msg}"
+    return 3
+  fi
+
+  if [[ "${err_msg}" =~ ${D2_TRANSIENT_ERROR_PATTERN} ]]; then
+    local attempts
+    attempts=$(d2_transient_bump "${local_file_path}")
+    if (( attempts < D2_TRANSIENT_MAX_ATTEMPTS )); then
+      log "D2直传临时失败，下轮重试(${attempts}/${D2_TRANSIENT_MAX_ATTEMPTS}): file=${local_file_path}, dst=${dst_dir}/${file_name} (${err_msg})"
+      return 4
+    fi
+    log "D2直传连续临时失败 ${attempts} 次，计为失败: file=${local_file_path}, dst=${dst_dir}/${file_name} (${err_msg})"
+    return 1
+  fi
+
+  log "D2直传失败: file=${local_file_path}, dst=${dst_dir}/${file_name} (${err_msg})"
+  return 1
 }

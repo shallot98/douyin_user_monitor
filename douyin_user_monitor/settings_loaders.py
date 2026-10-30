@@ -5,16 +5,38 @@ from pathlib import Path
 from typing import Any, Dict
 
 from douyin_user_monitor.settings import (
+    ARCHIVE_TOKEN_ENV,
+    CONTENT_FILTER_API_KEY_ENV,
     CRAWLER_CONFIG_ENV,
-    CookieLivenessSettings,
-    CrawlerSettings,
+    DEFAULT_ARCHIVE_BACKUP_BASE,
+    DEFAULT_ARCHIVE_ENABLED,
+    DEFAULT_ARCHIVE_OPENLIST_BASE_URL,
+    DEFAULT_ARCHIVE_OPENLIST_DB_PATH,
+    DEFAULT_ARCHIVE_PRIMARY_BASE,
+    DEFAULT_ARCHIVE_SANITIZE_PRIMARY_DIRS,
+    DEFAULT_ARCHIVE_TIMEOUT_SECONDS,
     DEFAULT_AVATAR_TIMEOUT_SECONDS,
+    DEFAULT_CONTENT_FILTER_API_BASE,
+    DEFAULT_CONTENT_FILTER_BATCH_MAX_OUTPUT_TOKENS,
+    DEFAULT_CONTENT_FILTER_BATCH_TIMEOUT_SECONDS,
+    DEFAULT_CONTENT_FILTER_ENABLED,
+    DEFAULT_CONTENT_FILTER_HYSTERESIS_DELTA,
+    DEFAULT_CONTENT_FILTER_INCLUDE_HISTORY,
+    DEFAULT_CONTENT_FILTER_MAX_FRAMES,
+    DEFAULT_CONTENT_FILTER_MAX_OUTPUT_TOKENS,
+    DEFAULT_CONTENT_FILTER_MIN_CONFIDENCE,
+    DEFAULT_CONTENT_FILTER_MODE,
+    DEFAULT_CONTENT_FILTER_MODEL,
+    DEFAULT_CONTENT_FILTER_REJECT_CATEGORIES,
+    DEFAULT_CONTENT_FILTER_TIMEOUT_SECONDS,
     DEFAULT_COOKIE_LIVENESS_ALERT_COOLDOWN_HOURS,
     DEFAULT_COOKIE_LIVENESS_ENABLED,
     DEFAULT_COOKIE_LIVENESS_INTERVAL_HOURS,
     DEFAULT_COOKIE_LIVENESS_MIN_SAMPLES,
     DEFAULT_COOKIE_LIVENESS_SAMPLE_USER_COUNT,
     DEFAULT_COOKIE_LIVENESS_STALE_DAYS,
+    DEFAULT_COOKIE_ROTATION_ENABLED,
+    DEFAULT_COOKIE_ROTATION_SKIP_EXPIRED,
     DEFAULT_CRAWLER_CONFIG_PATH,
     DEFAULT_DOWNLOAD_ROOT,
     DEFAULT_HERMES_WEIXIN_BIN,
@@ -29,16 +51,21 @@ from douyin_user_monitor.settings import (
     DEFAULT_TG_ENABLED,
     DEFAULT_TG_TIMEOUT_SECONDS,
     DOWNLOAD_ROOT_ENV,
-    HermesWeixinSettings,
-    MonitorSettings,
-    NotificationSettings,
     STATE_PATH_ENV,
-    Settings,
     TG_API_BASE_ENV,
     TG_BOT_TOKEN_ENV,
     TG_CHAT_ID_ENV,
     TG_ENABLED_ENV,
     TG_TIMEOUT_ENV,
+    ArchiveSettings,
+    ContentFilterSettings,
+    CookieLivenessSettings,
+    CookieRotationSettings,
+    CrawlerSettings,
+    HermesWeixinSettings,
+    MonitorSettings,
+    NotificationSettings,
+    Settings,
     TelegramSettings,
     _ensure_dict,
     _load_yaml,
@@ -49,6 +76,7 @@ from douyin_user_monitor.settings import (
     _resolve_path,
 )
 
+
 def load_settings() -> Settings:
     project_root = Path(__file__).resolve().parents[1]
     raw = _load_yaml(_resolve_config_path(project_root))
@@ -58,6 +86,9 @@ def load_settings() -> Settings:
     telegram_raw = _ensure_dict(notification_raw.get("telegram", {}), "notifications.telegram")
     hermes_raw = _ensure_dict(notification_raw.get("hermes_weixin", {}), "notifications.hermes_weixin")
     cookie_raw = _ensure_dict(raw.get("cookie_liveness", {}), "cookie_liveness")
+    rotation_raw = _ensure_dict(raw.get("cookie_rotation", {}), "cookie_rotation")
+    archive_raw = _ensure_dict(raw.get("archive", {}), "archive")
+    content_filter_raw = _ensure_dict(raw.get("content_filter", {}), "content_filter")
     return Settings(
         project_root=project_root,
         crawler=_load_crawler_settings(project_root, crawler_raw),
@@ -67,6 +98,91 @@ def load_settings() -> Settings:
             hermes_weixin=_load_hermes_settings(hermes_raw),
         ),
         cookie_liveness=_load_cookie_liveness_settings(cookie_raw),
+        cookie_rotation=_load_cookie_rotation_settings(rotation_raw),
+        archive=_load_archive_settings(archive_raw),
+        content_filter=_load_content_filter_settings(content_filter_raw),
+    )
+
+
+def _load_content_filter_settings(raw: Dict[str, Any]) -> ContentFilterSettings:
+    mode = str(raw.get("mode", DEFAULT_CONTENT_FILTER_MODE) or "").strip()
+    if mode != "shadow":
+        # enforce（隔离/隐藏）属于第二阶段，尚未实现：宁可启动失败也不假装生效
+        raise ValueError(f"content_filter.mode 目前只支持 shadow，收到 {mode!r}")
+    categories = raw.get("reject_categories", list(DEFAULT_CONTENT_FILTER_REJECT_CATEGORIES))
+    if not isinstance(categories, list) or not categories:
+        raise ValueError("content_filter.reject_categories 必须是非空列表")
+    unknown = [item for item in categories if item not in ("ad", "text_only", "screenshot")]
+    if unknown:
+        raise ValueError(f"content_filter.reject_categories 含未知分类: {unknown}")
+    min_confidence = _parse_positive_float(
+        raw.get("min_confidence", DEFAULT_CONTENT_FILTER_MIN_CONFIDENCE), "content_filter.min_confidence"
+    )
+    if min_confidence > 1:
+        raise ValueError("content_filter.min_confidence 不能大于 1")
+    # 滞回宽度允许 0（关闭），所以上面那两个 positive 解析器都不能用
+    try:
+        hysteresis_delta = float(raw.get("hysteresis_delta", DEFAULT_CONTENT_FILTER_HYSTERESIS_DELTA))
+    except (TypeError, ValueError) as exc:
+        raise ValueError("content_filter.hysteresis_delta 必须是数字") from exc
+    if not 0 <= hysteresis_delta <= 2:
+        raise ValueError("content_filter.hysteresis_delta 必须在 0~2 之间，0 表示关闭滞回")
+    return ContentFilterSettings(
+        enabled=_parse_bool(raw.get("enabled", DEFAULT_CONTENT_FILTER_ENABLED)),
+        mode=mode,
+        api_base=str(raw.get("api_base", DEFAULT_CONTENT_FILTER_API_BASE) or "").strip(),
+        # 密钥只从环境变量读，不写进 config.yaml
+        api_key=os.getenv(CONTENT_FILTER_API_KEY_ENV, "").strip(),
+        model=str(raw.get("model", DEFAULT_CONTENT_FILTER_MODEL) or "").strip(),
+        timeout_seconds=_parse_positive_float(
+            raw.get("timeout_seconds", DEFAULT_CONTENT_FILTER_TIMEOUT_SECONDS), "content_filter.timeout_seconds"
+        ),
+        max_frames=_parse_positive_int(
+            raw.get("max_frames", DEFAULT_CONTENT_FILTER_MAX_FRAMES), "content_filter.max_frames"
+        ),
+        reject_categories=tuple(categories),
+        min_confidence=min_confidence,
+        include_history=_parse_bool(raw.get("include_history", DEFAULT_CONTENT_FILTER_INCLUDE_HISTORY)),
+        max_output_tokens=_parse_positive_int(
+            raw.get("max_output_tokens", DEFAULT_CONTENT_FILTER_MAX_OUTPUT_TOKENS),
+            "content_filter.max_output_tokens",
+        ),
+        hysteresis_delta=hysteresis_delta,
+        batch_timeout_seconds=_parse_positive_float(
+            raw.get("batch_timeout_seconds", DEFAULT_CONTENT_FILTER_BATCH_TIMEOUT_SECONDS),
+            "content_filter.batch_timeout_seconds",
+        ),
+        batch_max_output_tokens=_parse_positive_int(
+            raw.get("batch_max_output_tokens", DEFAULT_CONTENT_FILTER_BATCH_MAX_OUTPUT_TOKENS),
+            "content_filter.batch_max_output_tokens",
+        ),
+    )
+
+
+def _load_archive_settings(raw: Dict[str, Any]) -> ArchiveSettings:
+    token = os.getenv(ARCHIVE_TOKEN_ENV, "") or str(raw.get("openlist_token", "") or "").strip()
+    base_url = str(raw.get("openlist_base_url", DEFAULT_ARCHIVE_OPENLIST_BASE_URL) or "").strip()
+    db_path = str(raw.get("openlist_db_path", DEFAULT_ARCHIVE_OPENLIST_DB_PATH) or "").strip()
+    # 兼容旧配置的单个 remote_base：没写主/备时沿用它当备份盘
+    legacy_base = str(raw.get("remote_base", "") or "").strip()
+    primary_base = str(raw.get("primary_base", "") or "").strip() or DEFAULT_ARCHIVE_PRIMARY_BASE
+    backup_base = (
+        str(raw.get("backup_base", "") or "").strip() or legacy_base or DEFAULT_ARCHIVE_BACKUP_BASE
+    )
+    return ArchiveSettings(
+        enabled=_parse_bool(raw.get("enabled", DEFAULT_ARCHIVE_ENABLED)),
+        openlist_base_url=(base_url or DEFAULT_ARCHIVE_OPENLIST_BASE_URL).rstrip("/"),
+        openlist_db_path=Path(db_path or DEFAULT_ARCHIVE_OPENLIST_DB_PATH).expanduser(),
+        openlist_token=token,
+        primary_base="/" + primary_base.strip("/"),
+        backup_base="/" + backup_base.strip("/"),
+        timeout_seconds=_parse_positive_float(
+            raw.get("timeout_seconds", DEFAULT_ARCHIVE_TIMEOUT_SECONDS),
+            "archive.timeout_seconds",
+        ),
+        sanitize_primary_dirs=_parse_bool(
+            raw.get("sanitize_primary_dirs", DEFAULT_ARCHIVE_SANITIZE_PRIMARY_DIRS)
+        ),
     )
 
 
@@ -189,6 +305,13 @@ def _load_hermes_settings(hermes_raw: Dict[str, Any]) -> HermesWeixinSettings:
         hermes_bin=hermes_bin,
         target=hermes_target,
         timeout_seconds=hermes_timeout_seconds,
+    )
+
+
+def _load_cookie_rotation_settings(raw: Dict[str, Any]) -> CookieRotationSettings:
+    return CookieRotationSettings(
+        enabled=_parse_bool(raw.get("enabled", DEFAULT_COOKIE_ROTATION_ENABLED)),
+        skip_expired=_parse_bool(raw.get("skip_expired", DEFAULT_COOKIE_ROTATION_SKIP_EXPIRED)),
     )
 
 

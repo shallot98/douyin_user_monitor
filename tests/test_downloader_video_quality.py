@@ -194,6 +194,7 @@ class DownloaderVideoQualityTests(unittest.TestCase):
                 "total_size_bytes": 128,
                 "video_source": {"bit_rate": 3_000_000, "width": 1080, "height": 1920, "gear_name": "normal_1080"},
             },
+            source="incremental",
         )
 
         self.assertEqual(record["video_source"]["bit_rate"], 3_000_000)

@@ -3,6 +3,12 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 
+from douyin_user_monitor.monitor.timeutils import safe_int
+
+QUALITY_ORIGINAL = "original"
+QUALITY_BIT_RATE = "bit_rate"
+QUALITY_FALLBACK = "fallback"
+
 
 @dataclass(frozen=True)
 class VideoSource:
@@ -11,6 +17,7 @@ class VideoSource:
     width: int = 0
     height: int = 0
     gear_name: str = ""
+    quality_source: str = QUALITY_BIT_RATE
 
     def to_record(self) -> Dict[str, Any]:
         return {
@@ -18,6 +25,7 @@ class VideoSource:
             "width": self.width,
             "height": self.height,
             "gear_name": self.gear_name,
+            "quality_source": self.quality_source,
         }
 
 
@@ -25,7 +33,30 @@ def extract_video_source(aweme_detail: Dict[str, Any]) -> Optional[VideoSource]:
     video_data = aweme_detail.get("video", {})
     if not isinstance(video_data, dict):
         return None
-    return select_clearest_video_source(video_data) or select_fallback_video_source(video_data)
+    source = select_clearest_video_source(video_data)
+    if source:
+        return source
+    fallback = select_fallback_video_source(video_data)
+    if fallback is None:
+        return None
+    return VideoSource(
+        url=fallback.url,
+        bit_rate=fallback.bit_rate,
+        width=fallback.width,
+        height=fallback.height,
+        gear_name=fallback.gear_name,
+        quality_source=QUALITY_FALLBACK,
+    )
+
+
+def build_original_video_source(url: str, *, width: int = 0, height: int = 0) -> VideoSource:
+    return VideoSource(
+        url=url,
+        width=width,
+        height=height,
+        gear_name="original",
+        quality_source=QUALITY_ORIGINAL,
+    )
 
 
 def select_clearest_video_source(video_data: Dict[str, Any]) -> Optional[VideoSource]:
@@ -51,6 +82,58 @@ def select_highest_bit_rate_source(video_data: Dict[str, Any]) -> Optional[Video
     return select_clearest_video_source(video_data)
 
 
+FAST_PLAY_MIN_SHORT_SIDE = 480
+
+
+def select_fast_play_source(video_data: Dict[str, Any]) -> Optional[VideoSource]:
+    """Select a declared H.264 source; unlabelled/HEVC files require preparation."""
+    bit_rates = video_data.get("bit_rate", [])
+    if not isinstance(bit_rates, list):
+        bit_rates = []
+    candidates: List[VideoSource] = []
+    for item in bit_rates:
+        candidate = build_bit_rate_source(item)
+        if candidate and _is_h264_gear(item):
+            candidates.append(candidate)
+    h264_addr = video_data.get("play_addr_h264")
+    if isinstance(h264_addr, dict):
+        candidate = build_bit_rate_source({"play_addr": h264_addr, "gear_name": "play_addr_h264"})
+        if candidate:
+            candidates.append(candidate)
+    if not candidates:
+        return None
+
+    watchable = [
+        candidate
+        for candidate in candidates
+        if min(candidate.width, candidate.height) >= FAST_PLAY_MIN_SHORT_SIDE
+    ]
+    pool = watchable or candidates
+    # bit_rate 为 0（未标注）的排后面，避免把未知档误当成最小档
+    return min(pool, key=lambda source: (source.bit_rate <= 0, source.bit_rate or 0, _pixels(source)))
+
+
+def _is_h264_gear(item: Dict[str, Any]) -> bool:
+    flags = [item[key] for key in ("is_h265", "is_bytevc1") if key in item]
+    return bool(flags) and all(flag == 0 for flag in flags)
+
+
+def _pixels(source: VideoSource) -> int:
+    return (source.width or 0) * (source.height or 0)
+
+
+def extract_cover_url(aweme_detail: Dict[str, Any]) -> Optional[str]:
+    """Static cover for a work. Present on image posts too, so both媒体类型可用。"""
+    video_data = aweme_detail.get("video")
+    if not isinstance(video_data, dict):
+        return None
+    for key in ("cover", "origin_cover", "dynamic_cover"):
+        url = first_url(video_data.get(key) if isinstance(video_data.get(key), dict) else {})
+        if url:
+            return url
+    return None
+
+
 def build_bit_rate_source(item: Any) -> Optional[VideoSource]:
     if not isinstance(item, dict):
         return None
@@ -66,6 +149,7 @@ def build_bit_rate_source(item: Any) -> Optional[VideoSource]:
         width=safe_int(play_addr.get("width") or item.get("width")),
         height=safe_int(play_addr.get("height") or item.get("height")),
         gear_name=str(item.get("gear_name") or ""),
+        quality_source=QUALITY_BIT_RATE,
     )
 
 
@@ -84,6 +168,7 @@ def select_fallback_video_source(video_data: Dict[str, Any]) -> Optional[VideoSo
                 width=safe_int(play_addr_data.get("width")),
                 height=safe_int(play_addr_data.get("height")),
                 gear_name=key,
+                quality_source=QUALITY_FALLBACK,
             )
         )
     return pick_clearest_source(candidates)
@@ -112,10 +197,3 @@ def first_url(play_addr_data: Dict[str, Any]) -> Optional[str]:
     if not isinstance(first, str):
         return None
     return first.strip() or None
-
-
-def safe_int(value: Any) -> int:
-    try:
-        return int(value or 0)
-    except (TypeError, ValueError):
-        return 0

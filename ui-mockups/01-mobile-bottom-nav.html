@@ -1,0 +1,201 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+<title>A · Bottom Nav</title>
+<style>
+  :root {
+    --bg: #f4f6fb;
+    --card: #ffffff;
+    --text: #0f172a;
+    --muted: #64748b;
+    --line: #e8edf5;
+    --primary: #4f46e5;
+    --primary-soft: #eef2ff;
+    --ok: #10b981;
+    --danger: #ef4444;
+    --pink: #fe2c55;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Noto Sans SC", sans-serif;
+    background: #111827;
+    color: var(--text);
+    min-height: 100vh;
+    display: flex;
+    justify-content: center;
+    padding: 24px 12px;
+  }
+  .phone {
+    width: 390px;
+    height: 844px;
+    background: var(--bg);
+    border-radius: 36px;
+    overflow: hidden;
+    position: relative;
+    box-shadow: 0 25px 80px rgba(0,0,0,.45);
+    border: 8px solid #0b1220;
+    display: flex;
+    flex-direction: column;
+  }
+  .status-bar {
+    height: 44px;
+    padding: 12px 22px 0;
+    display: flex;
+    justify-content: space-between;
+    font-size: 13px;
+    font-weight: 600;
+    background: var(--card);
+  }
+  .top {
+    background: var(--card);
+    padding: 8px 16px 14px;
+    border-bottom: 1px solid var(--line);
+  }
+  .brand-row { display: flex; align-items: center; justify-content: space-between; }
+  .brand { display: flex; align-items: center; gap: 10px; }
+  .logo {
+    width: 34px; height: 34px; border-radius: 10px;
+    background: linear-gradient(135deg, #fe2c55, #25f4ee);
+    display: grid; place-items: center; color: #fff; font-weight: 800; font-size: 14px;
+  }
+  .brand h1 { font-size: 16px; font-weight: 700; }
+  .brand p { font-size: 11px; color: var(--muted); }
+  .live {
+    display: flex; align-items: center; gap: 6px;
+    background: #ecfdf5; color: #047857;
+    font-size: 12px; font-weight: 600;
+    padding: 6px 10px; border-radius: 999px;
+  }
+  .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--ok); box-shadow: 0 0 0 3px rgba(16,185,129,.2); }
+  .scroll { flex: 1; overflow: hidden; padding: 14px 14px 90px; }
+  .stats {
+    display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 14px;
+  }
+  .stat {
+    background: var(--card); border-radius: 16px; padding: 14px 12px;
+    border: 1px solid var(--line);
+  }
+  .stat .label { font-size: 11px; color: var(--muted); margin-bottom: 6px; }
+  .stat .val { font-size: 22px; font-weight: 800; letter-spacing: -0.5px; }
+  .stat .hint { font-size: 10px; color: #94a3b8; margin-top: 4px; }
+  .card {
+    background: var(--card); border: 1px solid var(--line);
+    border-radius: 18px; padding: 14px; margin-bottom: 12px;
+  }
+  .card-h { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
+  .card-h h2 { font-size: 15px; font-weight: 700; }
+  .link { color: var(--primary); font-size: 12px; font-weight: 600; }
+  .field {
+    background: #f8fafc; border: 1px solid var(--line);
+    border-radius: 12px; padding: 12px 14px; font-size: 14px; color: #94a3b8; margin-bottom: 10px;
+  }
+  .btn {
+    width: 100%; border: 0; border-radius: 12px; padding: 12px;
+    background: var(--primary); color: #fff; font-size: 14px; font-weight: 700;
+  }
+  .user {
+    display: flex; gap: 12px; align-items: flex-start;
+  }
+  .avatar {
+    width: 48px; height: 48px; border-radius: 50%;
+    background: linear-gradient(135deg, #f97316, #fb7185);
+    color: #fff; display: grid; place-items: center; font-weight: 800; flex-shrink: 0;
+  }
+  .user-main { flex: 1; min-width: 0; }
+  .name-row { display: flex; align-items: center; gap: 8px; margin-bottom: 2px; }
+  .name { font-size: 15px; font-weight: 700; }
+  .badge {
+    font-size: 10px; font-weight: 700; color: #047857;
+    background: #d1fae5; padding: 2px 6px; border-radius: 999px;
+  }
+  .uid { font-size: 11px; color: var(--muted); margin-bottom: 8px; }
+  .metrics {
+    display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px;
+    background: #f8fafc; border-radius: 12px; padding: 10px 6px;
+  }
+  .m { text-align: center; }
+  .m b { display: block; font-size: 13px; }
+  .m span { font-size: 10px; color: var(--muted); }
+  .actions { display: flex; gap: 8px; margin-top: 12px; }
+  .ghost, .danger {
+    flex: 1; border-radius: 10px; padding: 10px; font-size: 12px; font-weight: 700; border: 1px solid var(--line);
+    background: #fff; text-align: center;
+  }
+  .danger { color: var(--danger); border-color: #fecaca; background: #fff5f5; }
+  .tabbar {
+    position: absolute; left: 0; right: 0; bottom: 0;
+    height: 72px; background: rgba(255,255,255,.96);
+    backdrop-filter: blur(12px);
+    border-top: 1px solid var(--line);
+    display: grid; grid-template-columns: repeat(4, 1fr);
+    padding-bottom: 10px;
+  }
+  .tab { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; font-size: 11px; color: #94a3b8; }
+  .tab.active { color: var(--primary); font-weight: 700; }
+  .ico { width: 22px; height: 22px; border-radius: 8px; background: currentColor; opacity: .2; }
+  .tab.active .ico { opacity: 1; background: var(--primary); }
+  .label-chip { position: absolute; top: 12px; right: 18px; z-index: 5;
+    background: #111827; color: #fff; font-size: 11px; font-weight: 700;
+    padding: 5px 9px; border-radius: 999px; }
+</style>
+</head>
+<body>
+  <div class="phone">
+    <div class="label-chip">A · Bottom Nav</div>
+    <div class="status-bar"><span>9:41</span><span>5G ■■■</span></div>
+    <div class="top">
+      <div class="brand-row">
+        <div class="brand">
+          <div class="logo">抖</div>
+          <div>
+            <h1>抖音用户监控</h1>
+            <p>手机优先 · 底部导航</p>
+          </div>
+        </div>
+        <div class="live"><span class="dot"></span>运行中</div>
+      </div>
+    </div>
+    <div class="scroll">
+      <div class="stats">
+        <div class="stat"><div class="label">监控用户</div><div class="val">1</div><div class="hint">活跃 1</div></div>
+        <div class="stat"><div class="label">新增作品</div><div class="val">0</div><div class="hint">今日</div></div>
+        <div class="stat"><div class="label">运行天数</div><div class="val">0</div><div class="hint">本周期</div></div>
+      </div>
+      <div class="card">
+        <div class="card-h"><h2>添加用户</h2><span class="link">批量</span></div>
+        <div class="field">输入抖音号 / sec_uid / 主页链接</div>
+        <button class="btn">开始监控</button>
+      </div>
+      <div class="card">
+        <div class="card-h"><h2>监控用户</h2><span class="link">1 人</span></div>
+        <div class="user">
+          <div class="avatar">李</div>
+          <div class="user-main">
+            <div class="name-row"><div class="name">李佳琦Austin</div><span class="badge">监控中</span></div>
+            <div class="uid">ID 947172008 · 刚刚同步</div>
+            <div class="metrics">
+              <div class="m"><b>1</b><span>作品</span></div>
+              <div class="m"><b>0</b><span>新增</span></div>
+              <div class="m"><b>0</b><span>失败</span></div>
+              <div class="m"><b>OK</b><span>Cookie</span></div>
+            </div>
+            <div class="actions">
+              <div class="ghost">同步</div>
+              <div class="ghost">详情</div>
+              <div class="danger">移除</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="tabbar">
+      <div class="tab active"><div class="ico"></div>监控</div>
+      <div class="tab"><div class="ico"></div>列表</div>
+      <div class="tab"><div class="ico"></div>用户</div>
+      <div class="tab"><div class="ico"></div>设置</div>
+    </div>
+  </div>
+</body>
+</html>

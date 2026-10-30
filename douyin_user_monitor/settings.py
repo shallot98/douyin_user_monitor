@@ -16,6 +16,7 @@ TG_BOT_TOKEN_ENV = "DYMON_TG_BOT_TOKEN"
 TG_CHAT_ID_ENV = "DYMON_TG_CHAT_ID"
 TG_API_BASE_ENV = "DYMON_TG_API_BASE"
 TG_TIMEOUT_ENV = "DYMON_TG_TIMEOUT"
+ARCHIVE_TOKEN_ENV = "DYMON_ARCHIVE_TOKEN"
 
 DEFAULT_CRAWLER_CONFIG_PATH = "config/douyin_web.yaml"
 DEFAULT_AVATAR_TIMEOUT_SECONDS = 30.0
@@ -75,12 +76,94 @@ class CookieLivenessSettings:
 
 
 @dataclass(frozen=True)
+class CookieRotationSettings:
+    enabled: bool
+    skip_expired: bool
+
+
+@dataclass(frozen=True)
+class ArchiveSettings:
+    """已下载作品的归档存放位置（OpenList/网盘），用于作品页回放。
+
+    primary_base 是主力盘（网页读它），backup_base 是备份盘。读取按
+    primary → backup 顺序回落：历史作品只存在备份盘上，回落保证它们仍可播放。
+    """
+
+    enabled: bool
+    openlist_base_url: str
+    openlist_db_path: Path
+    openlist_token: str
+    primary_base: str
+    backup_base: str
+    timeout_seconds: float
+    # 主力盘是否要求清理 emoji；关闭时优先原名，也查找历史清理后的副本
+    sanitize_primary_dirs: bool
+
+    @property
+    def read_bases(self) -> tuple[str, ...]:
+        """去重后的读取顺序。"""
+        bases = [base for base in (self.primary_base, self.backup_base) if base]
+        unique: list[str] = []
+        for base in bases:
+            if base not in unique:
+                unique.append(base)
+        return tuple(unique)
+
+
+DEFAULT_CONTENT_FILTER_MAX_OUTPUT_TOKENS = 700
+DEFAULT_CONTENT_FILTER_HYSTERESIS_DELTA = 0.5
+# 批量一次评 4 条作品，输出是一个数组，输出上限和超时都要比单条宽松
+DEFAULT_CONTENT_FILTER_BATCH_TIMEOUT_SECONDS = 180.0
+DEFAULT_CONTENT_FILTER_BATCH_MAX_OUTPUT_TOKENS = 4000
+
+
+@dataclass(frozen=True)
+class ContentFilterSettings:
+    """新作品 AI 内容筛选（广告 / 纯文字图片 / 截图）。"""
+
+    enabled: bool
+    # shadow：只把结论写进下载记录，不动文件
+    mode: str
+    api_base: str
+    api_key: str
+    model: str
+    timeout_seconds: float
+    max_frames: int
+    reject_categories: tuple[str, ...]
+    min_confidence: float
+    # 历史回补下载的作品是否也检测
+    include_history: bool
+    # 单次模型调用的输出上限
+    max_output_tokens: int = DEFAULT_CONTENT_FILTER_MAX_OUTPUT_TOKENS
+    # 档位边界滞回：weighted 落在阈值 ±delta 内标记为边界区，并给出保守档 score_low
+    hysteresis_delta: float = DEFAULT_CONTENT_FILTER_HYSTERESIS_DELTA
+    # 批量评分（补打任务）的超时与输出上限
+    batch_timeout_seconds: float = DEFAULT_CONTENT_FILTER_BATCH_TIMEOUT_SECONDS
+    batch_max_output_tokens: int = DEFAULT_CONTENT_FILTER_BATCH_MAX_OUTPUT_TOKENS
+
+
+@dataclass(frozen=True)
 class Settings:
     project_root: Path
     crawler: CrawlerSettings
     monitor: MonitorSettings
     notifications: NotificationSettings
     cookie_liveness: CookieLivenessSettings
+    cookie_rotation: CookieRotationSettings
+    archive: ArchiveSettings
+    content_filter: ContentFilterSettings
+
+
+CONTENT_FILTER_API_KEY_ENV = "DYMON_FILTER_API_KEY"
+DEFAULT_CONTENT_FILTER_ENABLED = False
+DEFAULT_CONTENT_FILTER_MODE = "shadow"
+DEFAULT_CONTENT_FILTER_API_BASE = "http://127.0.0.1:18082/v1"
+DEFAULT_CONTENT_FILTER_MODEL = "grok-4.20-0309-non-reasoning"
+DEFAULT_CONTENT_FILTER_TIMEOUT_SECONDS = 45.0
+DEFAULT_CONTENT_FILTER_MAX_FRAMES = 12
+DEFAULT_CONTENT_FILTER_REJECT_CATEGORIES = ("ad", "text_only", "screenshot")
+DEFAULT_CONTENT_FILTER_MIN_CONFIDENCE = 0.8
+DEFAULT_CONTENT_FILTER_INCLUDE_HISTORY = True
 
 
 DEFAULT_COOKIE_LIVENESS_ENABLED = True
@@ -89,6 +172,8 @@ DEFAULT_COOKIE_LIVENESS_STALE_DAYS = 7.0
 DEFAULT_COOKIE_LIVENESS_SAMPLE_USER_COUNT = 5
 DEFAULT_COOKIE_LIVENESS_MIN_SAMPLES = 3
 DEFAULT_COOKIE_LIVENESS_ALERT_COOLDOWN_HOURS = 12.0
+DEFAULT_COOKIE_ROTATION_ENABLED = True
+DEFAULT_COOKIE_ROTATION_SKIP_EXPIRED = True
 DEFAULT_HERMES_WEIXIN_ENABLED = False
 DEFAULT_HERMES_WEIXIN_SSH_HOST = ""
 DEFAULT_HERMES_WEIXIN_SSH_USER = "root"
@@ -96,6 +181,16 @@ DEFAULT_HERMES_WEIXIN_HOME = ""
 DEFAULT_HERMES_WEIXIN_BIN = ""
 DEFAULT_HERMES_WEIXIN_TARGET = "weixin"
 DEFAULT_HERMES_WEIXIN_TIMEOUT_SECONDS = 60.0
+# 归档回放：mover 把 download/ 下的文件搬到 OpenList 的 remote_base 下，保留用户目录结构
+DEFAULT_ARCHIVE_ENABLED = True
+DEFAULT_ARCHIVE_OPENLIST_BASE_URL = "http://127.0.0.1:5244"
+DEFAULT_ARCHIVE_OPENLIST_DB_PATH = "/opt/openlist/data/data.db"
+# 主力盘 D2：网页播放优先读取现有归档目录
+DEFAULT_ARCHIVE_PRIMARY_BASE = "/d2/vps/抖音视频"
+# 备份盘 kuake：历史作品都在这里，读取回落到它
+DEFAULT_ARCHIVE_BACKUP_BASE = "/kuake/抖音视频"
+DEFAULT_ARCHIVE_TIMEOUT_SECONDS = 30.0
+DEFAULT_ARCHIVE_SANITIZE_PRIMARY_DIRS = False
 
 
 def _resolve_config_path(project_root: Path) -> Path:
@@ -156,5 +251,3 @@ def _parse_positive_int(value: Any, name: str) -> int:
     if number <= 0:
         raise ValueError(f"{name} 必须大于 0")
     return number
-
-from douyin_user_monitor.settings_loaders import load_settings  # noqa: E402

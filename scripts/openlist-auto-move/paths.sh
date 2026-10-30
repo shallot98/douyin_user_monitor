@@ -8,7 +8,9 @@ OPENLIST_MOVER_PATHS_LOADED=1
 sanitize_component() {
   local text="$1"
   local sanitized
-  sanitized=$(printf '%s' "${text}" | perl -CSDA -Mutf8 -pe 's/\p{Extended_Pictographic}//g; s/[\x{FE0F}\x{200D}]//g;')
+  # \p{Extended_Pictographic} 不含肤色修饰符(1F3FB-1F3FF)与键帽符(20E3)，但 wopan 拒收残留，需显式补剥；
+  # 另按实测补剥数学字母区(1D400-1D7FF)与 CJK 扩展 B-F 之外的星球面（python 侧 WOPAN_STRIP_RANGES 同源）
+  sanitized=$(printf '%s' "${text}" | perl -CSDA -Mutf8 -pe 's/[\p{Extended_Pictographic}\x{1F3FB}-\x{1F3FF}]//g; s/[\x{FE0F}\x{200D}\x{20E3}]//g; s/[\x{1D400}-\x{1D7FF}\x{10000}-\x{1FFFF}\x{323B0}-\x{10FFFF}]//g;')
   sanitized=$(printf '%s' "${sanitized}" | sed -E 's/[[:space:]]+/ /g; s/^[[:space:]]+//; s/[[:space:]]+$//')
   printf '%s' "${sanitized}"
 }
@@ -47,8 +49,8 @@ sanitize_file_name_in_place() {
   local sanitized_name
   local target_path
 
-  dir_path=$(dirname "${file_path}")
-  base_name=$(basename "${file_path}")
+  dir_path=$(dirname -- "${file_path}")
+  base_name=$(basename -- "${file_path}")
   sanitized_name=$(sanitize_component "${base_name}")
 
   if [[ -z "${sanitized_name}" ]]; then
@@ -67,9 +69,32 @@ sanitize_file_name_in_place() {
     return 1
   fi
 
-  mv "${file_path}" "${target_path}"
+  mv -- "${file_path}" "${target_path}"
   log "已重命名文件: ${file_path} -> ${target_path}"
   printf '%s' "${target_path}"
+}
+
+# 目标盘（D2/夸克）不接受首尾带空白的目录名（OpenList 报 object not found），
+# 标题截断常落在空格上。只改远端目标目录；本地与 /qbt 源路径保持原样。
+# 网页侧 path_sanitize.trim_relative_dirs 做同样变换。
+trim_relative_dir() {
+  local relative_dir="$1"
+  if [[ "${relative_dir}" == "." ]]; then
+    printf '.'
+    return 0
+  fi
+
+  local result="" component trimmed
+  IFS='/' read -r -a components <<< "${relative_dir}"
+  for component in "${components[@]}"; do
+    trimmed=$(printf '%s' "${component}" | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//')
+    if [[ -z "${trimmed}" ]]; then
+      log "目录名去除首尾空白后为空: ${component}"
+      return 1
+    fi
+    result="${result:+${result}/}${trimmed}"
+  done
+  printf '%s' "${result}"
 }
 
 predict_sanitized_file_path() {
@@ -78,8 +103,8 @@ predict_sanitized_file_path() {
   local base_name
   local sanitized_name
 
-  dir_path=$(dirname "${file_path}")
-  base_name=$(basename "${file_path}")
+  dir_path=$(dirname -- "${file_path}")
+  base_name=$(basename -- "${file_path}")
   sanitized_name=$(sanitize_component "${base_name}")
 
   if [[ -z "${sanitized_name}" ]]; then
@@ -130,11 +155,16 @@ build_remote_paths() {
 
   local source_path="${SOURCE_MOUNT}/${relative_path}"
   local relative_dir
-  relative_dir=$(dirname "${relative_path}")
+  relative_dir=$(dirname -- "${relative_path}")
 
-  local effective_relative_dir="${relative_dir}"
-  if [[ "${SANITIZE_EMOJI}" == "true" ]]; then
+  # 主力盘（wopan）拒绝含 emoji 的目录名，报误导性的「8005 登录失败」。
+  # 这里只清洗目标目录名：文件名与本地文件都不动，备份盘另算（见 backup.sh），
+  # 这样 download_records 里存的相对路径依然有效，网页侧做同样变换即可命中。
+  local effective_relative_dir
+  if [[ "${SANITIZE_EMOJI}" == "true" || "${PRIMARY_SANITIZE_EMOJI}" == "true" ]]; then
     effective_relative_dir=$(sanitize_relative_dir "${relative_dir}") || return 1
+  else
+    effective_relative_dir=$(trim_relative_dir "${relative_dir}") || return 1
   fi
 
   local dst_dir="${TARGET_BASE}"
@@ -144,16 +174,18 @@ build_remote_paths() {
 
   local src_dir
   local file_name
-  src_dir=$(dirname "${source_path}")
-  file_name=$(basename "${source_path}")
+  src_dir=$(dirname -- "${source_path}")
+  file_name=$(basename -- "${source_path}")
   printf '%s\n%s\n%s\n' "${src_dir}" "${dst_dir}" "${file_name}"
 }
 
+# 备份暂存区（backup.sh）里是硬链接副本，不是待搬运文件，必须跳过
 list_source_files() {
+  local staging_root="${SOURCE_ROOT}/${BACKUP_STAGING_DIR_NAME:-.backup-staging}"
   if [[ "${FILE_PATTERN}" == "*" ]]; then
-    find "${SOURCE_ROOT}" -type f -print0
+    find "${SOURCE_ROOT}" -path "${staging_root}" -prune -o -type f -print0
     return 0
   fi
 
-  find "${SOURCE_ROOT}" -type f -name "${FILE_PATTERN}" -print0
+  find "${SOURCE_ROOT}" -path "${staging_root}" -prune -o -type f -name "${FILE_PATTERN}" -print0
 }

@@ -23,6 +23,9 @@ STRIP_PREFIX_DIR=""
 MIN_AGE_SECONDS=120
 DRY_RUN="false"
 SANITIZE_EMOJI="false"
+# 只清洗主力盘目标目录名（不重命名本地文件、不影响备份盘）。
+# wopan 拒绝含 emoji 的目录名，报误导性的「8005 登录失败」。
+PRIMARY_SANITIZE_EMOJI="false"
 FILE_PATTERN="*.mp4"
 PROCESS_MOVED_COUNT=0
 PROCESS_ERROR_COUNT=0
@@ -47,6 +50,8 @@ MAX_RECONCILE_FILES_PER_RUN=0
 VERIFY_AFTER_MOVE="true"
 REMOTE_LIST_CACHE_ENABLED="false"
 REMOTE_LIST_REFRESH="true"
+D2_DIRECT_UPLOAD="false"
+D2_DIRECT_PYTHON="${OPENLIST_MOVER_PROJECT_DIR}/.venv/bin/python"
 
 ACTION_COMPLETED="completed"
 ACTION_WAIT="wait"
@@ -54,6 +59,32 @@ ACTION_CONTINUE="continue"
 ACTION_SKIP="skip"
 ACTION_ERROR="error"
 ACTION_UNKNOWN="unknown"
+# process_one_file 在 $() 子 shell 中运行，容量熔断通过该 action 回传给父进程
+ACTION_CAPACITY="capacity_limit"
+
+# 目标盘存储或上传配额不足时置位，停止主力盘操作，备份盘仍可继续复制
+CAPACITY_LIMIT_HIT=0
+CAPACITY_ERROR_PATTERN='capacity limit|USER_DAILY_UPLOAD_QUOTA_EXCEEDED'
+# D2 网关间歇 5xx / 超时：本地文件保留、下轮重试，不计入本轮失败；
+# 同一文件连续这么多轮仍失败才算真失败（10 分钟一轮约 1 小时）。
+D2_TRANSIENT_ERROR_PATTERN='HTTP 5[0-9][0-9]|transport failed'
+D2_TRANSIENT_MAX_ATTEMPTS=6
+
+is_capacity_limit_error() {
+  local err="${1:-${MOVE_TASK_ERROR:-}}"
+  [[ "${err}" =~ ${CAPACITY_ERROR_PATTERN} ]]
+}
+
+mark_capacity_limit_hit() {
+  local file_path="${1:-}"
+  local detail="${2:-}"
+  CAPACITY_LIMIT_HIT=1
+  if [[ -n "${file_path}" ]]; then
+    log "目标盘存储或上传配额不足，本轮停止主力盘对账/提交: file=${file_path}${detail:+, ${detail}}"
+  else
+    log "目标盘存储或上传配额不足，本轮停止主力盘对账/提交${detail:+: ${detail}}"
+  fi
+}
 
 COMMAND="run"
 COMMAND_TARGET=""
@@ -84,7 +115,7 @@ require_cmd() {
 
 ensure_parent_dir() {
   local target="$1"
-  mkdir -p "$(dirname "${target}")"
+  mkdir -p -- "$(dirname -- "${target}")"
 }
 
 describe_state_isolation() {

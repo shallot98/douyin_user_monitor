@@ -38,12 +38,61 @@ cookie_liveness:
   enabled: true
   # 测活间隔（小时）
   interval_hours: 6
-  # 最新作品早于该天数视为过期信号
+  # 发布-下载间隔超过该天数视为陈旧；全陈旧且探针不可达才 expired
   stale_days: 7
-  # 抽样用户数
+  # 样本不足时回退探针（可达性）的抽样用户数
   sample_user_count: 5
-  # 最少成功样本数（不足则判定 unknown，不告警）
+  # 判定过期/探针结论所需最少成功样本（不足则 unknown 或回退探针）
   min_samples: 3
-  # 失效告警冷却（小时）
+  # 失效告警冷却（小时）；degraded 不告警
   alert_cooldown_hours: 12
 
+cookie_rotation:
+  # 多 Cookie 轮换，分散请求降低风控
+  enabled: true
+  # 跳过测活为 expired 的条目；若全部 expired 则仍轮换全部非空 Cookie
+  skip_expired: true
+
+
+archive:
+  # 已下载作品的归档回放（作品页播放视频/看图走这里，不请求抖音）
+  enabled: true
+  # OpenList 地址；默认与 scripts/openlist-auto-move 的 API_URL 一致
+  openlist_base_url: "http://127.0.0.1:5244"
+  # API token 来源：留空则从 OpenList 自身的 SQLite 只读读取
+  openlist_db_path: "/opt/openlist/data/data.db"
+  openlist_token: ""
+  # 主力盘 D2：网页显示与播放优先读取现有归档目录
+  primary_base: "/d2/vps/抖音视频"
+  # 备份盘：防主力盘跑路；部分历史作品仅存于此，读取会自动回落
+  backup_base: "/kuake/抖音视频"
+  # D2 保留原名，也查找历史清理后的副本；须与 mover 的
+  # PRIMARY_SANITIZE_EMOJI 保持一致
+  sanitize_primary_dirs: false
+  timeout_seconds: 30
+
+content_filter:
+  # 新下载作品的 AI 内容筛选（广告 / 纯文字图片 / 截图），结论写进下载记录
+  enabled: false
+  # shadow：只打标签，不移动、不删除文件（目前只支持 shadow）
+  mode: "shadow"
+  # OpenAI 兼容的视觉模型接口；密钥只从环境变量 DYMON_FILTER_API_KEY 读取
+  api_base: "http://127.0.0.1:18082/v1"
+  model: "grok-4.20-0309-non-reasoning"
+  timeout_seconds: 45
+  # 每个视频最多抽几张关键帧（另加封面）；图文作品最多取几张图。
+  # 张数不吃额度（额度按请求次数计），只多花 token（实测每张 ≈491）和约 100ms
+  max_frames: 12
+  # 这些分类且置信度 >= min_confidence 时判为“筛掉”
+  reject_categories: ["ad", "text_only", "screenshot"]
+  min_confidence: 0.8
+  # 历史回补下载的作品是否也检测
+  include_history: true
+  # 单次模型调用的输出上限（一个作品 JSON 约 300 token）
+  max_output_tokens: 700
+  # 批量补打（scripts/content_filter_backfill.py）一次评 4 条，输出是 JSON 数组，
+  # 所以超时/输出上限单独放宽；只影响补打任务，新作品仍用上面的单条设置
+  batch_timeout_seconds: 180
+  batch_max_output_tokens: 4000
+  # 档位滞回：加权分落在阈值 ±delta 内时标记 zone，并给出保守档 score_low；0=关闭
+  hysteresis_delta: 0.5

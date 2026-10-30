@@ -13,11 +13,16 @@ logs/
 .claude/
 .codex/
 .trellis/
+.trellis-disabled-backup/
+.pi/
+.architec/
+.grok/
+.hippos/
+dogfood-output/
+skills-lock.json
 
 # Runtime state and local-only helpers
 runtime/
-=4.10
-ig_login.py
 
 # Local Douyin crawler secrets
 config/douyin_web.yaml

@@ -1,21 +1,30 @@
-<!-- TRELLIS:START -->
-# Trellis Instructions
+# Project agent notes
 
-These instructions are for AI assistants working in this project.
+## Trellis status: soft-disabled
 
-This project is managed by Trellis. The working knowledge you need lives under `.trellis/`:
+Trellis is **soft-disabled** in this repo (injection off; data kept).
 
-- `.trellis/workflow.md` — development phases, when to create tasks, skill routing
-- `.trellis/spec/` — package- and layer-scoped coding guidelines (read before writing code in a given layer)
-- `.trellis/workspace/` — per-developer journals and session traces
-- `.trellis/tasks/` — active and archived tasks (PRDs, research, jsonl context)
+- Pi extension disabled: `.pi/settings.json` → `extensions: []`
+- Claude Trellis hooks cleared: `.claude/settings.json` → `hooks: {}`
+- Historical data still on disk: `.trellis/` (tasks, spec, workspace, scripts)
+- Skills/agents files under `.pi/`, `.claude/`, etc. are **not** deleted
 
-If a Trellis command is available on your platform (e.g. `/trellis:finish-work`, `/trellis:continue`), prefer it over manual steps. Not every platform exposes every command.
+Do **not** enforce Trellis task creation, channel workers, or workflow phases unless the user explicitly re-enables Trellis.
 
-If you're using Codex or another agent-capable tool, additional project-scoped helpers may live in:
-- `.agents/skills/` — reusable Trellis skills
-- `.codex/agents/` — optional custom subagents
+### Restore Trellis
 
-Managed by Trellis. Edits outside this block are preserved; edits inside may be overwritten by a future `trellis update`.
+```bash
+# From project-local backup (preferred)
+cp -a .trellis-disabled-backup/pi-settings.json .pi/settings.json
+cp -a .trellis-disabled-backup/AGENTS.md AGENTS.md
+cp -a .trellis-disabled-backup/claude-settings.json .claude/settings.json
 
-<!-- TRELLIS:END -->
+# Or from /tmp copy (same machine, may be cleaned on reboot)
+# cp -a /tmp/trellis-soft-off-backup/pi-settings.json .pi/settings.json
+# cp -a /tmp/trellis-soft-off-backup/AGENTS.md AGENTS.md
+# cp -a /tmp/trellis-soft-off-backup/claude-settings.json .claude/settings.json
+```
+
+Then open a **new** Pi/Claude session (or `/reload`).
+
+Details: `.trellis-disabled-backup/RESTORE.md`
