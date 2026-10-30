@@ -1,5 +1,8 @@
 # Implementation status · ui-green-console
 
+> **Archived 2026-10-30**：计划已关闭，本文件只作历史快照；见同目录 README 顶部关闭说明。
+
+
 ## Current Phase
 Theme retint: soft light daylight palette (away from dark green)
 

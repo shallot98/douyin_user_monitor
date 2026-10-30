@@ -1,0 +1,11 @@
+[Unit]
+Description=Synchronize verified playback repair metadata
+
+[Timer]
+OnBootSec=30s
+OnUnitInactiveSec=5min
+AccuracySec=5s
+Unit=douyin-playback-repair-sync.service
+
+[Install]
+WantedBy=timers.target

@@ -1,8 +1,10 @@
 # 全用户封面补全
 
 Role: entrypoint
-Mode: status-update
-Status: In Progress / source access blocked
+Mode: archive
+Status: Closed — 2026-10-30 用户决定关闭
+
+> **关闭说明（2026-10-30）**：22,285 张封面已验证；剩余 26 张（24 条图文、2 条视频，涉及 22 个用户）因原作访问被验证码阻挡未补。用户决定关闭本计划，不再主动追；新下载的封面机制已上线，不受影响。以下为关闭前原文。
 Date: 2026-09-14
 Related: [媒体基线](../../baseline/media-playback.md)、[执行状态](implementation-status.md)、[全量 HTTP 验收](evidence/20260914-http-availability-audit.md)、[首批验收记录](evidence/20260914-final-verification.md)、[旧封面漏检复核](evidence/20260914-legacy-cover-recheck.md)
 

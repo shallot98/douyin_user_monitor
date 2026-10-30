@@ -1,7 +1,9 @@
 # Plan · UI Green Console
 
 ## Status
-**Planning / ready-check** — design direction chosen; production pages not fully restyled yet.
+**Closed — 2026-10-30 用户决定关闭。** 浅色 retint 已在 2026-08-06 上线；之后新增的作品库、刷视频等 6 个页面不在原范围内，不再按本计划继续。如需界面改版另开计划。以下为关闭前原文。
+
+~~**Planning / ready-check** — design direction chosen; production pages not fully restyled yet.~~
 
 ## Intent
 把正式三页控制台（dashboard / statistics / cookies）落到 **E2 深绿控制台精修** 风格，优先解决手机端难用与“数字+方框突兀”问题，同时 **零破坏现有 API/DOM 合同**。

@@ -17,13 +17,17 @@ Last full inventory 2026-10-30: [baseline/README.md](baseline/README.md)
 
 ## Active plans
 
-Status 列在 2026-10-30 审计时复核；三个计划的 handoff 都早于 10 月，标注为 stale 的需要用户确认后再更新或归档。
-
 | Plan | Status | Current Phase | Last Landed | Next Target |
 |------|--------|---------------|-------------|-------------|
-| [ui-green-console](plans/ui-green-console/README.md) | Stale（最后状态 2026-08-06） | 浅色主题 retint 已上线 | `common.css` 浅色 token；之后新增 6 个页面未纳入本计划 | 用户决定：关闭或重定范围 |
-| [browser-playback-repair](plans/browser-playback-repair/README.md) | Stalled（handoff 2026-09-14） | boh worker 2026-09-19 exit 3 后未恢复 | 883 映射；89/12,410 条已发布（09-14 快照） | 用户决定：重启队列或收口；同步 timer 现为空转 |
-| [cover-delivery](plans/cover-delivery/README.md) | In Progress / source access blocked | 26 张封面无可用来源 | 2026-09-14：22,285 张验证 | 原作访问恢复后再补 |
+| [maintenance-backlog](plans/maintenance-backlog/README.md) | Planning（2026-10-30 建立） | 14 项待办已排序 | 2026-10-30：main 合并 `ff279dc`，mover 两处修复，同步 timer 停用 | T1–T3 运维小项 |
+
+## Closed plans（2026-10-30 关闭，原文保留）
+
+| Plan | 结局 |
+|------|------|
+| [browser-playback-repair](plans/browser-playback-repair/README.md) | 队列 09-19 跑完，网站发布 12,321 条；89 条未解决转入 maintenance-backlog T8；同步 timer 已 disable |
+| [cover-delivery](plans/cover-delivery/README.md) | 22,285 张已验证；26 张因原作验证码阻挡未补，用户决定关闭 |
+| [ui-green-console](plans/ui-green-console/README.md) | 浅色 retint 已上线；之后新页面不在范围内，用户决定关闭 |
 
 已知断链（2026-10-30 审计）：browser-playback-repair 与 cover-delivery 的证据文件链接到 `runtime/web-playback-inventory-20260913/`、`runtime/cover-loading-20260914/`、`runtime/cover-backfill-20260914/`，这些目录已不存在；部分笔记留在 `runtime/_archived-notes-20260915/`。证据原文未改，JSON 证据视为丢失。
 

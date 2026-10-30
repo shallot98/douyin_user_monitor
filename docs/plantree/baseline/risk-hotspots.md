@@ -11,7 +11,7 @@ Updated: 2026-10-30（只读盘点；仅记录事实，修复与否未定）
   - 记录中 65 条作品路径含尾空格目录；网页 Range 检查 61 条正常（读取端会去空格），4 条 404，就是未上传的那几组。
 - ~~**工作区未提交**~~（2026-10-30 已分 5 个提交入库，未推送）：分支 `feat/split-download-records` 上 48 个文件改动（+3026/−230），另有约 16 个未跟踪文件（`swipe.html`、`swipe-core.js`、`api_keys.py`、`parse_cookies.py` 及其测试等）。这些功能已在线上运行，但 git 里没有记录，回滚无基线。
 - ~~**CI 会红**~~（2026-10-30 已修）：见 [test-and-release-gates.md](test-and-release-gates.md)。
-- **播放修复同步空转**：boh worker 2026-09-19 退出（exit 3），`douyin-playback-repair-sync.timer` 每小时空跑并刷新 OpenList 目录。对应计划状态已过期。
+- ~~**播放修复同步空转**~~（2026-10-30 已停）：worker 09-19 是正常跑完（exit 3 = 有失败项）；timer 已 disable，89 条未解决见 maintenance-backlog T8。
 
 ## 结构
 
@@ -31,7 +31,7 @@ Updated: 2026-10-30（只读盘点；仅记录事实，修复与否未定）
 
 ## 运维
 
-- 配置漂移：timer 频率只在 `/etc/systemd/system/*.timer.d/`；playback-repair 单元源在 `runtime/`。
+- 配置漂移（2026-10-30 已收进 `scripts/systemd/`，含 drop-in）：此前 timer 频率只在 `/etc/systemd/system/*.timer.d/`，playback-repair 单元源在 `runtime/`。
 - `douyin-api-8900.service` 同端口冲突（inactive）。
 - `migrate_archive_to_primary.py` 文档称备份盘只读，实际会改名夸克目录，且默认不是 dry-run。
 - `relay_restore.py` 硬编码 boh2 主机和 `/root/boh2.pass`，远端 `rm -rf /tmp/relay_restore_stage`。
