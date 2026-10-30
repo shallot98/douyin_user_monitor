@@ -9,12 +9,12 @@ from typing import Any, Dict
 from unittest.mock import AsyncMock, patch
 
 from fastapi.testclient import TestClient
+from record_helpers import patch_monitor_users
 
 from douyin_user_monitor.api import monitor as monitor_api
 from douyin_user_monitor.main import app
 from douyin_user_monitor.monitor.openlist_client import ArchiveUnavailableError, OpenListClient
 from douyin_user_monitor.settings import ArchiveSettings
-from record_helpers import patch_monitor_users
 
 
 def archive_user(**overrides: Any) -> Dict[str, Any]:

@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock, patch
 
 from archive_http_server import ArchiveMediaServer
 from fastapi.testclient import TestClient
+from record_helpers import patch_monitor_users
 
 from douyin_user_monitor.api import monitor as monitor_api
 from douyin_user_monitor.api.media_proxy import (
@@ -15,7 +16,6 @@ from douyin_user_monitor.api.media_proxy import (
     parse_byte_range,
 )
 from douyin_user_monitor.main import app
-from record_helpers import patch_monitor_users
 
 PAYLOAD = bytes(range(256)) * 40  # 10240 bytes
 

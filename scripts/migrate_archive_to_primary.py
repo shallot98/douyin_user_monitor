@@ -36,13 +36,13 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT))
 
 from douyin_user_monitor.monitor.nickname_history import derive_archive_dir_names  # noqa: E402
-from douyin_user_monitor.monitor.record_store import load_state_with_records  # noqa: E402
 from douyin_user_monitor.monitor.openlist_client import OpenListClient  # noqa: E402
 from douyin_user_monitor.monitor.path_sanitize import (  # noqa: E402
     fallback_dir_for,
     sanitize_component,
     sanitize_relative_dir,
 )
+from douyin_user_monitor.monitor.record_store import load_state_with_records  # noqa: E402
 from douyin_user_monitor.settings_loaders import load_settings  # noqa: E402
 
 DEFAULT_STATE_PATH = REPO_ROOT / "runtime" / "archive-migration.json"

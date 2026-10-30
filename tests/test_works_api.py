@@ -5,10 +5,10 @@ from typing import Any, Dict
 from unittest.mock import AsyncMock, patch
 
 from fastapi.testclient import TestClient
+from record_helpers import patch_monitor_users
 
 from douyin_user_monitor.api import monitor as monitor_api
 from douyin_user_monitor.main import app
-from record_helpers import patch_monitor_users
 
 
 def sample_user(**overrides: Any) -> Dict[str, Any]:

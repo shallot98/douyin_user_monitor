@@ -1,9 +1,9 @@
 from copy import deepcopy
 
 import pytest
+from record_helpers import seed_state
 
 from douyin_user_monitor.monitor.storage import MonitorStorage
-from record_helpers import seed_state
 from scripts.cloud_playback.publish import PublicationError, publish_verified
 
 

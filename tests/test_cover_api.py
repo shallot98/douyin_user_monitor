@@ -10,11 +10,11 @@ from unittest.mock import AsyncMock, patch
 
 from fastapi.testclient import TestClient
 from PIL import Image
+from record_helpers import patch_monitor_users
 
 from douyin_user_monitor.api import monitor as monitor_api
 from douyin_user_monitor.main import API_KEY_ENV, app
 from douyin_user_monitor.monitor.cover_store import CoverStore
-from record_helpers import patch_monitor_users
 
 ARCHIVE_PATH = "/api/monitor/users/user-1/archive"
 COVER_PATH = ARCHIVE_PATH + "/7001/cover"

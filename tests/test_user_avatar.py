@@ -4,14 +4,13 @@ from pathlib import Path
 from unittest.mock import patch
 
 from fastapi.testclient import TestClient
+from record_helpers import patch_monitor_users
 
-from douyin_user_monitor.api import monitor as monitor_api
 from douyin_user_monitor.main import app
 from douyin_user_monitor.monitor.notifier import NoopMonitorNotifier
 from douyin_user_monitor.monitor.service import MonitorService
 from douyin_user_monitor.monitor.storage import MonitorStorage, build_default_state
 from douyin_user_monitor.monitor.user_sync import UserSyncService
-from record_helpers import patch_monitor_users
 
 SAMPLE_PROFILE = {
     "user": {

@@ -13,7 +13,7 @@ _STATE_DIR = Path(tempfile.mkdtemp(prefix="dymon-test-state-"))
 os.environ["DYMON_STATE_PATH"] = str(_STATE_DIR / "monitor_users.json")
 
 
-import pytest
+import pytest  # noqa: E402 - 必须先设好 DYMON_STATE_PATH 再导入
 
 
 class _NoMediaCache:

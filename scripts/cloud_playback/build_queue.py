@@ -10,13 +10,13 @@ from copy import deepcopy
 from pathlib import Path
 
 from douyin_user_monitor.monitor.archive_feed import build_archive_item, find_record, list_archive_files
-from douyin_user_monitor.monitor.record_store import load_state_with_records
 from douyin_user_monitor.monitor.archive_path_aliases import ARCHIVE_PATH_ALIASES_FILENAME, ArchivePathAliasError
 from douyin_user_monitor.monitor.playback_media import (
     FAST_PLAY_MAX_BIT_RATE,
     FAST_PLAY_MAX_LONG_SIDE,
     FAST_PLAY_MAX_SHORT_SIDE,
 )
+from douyin_user_monitor.monitor.record_store import load_state_with_records
 
 from .media_remote import PLAYBACK_ROOT
 from .run_queue import write_json

@@ -3,8 +3,8 @@ from copy import deepcopy
 import pytest
 from test_cloud_playback_publish import fixture as publication_fixture
 
-from douyin_user_monitor.monitor.service import MonitorService
 from douyin_user_monitor.monitor.record_store import RecordStore
+from douyin_user_monitor.monitor.service import MonitorService
 from douyin_user_monitor.monitor.storage import MonitorStorage
 from scripts.cloud_playback.publish import publish_verified
 

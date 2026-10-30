@@ -11,12 +11,12 @@ from unittest.mock import AsyncMock, patch
 import httpx
 from archive_http_server import ArchiveMediaServer
 from fastapi import FastAPI
+from record_helpers import write_state_file
 
 from douyin_user_monitor.api import monitor as monitor_api
 from douyin_user_monitor.api.archive_media_cache import ArchiveMediaCache
 from douyin_user_monitor.monitor.openlist_client import ArchiveUnavailableError, OpenListClient
 from douyin_user_monitor.monitor.storage import MonitorStorage, build_default_state
-from record_helpers import write_state_file
 
 READ_WAIT_SECONDS = 2
 USER_PATH = "/api/monitor/users/user-1"

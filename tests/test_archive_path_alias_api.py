@@ -4,11 +4,11 @@ import unittest
 from unittest.mock import AsyncMock, call, patch
 
 from fastapi.testclient import TestClient
+from record_helpers import patch_monitor_users
 
 from douyin_user_monitor.api import monitor as monitor_api
 from douyin_user_monitor.main import app
 from douyin_user_monitor.monitor.archive_path_aliases import ArchivePathAliases
-from record_helpers import patch_monitor_users
 
 ORIGINAL_PATH = "八月/新文件名.mp4"
 VERIFIED_PATH = "/d2/vps/抖音视频/sec_sec-1/旧文件名  空格.mp4"
