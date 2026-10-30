@@ -110,6 +110,13 @@ class ArchiveSettings:
         return tuple(unique)
 
 
+DEFAULT_CONTENT_FILTER_MAX_OUTPUT_TOKENS = 700
+DEFAULT_CONTENT_FILTER_HYSTERESIS_DELTA = 0.5
+# 批量一次评 4 条作品，输出是一个数组，输出上限和超时都要比单条宽松
+DEFAULT_CONTENT_FILTER_BATCH_TIMEOUT_SECONDS = 180.0
+DEFAULT_CONTENT_FILTER_BATCH_MAX_OUTPUT_TOKENS = 4000
+
+
 @dataclass(frozen=True)
 class ContentFilterSettings:
     """新作品 AI 内容筛选（广告 / 纯文字图片 / 截图）。"""
@@ -126,6 +133,13 @@ class ContentFilterSettings:
     min_confidence: float
     # 历史回补下载的作品是否也检测
     include_history: bool
+    # 单次模型调用的输出上限
+    max_output_tokens: int = DEFAULT_CONTENT_FILTER_MAX_OUTPUT_TOKENS
+    # 档位边界滞回：weighted 落在阈值 ±delta 内标记为边界区，并给出保守档 score_low
+    hysteresis_delta: float = DEFAULT_CONTENT_FILTER_HYSTERESIS_DELTA
+    # 批量评分（补打任务）的超时与输出上限
+    batch_timeout_seconds: float = DEFAULT_CONTENT_FILTER_BATCH_TIMEOUT_SECONDS
+    batch_max_output_tokens: int = DEFAULT_CONTENT_FILTER_BATCH_MAX_OUTPUT_TOKENS
 
 
 @dataclass(frozen=True)
@@ -146,7 +160,7 @@ DEFAULT_CONTENT_FILTER_MODE = "shadow"
 DEFAULT_CONTENT_FILTER_API_BASE = "http://127.0.0.1:18082/v1"
 DEFAULT_CONTENT_FILTER_MODEL = "grok-4.20-0309-non-reasoning"
 DEFAULT_CONTENT_FILTER_TIMEOUT_SECONDS = 45.0
-DEFAULT_CONTENT_FILTER_MAX_FRAMES = 6
+DEFAULT_CONTENT_FILTER_MAX_FRAMES = 12
 DEFAULT_CONTENT_FILTER_REJECT_CATEGORIES = ("ad", "text_only", "screenshot")
 DEFAULT_CONTENT_FILTER_MIN_CONFIDENCE = 0.8
 DEFAULT_CONTENT_FILTER_INCLUDE_HISTORY = True

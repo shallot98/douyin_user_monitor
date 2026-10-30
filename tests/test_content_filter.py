@@ -6,6 +6,7 @@ import tempfile
 import unittest
 from dataclasses import replace
 from pathlib import Path
+from unittest import mock
 
 import httpx
 from PIL import Image
@@ -128,13 +129,13 @@ class SignalAndParseTests(unittest.TestCase):
         self.assertEqual(appearance["exposed_areas"], ["胸部上缘乳沟", "腰腹"])
         self.assertEqual(appearance["poses"], ["扭动"])
         self.assertEqual(appearance["borderline"]["chest"], 3)
-        # 总分由程序算：胸部 3 分至少 4 分（模型不再给总分）
-        self.assertEqual(appearance["borderline"]["score"], 4)
+        # 总分由程序算：只看胸部不再保底（caliber 2），模型给的总分被忽略
+        self.assertEqual(appearance["borderline"]["score"], 3)
         self.assertEqual(appearance["borderline"]["enhancers"], ["湿身"])
         self.assertEqual(appearance["dropped"], ["outfit:比基尼", "enhancers:发光"])
 
     def test_non_adult_body_fields_and_borderline_forced_empty(self):
-        for age in ("疑似未成年", "无法判断"):
+        for age in ("疑似未满18岁", "无法判断"):
             text = self._with_appearance(age=age, outfit=["泳装"], exposed_areas=["腰腹"], camera_focus=["胸部"],
                                          poses=["舞蹈"], borderline={**BORDERLINE, "chest": 3})
 
@@ -159,7 +160,7 @@ class SignalAndParseTests(unittest.TestCase):
         def total(**subs):
             item = {"chest": 0, "hip": 0, "figure": 0, "overall": 0, "camera": 0, "motion": 0, "violation": False, **subs}
             item["body_raw"], item["body"] = cf.body_score(item["hip"], item["figure"])
-            return cf.borderline_total(item)
+            return cf.borderline_total(item)[:2]
 
         cases = [
             ({}, (0.0, 0)),
@@ -169,7 +170,10 @@ class SignalAndParseTests(unittest.TestCase):
             ({"chest": 1, "hip": 2, "figure": 2, "overall": 2, "camera": 1, "motion": 1}, (13.0, 3)),   # 瑜伽裤
             ({"chest": 2, "hip": 2, "figure": 3, "overall": 2, "camera": 1, "motion": 1}, (16.7, 4)),   # 健身紧身
             ({"chest": 3, "hip": 3, "figure": 3, "overall": 3, "camera": 2, "motion": 1}, (24.0, 5)),
-            ({"chest": 3}, (9.0, 4)),                                                                   # 胸部 3 分保底 4
+            # caliber 2：只看胸部不再保底（实测 chest>=3 且其余为 0 的只有 2/15,145 条）
+            ({"chest": 3}, (9.0, 2)),
+            # 保底改成「胸部与整体暴露同时成立」
+            ({"chest": 2, "overall": 3}, (12.0, 4)),
         ]
         for subs, expected in cases:
             self.assertEqual(total(**subs), expected, subs)
@@ -179,6 +183,44 @@ class SignalAndParseTests(unittest.TestCase):
         self.assertGreater(total(hip=3, figure=0)[0], total(hip=0, figure=3)[0])
         base = {name: 0 for name in cf.BORDERLINE_WEIGHTS} | {"violation": False}
         self.assertEqual(cf.borderline_total({**base, "violation": True})[1], 5)
+
+    def test_violation_rule_fires_without_model_flag(self):
+        """模型端 violation 在 15,145 条里触发 0 次，疑似违规改由分项判定。"""
+        def score(**subs):
+            item = {"chest": 0, "hip": 0, "figure": 0, "overall": 0, "camera": 0, "motion": 0,
+                    "violation": False, "enhancers": [], **subs}
+            item["body_raw"], item["body"] = cf.body_score(item["hip"], item["figure"])
+            return cf.borderline_total(item)
+
+        # 整体 3 档但加权分没到 17、也没有透视/湿身 → 不升级，只按加权分归档
+        weighted, band, low, zone = score(overall=3, camera=3, motion=3)
+        self.assertEqual((weighted, band), (12.0, 3))
+        self.assertLess(weighted, cf.VIOLATION_WEIGHTED_FLOOR)
+        # 整体 3 档 + 透视 → 疑似违规，一票 5 分（加权分只有 6.0，本来落在最低档）
+        self.assertEqual(score(overall=3, enhancers=["透视"])[1], 5)
+        # 整体 3 档 + 加权分 ≥17 → 同样 5 分（不加规则的话是 4 档）
+        bumped = score(chest=2, hip=3, figure=3, overall=3, camera=3)
+        self.assertEqual((bumped[0], bumped[1]), (21.0, 5))
+        # 遮盖多（overall 1）时就算有湿身也不算疑似违规
+        self.assertEqual(score(overall=1, enhancers=["湿身"])[1], 0)
+        # 加权分很高但整体没到 3 档 → 不触发，维持加权分归档的 4 档
+        self.assertEqual(score(chest=2, hip=3, figure=3, overall=2)[:2], (16.0, 4))
+
+    def test_hysteresis_gives_conservative_band_and_zone(self):
+        def parts(**subs):
+            item = {"chest": 0, "hip": 0, "figure": 0, "overall": 0, "camera": 0, "motion": 0,
+                    "violation": False, **subs}
+            item["body_raw"], item["body"] = cf.body_score(item["hip"], item["figure"])
+            return cf.borderline_total(item, hysteresis_delta=0.5)
+
+        # weighted 6.0 离 3.0 / 8.5 两个阈值都超过 0.5 → 不是边界区，保守档与总分一致
+        self.assertEqual(parts(overall=2, camera=1, motion=1), (6.0, 1, 1, False))
+        # weighted 8.7 压在 2 档阈值 8.5 上（差 0.2 ≤ δ）：抖一下就掉档
+        self.assertEqual(parts(hip=2, figure=3, overall=2), (8.7, 2, 1, True))
+        # 关掉滞回时保守档等于总分，且不报边界
+        item = {"chest": 0, "hip": 2, "figure": 3, "overall": 2, "camera": 0, "motion": 0, "violation": False}
+        item["body_raw"], item["body"] = cf.body_score(2, 3)
+        self.assertEqual(cf.borderline_total(item), (8.7, 2, 2, False))
 
     def test_model_supplied_total_is_ignored(self):
         text = self._with_appearance(borderline={**BORDERLINE, "score": 5})
@@ -232,6 +274,50 @@ class ContentFilterRunTests(unittest.TestCase):
         files.append("nick/图片/work/cover.jpg")
         return {"aweme_id": "1", "media_type": "image", "source": "incremental", "files": files,
                 "cover_file": "nick/图片/work/cover.jpg"}
+
+    def test_blocked_frame_is_skipped_and_retried(self):
+        calls = []
+
+        async def fake_ask(settings, prompt, images, **kwargs):
+            calls.append((prompt, list(images)))
+            if len(images) > 1 or images[0] == b"bad":
+                raise cf.ModelBlockedError("模型返回空结果（疑似被上游安全策略拦截）")
+            return globals()['reply']()
+
+        content_filter = cf.ContentFilter(SETTINGS, self.root)
+        with mock.patch.object(cf, "ask_model", fake_ask):
+            text, used = asyncio.run(content_filter._ask_with_frame_fallback("打分要求", [b"bad", b"good"]))
+
+        self.assertEqual(used, [1])
+        self.assertIn("安全策略拦截", calls[-1][0])
+        self.assertIn('"category"', text)
+
+    def test_all_blocked_frames_raise(self):
+        async def fake_ask(*args, **kwargs):
+            raise cf.ModelBlockedError("模型返回空结果（疑似被上游安全策略拦截）")
+
+        content_filter = cf.ContentFilter(SETTINGS, self.root)
+        with mock.patch.object(cf, "ask_model", fake_ask):
+            with self.assertRaises(cf.ModelBlockedError):
+                asyncio.run(content_filter._ask_with_frame_fallback("打分要求", [b"a", b"b"]))
+
+    def test_model_block_retries_without_extra_frames(self):
+        def handler(request):
+            body = json.loads(request.content)
+            images = [part for part in body["messages"][0]["content"] if part["type"] == "image_url"]
+            if len(images) > 1:
+                return httpx.Response(200, json={"choices": []})
+            return httpx.Response(200, json={"choices": [{"message": {"content": globals()['reply']()}}]})
+
+        content_filter = cf.ContentFilter(SETTINGS, self.root, transport=httpx.MockTransport(handler))
+        record = self._image_record(2)
+        asyncio.run(content_filter({"id": "u"}, {"desc": "测试"}, record))
+
+        result = record["content_filter"]
+        self.assertEqual(result["status"], "ok")
+        self.assertEqual(result["frames"], 2)
+        self.assertEqual(result["scored_frames"], 1)
+        self.assertEqual(result["skipped_frames"], [2])
 
     def test_image_post_rejected_with_downscaled_images(self):
         result, seen = self._run(self._image_record(),
@@ -341,6 +427,52 @@ class ContentFilterRunTests(unittest.TestCase):
         self.assertEqual(motion["profile"], "static")
 
 
+    def test_consistency_flags_only_hard_contradictions(self):
+        def verdict_of(*, appearance=None, borderline=None, tags=None):
+            data = json.loads(reply())
+            person = {"age": "成年", "outfit": [], "exposed_areas": [], "camera_focus": [], "poses": []}
+            bands = {"chest": 0, "hip": 0, "figure": 0, "overall": 0, "camera": 0, "motion": 0,
+                     "enhancers": [], "violation": False}
+            bands.update(borderline or {})
+            person.update(appearance or {})
+            person["borderline"] = bands
+            data["appearance"] = person
+            if tags:
+                data["tags"] = {**data["tags"], **tags}
+            return cf.parse_verdict(json.dumps(data, ensure_ascii=False))
+
+        # 干净结论、以及「有乳沟且胸部给了 1 分」这类自洽组合都不该报
+        self.assertEqual(cf.consistency_issues(verdict_of()), [])
+        self.assertEqual(cf.consistency_issues(
+            verdict_of(appearance={"exposed_areas": ["胸部上缘乳沟"]}, borderline={"chest": 1})), [])
+        self.assertEqual(cf.consistency_issues(
+            verdict_of(tags={"subject": ["无人物"]})), [])          # 无人物 + 全零分是正常的
+
+        cases = {
+            "有乳沟却给胸部 0 分": dict(appearance={"exposed_areas": ["胸部上缘乳沟"]}),
+            "镜头聚焦胸臀却给镜头 0 分": dict(appearance={"camera_focus": ["胸部"]}),
+            "内衣泳装却算几乎没露出": dict(appearance={"outfit": ["泳装"]}),
+            "标了透视却算几乎没露出": dict(borderline={"enhancers": ["透视"]}),
+            "判为无人物却有身体描述": dict(tags={"subject": ["无人物"]}, appearance={"outfit": ["日常"]}),
+        }
+        for name, fields in cases.items():
+            self.assertIn(name, cf.consistency_issues(verdict_of(**fields)), name)
+        # 同一条检查也覆盖「无人物但擦了擦边分」这种触发方式
+        self.assertIn("判为无人物却有身体描述", cf.consistency_issues(
+            verdict_of(tags={"subject": ["无人物"]}, borderline={"overall": 2})))
+
+    def test_consistency_skips_works_without_adult_person(self):
+        """未判定成年时身体字段已被强制清空，不该因此误报矛盾。"""
+        data = json.loads(reply())
+        data["appearance"] = {"age": "无法判断", "outfit": ["泳装"], "exposed_areas": ["胸部上缘乳沟"],
+                              "camera_focus": ["胸部"], "poses": [], "borderline": None}
+
+        verdict = cf.parse_verdict(json.dumps(data, ensure_ascii=False))
+
+        self.assertEqual(verdict["appearance"]["outfit"], [])
+        self.assertEqual(cf.consistency_issues(verdict), [])
+
+
 class ArchiveFeedFilterTests(unittest.TestCase):
     def _user(self):
         base = {"media_type": "video", "files": ["n/a.mp4"], "publish_time": "2026-09-01T00:00:00+08:00"}
@@ -364,24 +496,299 @@ class ArchiveFeedFilterTests(unittest.TestCase):
     def test_borderline_views(self):
         user = self._user()
         records = user["download_records"]
-        records[2]["content_filter"]["appearance"] = {"age": "成年", "borderline": {"score": 4}}
-        records[3]["content_filter"] = {"status": "ok", "appearance": {"age": "成年", "borderline": {"score": 3}}}
+        records[2]["content_filter"]["appearance"] = {"age": "成年",
+                                                     "borderline": {"score": 4, "score_low": 3}}
+        records[3]["content_filter"] = {"status": "ok", "caliber": 2, "scoring": "batch", "version": 5,
+                                        "appearance": {"age": "成年",
+                                                       "borderline": {"score": 3, "score_low": 2}}}
         records[0]["content_filter"]["appearance"] = {"age": "无法判断", "borderline": None}
-        ids = lambda view: sorted(item["aweme_id"] for item in build_archive_page(user, ai_filter=view)["items"])
+        def ids(view):
+            return sorted(item["aweme_id"] for item in build_archive_page(user, ai_filter=view)["items"])
 
         self.assertEqual(ids("borderline3"), ["3", "4"])
         self.assertEqual(ids("borderline4"), ["3"])
+        # *_strict 用保守档：重跑一遍可能掉档的作品不进这个视图
+        self.assertEqual(ids("borderline3_strict"), ["3"])
+        self.assertEqual(ids("borderline4_strict"), [])
         item = next(i for i in build_archive_page(user)["items"] if i["aweme_id"] == "3")
         self.assertEqual(item["content_filter"]["appearance"]["borderline"]["score"], 4)
 
+    def test_caliber_and_version_reach_the_frontend(self):
+        """口径标号要下发，前端才分得清新旧算法；调试字段仍不下发。"""
+        user = self._user()
+        user["download_records"][2]["content_filter"].update({"caliber": 2, "version": 5,
+                                                             "motion": {"profile": "dynamic"}, "frames": 7})
+        item = next(i for i in build_archive_page(user)["items"] if i["aweme_id"] == "3")
+
+        self.assertEqual((item["content_filter"]["caliber"], item["content_filter"]["version"]), (2, 5))
+        self.assertNotIn("motion", item["content_filter"])
+        self.assertNotIn("frames", item["content_filter"])
+        self.assertNotIn("scoring", item["content_filter"])
+
+    def test_inconsistent_view(self):
+        user = self._user()
+        user["download_records"][2]["content_filter"]["inconsistent"] = ["内衣泳装却算几乎没露出"]
+
+        def view(name):
+            return [item["aweme_id"] for item in build_archive_page(user, ai_filter=name)["items"]]
+
+        self.assertEqual(view("inconsistent"), ["3"])
+        item = next(i for i in build_archive_page(user)["items"] if i["aweme_id"] == "3")
+        self.assertEqual(item["content_filter"]["inconsistent"], ["内衣泳装却算几乎没露出"])
+        self.assertEqual(view("flagged"), ["1"])          # 不影响别的视图
+
     def test_views(self):
-        ids = lambda view: [item["aweme_id"] for item in build_archive_page(self._user(), ai_filter=view)["items"]]
+        def ids(view):
+            return [item["aweme_id"] for item in build_archive_page(self._user(), ai_filter=view)["items"]]
 
         self.assertEqual(sorted(ids("")), ["1", "2", "3", "4"])
         self.assertEqual(ids("flagged"), ["1"])
         self.assertEqual(ids("error"), ["2"])
         with self.assertRaises(ValueError):
             build_archive_page(self._user(), ai_filter="bogus")
+
+
+class BatchPromptTests(unittest.TestCase):
+    def _media(self, note="图说明", count=2):
+        return cf.PreparedMedia([b"a"] * count, note)
+
+    def _meta(self, desc):
+        return {"desc": desc, "hashtags": "（无）", "signals": {},
+                "signals_text": "（无）", "motion_text": "（未测）"}
+
+    def test_batch_prompt_has_markers_notes_and_array_schema(self):
+        content = cf.build_batch_content([(self._meta("作品甲"), self._media("甲说明", 2)),
+                                          (self._meta("作品乙"), self._media("乙说明", 1))])
+        texts = [part["text"] for part in content if part["type"] == "text"]
+        images = [part for part in content if part["type"] == "image_url"]
+        joined = "\n".join(texts)
+
+        self.assertIn("【作品 1 开始】", joined)
+        self.assertIn("【作品 2 结束】", joined)
+        self.assertIn("甲说明", joined)
+        self.assertIn("乙说明", joined)
+        self.assertIn("数组长度必须为 2", joined)
+        self.assertIn('"id"', joined)
+        self.assertIn("绝不能把 traffic 等 ad_type 填进 category", joined)
+        self.assertIn("年龄只看本作品里的真人", joined)
+        self.assertNotIn("只输出一个 JSON 对象", joined)
+        self.assertEqual(len(images), 3)
+
+
+def batch_item(index, **overrides):
+    data = json.loads(reply())
+    data["id"] = index
+    data.update(overrides)
+    return data
+
+
+def batch_payload(count=2, overrides=None):
+    overrides = overrides or {}
+    return json.dumps([batch_item(index, **overrides.get(index, {}))
+                       for index in range(1, count + 1)], ensure_ascii=False)
+
+
+class BatchParseTests(unittest.TestCase):
+    def test_maps_by_id_when_ids_cover_the_batch(self):
+        parsed = cf.parse_batch_verdicts(
+            "```json\n" + json.dumps([batch_item(2, summary="乙"), batch_item(1, summary="甲")],
+                                     ensure_ascii=False) + "\n```", 2)
+
+        self.assertEqual(parsed.errors, {})
+        self.assertEqual(parsed.items[1]["summary"], "甲")
+        self.assertEqual(parsed.items[2]["summary"], "乙")
+
+    def test_duplicate_ids_do_not_overwrite_and_missing_stays_missing(self):
+        text = json.dumps([batch_item(1, summary="甲"), batch_item(1, summary="重复"), batch_item(3)],
+                          ensure_ascii=False)
+
+        parsed = cf.parse_batch_verdicts(text, 4)
+
+        self.assertEqual(parsed.items[1]["summary"], "甲")
+        self.assertNotIn(2, parsed.items)
+        self.assertNotIn(4, parsed.items)
+
+    def test_results_wrapper_is_accepted(self):
+        parsed = cf.parse_batch_verdicts(json.dumps({"results": [batch_item(1)]}), 1)
+
+        self.assertIn(1, parsed.items)
+
+    def test_category_ad_type_leak_is_repaired(self):
+        parsed = cf.parse_batch_verdicts(batch_payload(1, {1: {"category": "traffic", "ad_type": None}}), 1)
+
+        self.assertEqual(parsed.items[1]["category"], "ad")
+        self.assertEqual(parsed.items[1]["ad_type"], "traffic")
+        self.assertEqual(parsed.repaired, 1)
+
+    def test_empty_age_without_people_is_repaired(self):
+        tags = {"subject": ["无人物"], "scene": [], "content": [], "style": [], "features": []}
+        parsed = cf.parse_batch_verdicts(
+            batch_payload(1, {1: {"appearance": {**APPEARANCE, "age": ""}, "tags": tags}}), 1)
+
+        self.assertEqual(parsed.items[1]["appearance"]["age"], "无法判断")
+        self.assertEqual(parsed.repaired, 1)
+
+    def test_empty_age_with_real_people_is_a_schema_error(self):
+        parsed = cf.parse_batch_verdicts(
+            batch_payload(1, {1: {"appearance": {**APPEARANCE, "age": ""}}}), 1)
+
+        self.assertNotIn(1, parsed.items)
+        self.assertIn("age", parsed.errors[1])
+
+
+class FakeMediaLoader:
+    def __init__(self):
+        self.calls = 0
+
+    async def prepare(self, user, record, max_frames):
+        self.calls += 1
+        return cf.PreparedMedia([b"img-1", b"img-2"], "测试图，共 2 张")
+
+
+class EvaluateBatchTests(unittest.TestCase):
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        self.root = Path(temporary.name)
+
+    def _entries(self, count=2):
+        return [({"id": "u"}, {"desc": f"作品{index}"}, {"aweme_id": str(index)})
+                for index in range(1, count + 1)]
+
+    def _handler(self, calls, batch_content, single_content=None, *,
+                 batch_status=200, single_status=200):
+        def handler(request):
+            body = json.loads(request.content)
+            text = body["messages"][0]["content"][0]["text"]
+            is_batch = "【作品" in text
+            calls.append("batch" if is_batch else "single")
+            status = batch_status if is_batch else single_status
+            if status != 200:
+                return httpx.Response(status, text="upstream down")
+            content = batch_content if is_batch else single_content
+            if content is None:
+                return httpx.Response(200, json={"choices": []})
+            return httpx.Response(200, json={"choices": [{"message": {"content": content}}]})
+        return handler
+
+    def _run(self, handler, *, count=2, counter=None, rescore_risk=True):
+        content_filter = cf.ContentFilter(SETTINGS, self.root, transport=httpx.MockTransport(handler))
+        return asyncio.run(content_filter.evaluate_batch(self._entries(count), FakeMediaLoader(),
+                                                         counter=counter, rescore_risk=rescore_risk))
+
+    def test_two_clean_works_use_one_request(self):
+        calls = []
+        outcome = self._run(self._handler(calls, batch_payload(2)))
+
+        self.assertEqual(calls, ["batch"])
+        self.assertEqual(outcome.requests_used, 1)
+        self.assertEqual(outcome.stop_reason, None)
+        self.assertEqual([result["status"] for result in outcome.results], ["ok", "ok"])
+        self.assertEqual([result["scoring"]["mode"] for result in outcome.results], ["batch", "batch"])
+        self.assertEqual([(result["version"], result["caliber"]) for result in outcome.results],
+                         [(cf.RESULT_VERSION, cf.CALIBER)] * 2)
+        self.assertEqual([result["mode"] for result in outcome.results], ["shadow", "shadow"])
+
+    def test_single_entry_batch_uses_the_single_work_prompt(self):
+        calls = []
+        outcome = self._run(self._handler(calls, None, reply("normal")), count=1)
+
+        self.assertEqual(calls, ["single"])
+        self.assertEqual(outcome.requests_used, 1)
+        self.assertEqual(outcome.results[0]["status"], "ok")
+        self.assertEqual((outcome.results[0]["version"], outcome.results[0]["caliber"]),
+                         (cf.RESULT_VERSION, cf.CALIBER))
+
+    def test_suspicious_age_is_rescored_with_one_more_request(self):
+        calls = []
+        batch = batch_payload(2, {1: {"appearance": {**APPEARANCE, "age": "无法判断"}}})
+        outcome = self._run(self._handler(calls, batch, reply("normal")))
+
+        self.assertEqual(calls, ["batch", "single"])
+        self.assertEqual(outcome.requests_used, 2)
+        self.assertEqual(outcome.rescored, 1)
+        self.assertEqual(outcome.results[0]["appearance"]["age"], "成年")
+        self.assertTrue(outcome.results[0]["scoring"]["rescored"])
+        self.assertEqual(outcome.results[0]["version"], cf.RESULT_VERSION)
+
+    def test_only_schema_error_item_is_rescored(self):
+        calls = []
+        batch = batch_payload(2, {2: {"appearance": {**APPEARANCE, "age": ""}}})
+        outcome = self._run(self._handler(calls, batch, reply("normal")))
+
+        self.assertEqual(calls, ["batch", "single"])
+        self.assertEqual(outcome.schema_errors, 1)
+        self.assertEqual(outcome.rescored, 1)
+        self.assertFalse(outcome.results[0]["scoring"]["rescored"])
+        self.assertTrue(outcome.results[1]["scoring"]["rescored"])
+
+    def test_blocked_batch_falls_back_to_one_single_per_work_without_frame_probing(self):
+        calls = []
+        outcome = self._run(self._handler(calls, None, None))
+
+        self.assertEqual(calls, ["batch", "single", "single"])
+        self.assertEqual(outcome.requests_used, 3)
+        self.assertEqual([result["status"] for result in outcome.results], ["error", "error"])
+
+    def test_unparseable_batch_falls_back_to_one_single_per_work(self):
+        calls = []
+        outcome = self._run(self._handler(calls, "我不输出 JSON 数组", reply("normal")))
+
+        self.assertEqual(calls, ["batch", "single", "single"])
+        self.assertEqual([result["status"] for result in outcome.results], ["ok", "ok"])
+
+    def test_budget_stops_before_risk_rescore(self):
+        batch = batch_payload(2, {1: {"appearance": {**APPEARANCE, "age": "无法判断"}}})
+        calls = []
+        counter = cf.RequestCounter(limit=1)
+        outcome = self._run(self._handler(calls, batch, reply("normal")), counter=counter)
+
+        self.assertEqual(calls, ["batch"])
+        self.assertEqual(outcome.stop_reason, "budget")
+        self.assertTrue(outcome.results[0]["scoring"]["rescore_pending"])
+        self.assertEqual(counter.used, 1)
+
+    def test_batch_429_stops_without_results(self):
+        outcome = self._run(self._handler([], None, batch_status=429))
+
+        self.assertEqual(outcome.stop_reason, "rate_limited")
+        self.assertEqual(outcome.results, [None, None])
+
+    def test_batch_503_is_transient(self):
+        outcome = self._run(self._handler([], None, batch_status=503))
+
+        self.assertEqual(outcome.stop_reason, "transient")
+        self.assertEqual([result["status"] for result in outcome.results], ["error", "error"])
+
+    def test_rescore_429_keeps_the_parsed_batch_result(self):
+        calls = []
+        batch = batch_payload(2, {1: {"appearance": {**APPEARANCE, "age": "无法判断"}}})
+        outcome = self._run(self._handler(calls, batch, batch_status=200, single_status=429))
+
+        self.assertEqual(calls, ["batch", "single"])
+        self.assertEqual(outcome.stop_reason, "rate_limited")
+        self.assertEqual(outcome.results[0]["status"], "ok")
+        self.assertFalse(outcome.results[0]["scoring"]["rescored"])
+
+    def test_high_score_crossing_the_band_is_rescored_but_plain_zone_is_not(self):
+        high = batch_item(1, appearance={**APPEARANCE, "borderline": {
+            **BORDERLINE, "chest": 2, "hip": 3, "figure": 2, "overall": 1, "camera": 1, "motion": 2}})
+        zone = batch_item(1, appearance={**APPEARANCE, "borderline": {
+            **BORDERLINE, "chest": 1, "hip": 2, "figure": 2, "overall": 2, "camera": 1, "motion": 0}})
+        meta = {"desc": "作品", "signals": {}, "signals_text": "（无）", "motion_text": "（未测）"}
+
+        high_verdict = cf.parse_verdict(json.dumps(high), hysteresis_delta=SETTINGS.hysteresis_delta)
+        zone_verdict = cf.parse_verdict(json.dumps(zone), hysteresis_delta=SETTINGS.hysteresis_delta)
+
+        self.assertIn("high_score", cf.batch_rescore_reasons(high_verdict, meta, {}, SETTINGS))
+        self.assertEqual(cf.batch_rescore_reasons(zone_verdict, meta, {}, SETTINGS), [])
+
+    def test_age_unknown_without_people_is_not_rescored(self):
+        tags = {"subject": ["无人物"], "scene": [], "content": ["情感语录"], "style": [], "features": ["文字卡片"]}
+        item = batch_item(1, appearance={**APPEARANCE, "age": "无法判断"}, tags=tags)
+        verdict = cf.parse_verdict(json.dumps(item), hysteresis_delta=SETTINGS.hysteresis_delta)
+
+        self.assertEqual(cf.batch_rescore_reasons(verdict, {"desc": "纯文字", "signals": {}}, {}, SETTINGS), [])
 
 
 if __name__ == "__main__":

@@ -8,15 +8,6 @@ from douyin_user_monitor.settings import (
     ARCHIVE_TOKEN_ENV,
     CONTENT_FILTER_API_KEY_ENV,
     CRAWLER_CONFIG_ENV,
-    DEFAULT_CONTENT_FILTER_API_BASE,
-    DEFAULT_CONTENT_FILTER_ENABLED,
-    DEFAULT_CONTENT_FILTER_INCLUDE_HISTORY,
-    DEFAULT_CONTENT_FILTER_MAX_FRAMES,
-    DEFAULT_CONTENT_FILTER_MIN_CONFIDENCE,
-    DEFAULT_CONTENT_FILTER_MODE,
-    DEFAULT_CONTENT_FILTER_MODEL,
-    DEFAULT_CONTENT_FILTER_REJECT_CATEGORIES,
-    DEFAULT_CONTENT_FILTER_TIMEOUT_SECONDS,
     DEFAULT_ARCHIVE_BACKUP_BASE,
     DEFAULT_ARCHIVE_ENABLED,
     DEFAULT_ARCHIVE_OPENLIST_BASE_URL,
@@ -25,6 +16,19 @@ from douyin_user_monitor.settings import (
     DEFAULT_ARCHIVE_SANITIZE_PRIMARY_DIRS,
     DEFAULT_ARCHIVE_TIMEOUT_SECONDS,
     DEFAULT_AVATAR_TIMEOUT_SECONDS,
+    DEFAULT_CONTENT_FILTER_API_BASE,
+    DEFAULT_CONTENT_FILTER_BATCH_MAX_OUTPUT_TOKENS,
+    DEFAULT_CONTENT_FILTER_BATCH_TIMEOUT_SECONDS,
+    DEFAULT_CONTENT_FILTER_ENABLED,
+    DEFAULT_CONTENT_FILTER_HYSTERESIS_DELTA,
+    DEFAULT_CONTENT_FILTER_INCLUDE_HISTORY,
+    DEFAULT_CONTENT_FILTER_MAX_FRAMES,
+    DEFAULT_CONTENT_FILTER_MAX_OUTPUT_TOKENS,
+    DEFAULT_CONTENT_FILTER_MIN_CONFIDENCE,
+    DEFAULT_CONTENT_FILTER_MODE,
+    DEFAULT_CONTENT_FILTER_MODEL,
+    DEFAULT_CONTENT_FILTER_REJECT_CATEGORIES,
+    DEFAULT_CONTENT_FILTER_TIMEOUT_SECONDS,
     DEFAULT_COOKIE_LIVENESS_ALERT_COOLDOWN_HOURS,
     DEFAULT_COOKIE_LIVENESS_ENABLED,
     DEFAULT_COOKIE_LIVENESS_INTERVAL_HOURS,
@@ -116,6 +120,13 @@ def _load_content_filter_settings(raw: Dict[str, Any]) -> ContentFilterSettings:
     )
     if min_confidence > 1:
         raise ValueError("content_filter.min_confidence 不能大于 1")
+    # 滞回宽度允许 0（关闭），所以上面那两个 positive 解析器都不能用
+    try:
+        hysteresis_delta = float(raw.get("hysteresis_delta", DEFAULT_CONTENT_FILTER_HYSTERESIS_DELTA))
+    except (TypeError, ValueError) as exc:
+        raise ValueError("content_filter.hysteresis_delta 必须是数字") from exc
+    if not 0 <= hysteresis_delta <= 2:
+        raise ValueError("content_filter.hysteresis_delta 必须在 0~2 之间，0 表示关闭滞回")
     return ContentFilterSettings(
         enabled=_parse_bool(raw.get("enabled", DEFAULT_CONTENT_FILTER_ENABLED)),
         mode=mode,
@@ -132,6 +143,19 @@ def _load_content_filter_settings(raw: Dict[str, Any]) -> ContentFilterSettings:
         reject_categories=tuple(categories),
         min_confidence=min_confidence,
         include_history=_parse_bool(raw.get("include_history", DEFAULT_CONTENT_FILTER_INCLUDE_HISTORY)),
+        max_output_tokens=_parse_positive_int(
+            raw.get("max_output_tokens", DEFAULT_CONTENT_FILTER_MAX_OUTPUT_TOKENS),
+            "content_filter.max_output_tokens",
+        ),
+        hysteresis_delta=hysteresis_delta,
+        batch_timeout_seconds=_parse_positive_float(
+            raw.get("batch_timeout_seconds", DEFAULT_CONTENT_FILTER_BATCH_TIMEOUT_SECONDS),
+            "content_filter.batch_timeout_seconds",
+        ),
+        batch_max_output_tokens=_parse_positive_int(
+            raw.get("batch_max_output_tokens", DEFAULT_CONTENT_FILTER_BATCH_MAX_OUTPUT_TOKENS),
+            "content_filter.batch_max_output_tokens",
+        ),
     )
 
 

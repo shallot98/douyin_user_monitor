@@ -8,7 +8,7 @@ from unittest.mock import AsyncMock, patch
 import httpx
 from PIL import Image
 
-from douyin_user_monitor.monitor.content_filter import ContentFilter
+from douyin_user_monitor.monitor.content_filter import CALIBER, RESULT_VERSION, ContentFilter
 from douyin_user_monitor.monitor.crawler_protocol import MonitorCrawlerProtocol
 from douyin_user_monitor.monitor.history_sync import HISTORY_SYNC_STATUS_COMPLETED, build_history_sync_state
 from douyin_user_monitor.monitor.notifier import MonitorNotifierProtocol
@@ -54,15 +54,23 @@ class ContentFilterPipelineTests(unittest.IsolatedAsyncioTestCase):
         self.storage.save_state(state)
 
     async def _run(self, model_handler):
-        content_filter = ContentFilter(SETTINGS, self.download_root, transport=httpx.MockTransport(model_handler))
+        requests: list = []
+
+        def counting_handler(request: httpx.Request) -> httpx.Response:
+            requests.append(request)
+            return model_handler(request)
+
+        content_filter = ContentFilter(SETTINGS, self.download_root,
+                                       transport=httpx.MockTransport(counting_handler))
+        notifier = AsyncMock(spec=MonitorNotifierProtocol)
         service = MonitorService(crawler=self.crawler, storage=self.storage, download_root=self.download_root,
-                                 notifier=AsyncMock(spec=MonitorNotifierProtocol), content_filter=content_filter)
+                                 notifier=notifier, content_filter=content_filter)
         with patch.object(service._downloader, "_create_shared_client", side_effect=lambda: httpx.AsyncClient(
             transport=httpx.MockTransport(lambda request: httpx.Response(200, content=self.picture)),
         )):
             result = await service.run_user_once("user-1")
         user = self.storage.records.attach(self.storage.load_state()["users"][0])
-        return result, user
+        return result, user, notifier, requests
 
     async def test_verdict_persisted_with_record(self):
         reply = json.dumps({"category": "text_only", "ad_type": None, "confidence": 0.97, "reason": "文字卡片",
@@ -72,24 +80,28 @@ class ContentFilterPipelineTests(unittest.IsolatedAsyncioTestCase):
                                            "poses": [], "borderline": None},
                             "summary": "白底文字语录"})
 
-        result, user = await self._run(
+        result, user, notifier, requests = await self._run(
             lambda request: httpx.Response(200, json={"choices": [{"message": {"content": reply}}]}))
 
         self.assertEqual(result["errors"], [])
         verdict = user["download_records"][0]["content_filter"]
         self.assertEqual((verdict["status"], verdict["verdict"], verdict["category"]), ("ok", "reject", "text_only"))
         self.assertEqual(verdict["mode"], "shadow")
+        self.assertEqual((verdict["version"], verdict["caliber"]), (RESULT_VERSION, CALIBER))
+        self.assertEqual(len(requests), 1)
+        self.assertEqual(notifier.notify_download_completed.await_count, 1)
         # shadow 模式不动文件
         self.assertTrue(any(self.download_root.rglob("*.jpg")))
 
     async def test_model_failure_keeps_download_record(self):
-        result, user = await self._run(lambda request: httpx.Response(502, text="bad gateway"))
+        result, user, notifier, requests = await self._run(lambda request: httpx.Response(502, text="bad gateway"))
 
         self.assertEqual(result["errors"], [])
         self.assertEqual(user["downloaded_aweme_ids"], ["9002"])
         verdict = user["download_records"][0]["content_filter"]
         self.assertEqual(verdict["status"], "error")
         self.assertIn("502", verdict["error"])
+        self.assertEqual(notifier.notify_download_completed.await_count, 1)
 
 
 if __name__ == "__main__":

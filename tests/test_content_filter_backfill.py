@@ -2,11 +2,14 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from douyin_user_monitor.monitor.content_filter import RESULT_VERSION
+from douyin_user_monitor.monitor.content_filter import CALIBER, RESULT_VERSION
 from douyin_user_monitor.monitor.storage import MonitorStorage
 from scripts.content_filter_backfill import (
+    chunks,
+    commit_allowed,
     commit_results,
     is_gateway_outage,
+    main,
     needs_label,
     outages_only,
     select_pending,
@@ -23,6 +26,17 @@ class BackfillSelectionTests(unittest.TestCase):
         failed = {"content_filter": {"version": RESULT_VERSION, "status": "error"}}
         self.assertFalse(needs_label(failed, retry_errors=False))
         self.assertTrue(needs_label(failed, retry_errors=True))
+
+    def test_new_caliber_does_not_requeue_finished_works(self):
+        """换判定口径（caliber）绝不能让补打任务把历史作品全选中 —— 那是白烧额度。
+
+        分数映射变了但输出结构没变，所以靠 caliber 标注、不 bump RESULT_VERSION。
+        """
+        recalculated = {"version": RESULT_VERSION, "status": "ok", "verdict": "keep", "category": "normal",
+                        "caliber": CALIBER}
+
+        self.assertFalse(needs_label({"content_filter": recalculated}, retry_errors=False))
+        self.assertFalse(needs_label({"content_filter": recalculated}, retry_errors=True))
 
     def test_select_pending_filters_user(self):
         records = {"a": [{"aweme_id": "1"}, {"aweme_id": "2", "content_filter": V2_OK}], "b": [{"aweme_id": "3"}]}
@@ -84,6 +98,33 @@ class BackfillCommitTests(unittest.TestCase):
 
         self.assertEqual(written, 0)
         self.assertEqual(self.storage.records.get("u1"), [{"aweme_id": "9"}])
+
+
+class BatchGroupingTests(unittest.TestCase):
+    def test_chunks_covers_boundaries(self):
+        self.assertEqual(chunks([], 4), [])
+        self.assertEqual(chunks([1, 2, 3, 4], 4), [[1, 2, 3, 4]])
+        self.assertEqual(chunks(list(range(5)), 4), [[0, 1, 2, 3], [4]])
+        self.assertEqual(chunks([1, 2], 1), [[1], [2]])
+
+    def test_commit_allowed_skips_errors_on_rate_limit_or_auth(self):
+        ok = {"status": "ok"}
+        error = {"status": "error"}
+
+        self.assertTrue(commit_allowed(ok, None))
+        self.assertTrue(commit_allowed(error, None))
+        self.assertTrue(commit_allowed(ok, "budget"))
+        self.assertTrue(commit_allowed(ok, "rate_limited"))
+        self.assertFalse(commit_allowed(error, "rate_limited"))
+        self.assertFalse(commit_allowed(error, "auth"))
+        self.assertFalse(commit_allowed(None, "budget"))
+
+    def test_batch_size_out_of_range_is_rejected(self):
+        for value in ("0", "5"):
+            with self.assertRaises(SystemExit):
+                main(["--batch-size", value])
+        with self.assertRaises(SystemExit):
+            main(["--max-requests", "-1"])
 
 
 if __name__ == "__main__":

@@ -6,7 +6,7 @@
   <meta http-equiv="Pragma" content="no-cache" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
   <title>用户统计中心 | Monitor</title>
-  <link rel="stylesheet" href="/static/common.css?v=theme-20260921b" />
+  <link rel="stylesheet" href="/static/common.css?v=theme-20261006a" />
   <style>
     /* statistics page-only styles; shell/sidebar/tabbar come from common.css */
 
@@ -65,7 +65,7 @@
 
     .summary-bar {
       display: grid;
-      grid-template-columns: repeat(5, minmax(0, 1fr));
+      grid-template-columns: repeat(6, minmax(0, 1fr));
       gap: 0;
       background: rgba(255, 255, 255, 0.72);
       border: 1px solid var(--border-color);
@@ -212,6 +212,21 @@
       border-color: var(--border-strong);
       color: var(--primary);
     }
+    /* 沉默天数：选中“沉默”后才可选，和 chip 同一行 */
+    .filter-chip-select {
+      border: 1px solid var(--border-color);
+      background: var(--bg-elevated);
+      color: var(--text-main);
+      border-radius: 999px;
+      padding: 6px 10px;
+      font-size: 12px;
+      font-weight: 650;
+    }
+    .filter-chip-select:disabled { opacity: .5; }
+    .filter-sep { width: 1px; height: 20px; background: var(--border-color); margin: 0 2px; }
+    .filter-chip.value-chip.active { background: var(--warn-light); color: #b45309; }
+    .value-flag { font-size: 11px; }
+    .score-low { color: #b45309 !important; }
     .toolbar-controls {
       display: flex;
       align-items: center;
@@ -508,6 +523,10 @@
         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M3.375 19.5h17.25m-17.25 0a1.125 1.125 0 0 1-1.125-1.125M3.375 19.5h1.5C5.496 19.5 6 18.996 6 18.375m-3.75 0V5.625m0 12.75v-1.5c0-.621.504-1.125 1.125-1.125m18.375 2.625V5.625m0 12.75c0 .621-.504 1.125-1.125 1.125m1.125-1.125v-1.5c0-.621-.504-1.125-1.125-1.125m0 3.75h-1.5A1.125 1.125 0 0 1 18 18.375M20.625 4.5H3.375m17.25 0c.621 0 1.125.504 1.125 1.125M20.625 4.5h-1.5C18.504 4.5 18 5.004 18 5.625m3.75 0v1.5c0 .621-.504 1.125-1.125 1.125M3.375 4.5c-.621 0-1.125.504-1.125 1.125M3.375 4.5h1.5C5.496 4.5 6 5.004 6 5.625m-3.75 0v1.5c0 .621.504 1.125 1.125 1.125m0 0h1.5m-1.5 0c-.621 0-1.125.504-1.125 1.125v1.5c0 .621.504 1.125 1.125 1.125m1.5-3.75C5.496 8.25 6 7.746 6 7.125v-1.5M4.875 8.25C5.496 8.25 6 8.754 6 9.375v1.5m0-5.25v5.25m0-5.25C6 5.004 6.504 4.5 7.125 4.5h9.75c.621 0 1.125.504 1.125 1.125m1.125 2.625h1.5m-1.5 0A1.125 1.125 0 0 1 18 7.125v-1.5m1.125 2.625c-.621 0-1.125.504-1.125 1.125v1.5m2.625-2.625c.621 0 1.125.504 1.125 1.125v1.5c0 .621-.504 1.125-1.125 1.125M18 5.625v5.25M7.125 12h9.75m-9.75 0A1.125 1.125 0 0 1 6 10.875M7.125 12C6.504 12 6 12.504 6 13.125m0-2.25C6 11.496 5.496 12 4.875 12M18 10.875c0 .621-.504 1.125-1.125 1.125M18 10.875c0 .621.504 1.125 1.125 1.125m-2.25 0c.621 0 1.125.504 1.125 1.125m-12 5.25v-5.25m0 5.25c0 .621.504 1.125 1.125 1.125h9.75c.621 0 1.125-.504 1.125-1.125m-12 0v-1.5c0-.621-.504-1.125-1.125-1.125M18 18.375v-5.25m0 5.25v-1.5c0-.621.504-1.125 1.125-1.125M18 13.125v1.5c0 .621.504 1.125 1.125 1.125M18 13.125c0-.621.504-1.125 1.125-1.125M6 13.125v1.5c0 .621-.504 1.125-1.125 1.125M6 13.125C6 12.504 5.496 12 4.875 12m-1.5 0h1.5m-1.5 0c-.621 0-1.125.504-1.125 1.125v1.5c0 .621.504 1.125 1.125 1.125M19.125 12h1.5m0 0c.621 0 1.125.504 1.125 1.125v1.5c0 .621-.504 1.125-1.125 1.125m-17.25 0h1.5m14.25 0h1.5" /></svg>
         作品库
       </a>
+      <a class="nav-item" href="/api/monitor/swipe/dashboard" onclick="return navigateToPage('/api/monitor/swipe/dashboard')" title="刷视频">
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" /><path stroke-linecap="round" stroke-linejoin="round" d="M15.91 11.672a.375.375 0 0 1 0 .656l-5.603 3.113a.375.375 0 0 1-.557-.328V8.887c0-.286.307-.466.557-.327l5.603 3.112Z" /></svg>
+        刷视频
+      </a>
       <a class="nav-item" href="/api/monitor/cookies/dashboard" onclick="return navigateToPage('/api/monitor/cookies/dashboard')" title="Cookie 池">
         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 5.25a3 3 0 0 1 3 3m3 0a6 6 0 0 1-7.029 5.912c-.563-.097-1.159.026-1.563.43L10.5 17.25H8.25v2.25H6v2.25H2.25v-2.818c0-.597.237-1.17.659-1.591l6.499-6.499c.404-.404.527-1 .43-1.563A6 6 0 1 1 21.75 8.25Z" /></svg>
         Cookie 池
@@ -593,10 +612,15 @@
             <div class="summary-value" id="summaryCoverage">-</div>
             <div class="summary-help" id="summaryCoverageHelp">已归档作品</div>
           </div>
-          <button type="button" class="summary-item" onclick="onSummaryClick('silent')" title="筛选沉默 7 天用户">
+          <button type="button" class="summary-item" onclick="onSummaryClick('silent')" title="筛选沉默用户（天数在筛选栏里选，默认 30 天）">
             <div class="summary-label">沉默 7d / 30d</div>
             <div class="summary-value" id="summarySilent">-</div>
             <div class="summary-help" id="summarySilentHelp">无发布时间</div>
+          </button>
+          <button type="button" class="summary-item" onclick="onSummaryClick('low_value')" title="筛选低价值用户：90 天以上没发作品，或已评分 ≥5 条且擦边均分低于 1.5">
+            <div class="summary-label">低价值用户</div>
+            <div class="summary-value" id="summaryLowValue">-</div>
+            <div class="summary-help" id="summaryLowValueHelp">长期沉默 / 擦边低</div>
           </button>
           <button type="button" class="summary-item" onclick="onSummaryClick('abnormal')" title="筛选异常账号">
             <div class="summary-label">异常账号</div>
@@ -631,6 +655,11 @@
                   <option value="created:desc">添加时间（新→旧）</option>
                   <option value="created:asc">添加时间（旧→新）</option>
                   <option value="nickname">昵称</option>
+                  <option value="last_publish:asc">最久未发布</option>
+                  <option value="avg_score:asc">擦边均分（低→高）</option>
+                  <option value="avg_score:desc">擦边均分（高→低）</option>
+                  <option value="high_score_ratio:asc">高分作品占比（低→高）</option>
+                  <option value="high_score_ratio:desc">高分作品占比（高→低）</option>
                 </select>
               </label>
               <label>
@@ -653,7 +682,18 @@
             <button type="button" class="filter-chip" data-filter="paused" onclick="setStatusFilter('paused')">暂停</button>
             <button type="button" class="filter-chip" data-filter="abnormal" onclick="setStatusFilter('abnormal')">异常</button>
             <button type="button" class="filter-chip" data-filter="silent" onclick="setStatusFilter('silent')">沉默</button>
+            <select id="silentDaysSelect" class="filter-chip-select" onchange="onSilentDaysChange()" aria-label="沉默天数" title="多少天没发作品算沉默">
+              <option value="7">≥7 天</option>
+              <option value="30">≥30 天</option>
+              <option value="60">≥60 天</option>
+              <option value="90">≥90 天</option>
+              <option value="180">≥180 天</option>
+            </select>
             <button type="button" class="filter-chip" data-filter="publish_unknown" onclick="setStatusFilter('publish_unknown')">未知发布</button>
+            <span class="filter-sep" aria-hidden="true"></span>
+            <button type="button" class="filter-chip value-chip" data-filter="low_value" onclick="setStatusFilter('low_value')" id="lowValueChip">低价值</button>
+            <button type="button" class="filter-chip value-chip" data-filter="low_score" onclick="setStatusFilter('low_score')" id="lowScoreChip">擦边低</button>
+            <button type="button" class="filter-chip" data-filter="score_pending" onclick="setStatusFilter('score_pending')" id="scorePendingChip">待评分</button>
           </div>
         </div>
 
@@ -722,6 +762,8 @@
       monitor: "all",
       account: "all",
       activity: "all",
+      value: "all",
+      silentDays: 30,
       sortBy: "downloads",
       sortOrder: "desc",
       page: 1,
@@ -915,6 +957,16 @@
       document.querySelectorAll(".filter-chip").forEach((chip) => {
         chip.classList.toggle("active", chip.dataset.filter === tableState.statusFilter);
       });
+      const daysEl = document.getElementById("silentDaysSelect");
+      if (daysEl) daysEl.value = String(tableState.silentDays);
+    }
+
+    // 沉默天数改了：直接切到“沉默”筛选
+    function onSilentDaysChange() {
+      const el = document.getElementById("silentDaysSelect");
+      const days = Number(el?.value || 30);
+      tableState.silentDays = [7, 30, 60, 90, 180].includes(days) ? days : 30;
+      applyFilterPreset("silent");
     }
 
     // 排序下拉取值支持 "field" 与 "field:order" 两种形式，后者用于同一字段的正/倒序（添加时间）
@@ -944,6 +996,7 @@
       tableState.monitor = "all";
       tableState.account = "all";
       tableState.activity = "all";
+      tableState.value = "all";
       tableState.statusFilter = preset || "all";
 
       switch (preset) {
@@ -957,7 +1010,12 @@
           tableState.account = "abnormal";
           break;
         case "silent":
-          tableState.activity = "silent_7d";
+          tableState.activity = `silent_${tableState.silentDays}d`;
+          break;
+        case "low_value":
+        case "low_score":
+        case "score_pending":
+          tableState.value = preset;
           break;
         case "publish_unknown":
           tableState.activity = "publish_unknown";
@@ -981,6 +1039,7 @@
     function applyActivityFilter(activity) {
       tableState.monitor = "all";
       tableState.account = "all";
+      tableState.value = "all";
       tableState.activity = activity || "all";
       tableState.statusFilter = activity === "silent_7d"
         ? "silent"
@@ -1007,6 +1066,7 @@
       if (kind === "users") applyFilterPreset("all");
       else if (kind === "silent") applyFilterPreset("silent");
       else if (kind === "abnormal") applyFilterPreset("abnormal");
+      else if (kind === "low_value") applyFilterPreset("low_value");
     }
 
     function handleStatsSearch() {
@@ -1053,6 +1113,7 @@
       params.set("monitor", tableState.monitor || "all");
       params.set("account", tableState.account || "all");
       params.set("activity", tableState.activity || "all");
+      params.set("value", tableState.value || "all");
       const keyword = String(tableState.search || "").trim();
       if (keyword) params.set("search", keyword);
       return params.toString();
@@ -1064,8 +1125,11 @@
         enabled: "启用",
         paused: "暂停",
         abnormal: "异常",
-        silent: "沉默",
+        silent: `沉默 ≥${tableState.silentDays} 天`,
         publish_unknown: "未知发布",
+        low_value: "低价值",
+        low_score: "擦边低",
+        score_pending: "待评分",
       }[tableState.statusFilter] || "全部";
       const keyword = String(tableState.search || "").trim();
       let hint = `${filterLabel} · 共 ${formatNumber(tableState.total)} 人`;
@@ -1133,6 +1197,8 @@
           ? `<div class="row-error">异常: ${escapeHtml(user.last_error)}</div>`
           : "";
         const downloads = user.total_downloaded_works ?? user.downloaded_count ?? 0;
+        const scoreMetric = renderScoreMetric(user);
+        const valueFlags = renderValueFlags(user);
         return `
           <div class="rank-row">
             <div class="rank-badge">#${rank}</div>
@@ -1143,6 +1209,7 @@
                   <div class="user-name">
                     <span class="user-name-text">${escapeHtml(user.nickname || user.sec_user_id || "-")}</span>
                     <span class="pill ${pillClass}">${pillText}</span>
+                    ${valueFlags}
                   </div>
                   <div class="rank-meta">${metaHtml}</div>
                   ${errorHtml}
@@ -1157,6 +1224,7 @@
                   <strong>${publishValue}</strong>
                   <span class="rank-metric-note">${publishNote}</span>
                 </div>
+                ${scoreMetric}
               </div>
             </div>
             <div class="row-actions">
@@ -1168,6 +1236,37 @@
             </div>
           </div>
         `;
+      }).join("");
+    }
+
+    // 阈值来自接口 windows，前端不写死
+    let valueWindows = { long_silent_days: 90, low_score_min_scored: 5, low_score_avg_below: 1.5, high_score_min: 3 };
+
+    function renderScoreMetric(user) {
+      const scored = Number(user.scored_works || 0);
+      const total = Number(user.structured_work_count || 0);
+      const coverage = `已评 ${formatNumber(scored)}/${formatNumber(total)}`;
+      if (!scored) {
+        return `<div class="rank-metric" title="还没有已评分的作品，后台补评完成后才有擦边分"><strong>—</strong><span class="rank-metric-note">擦边 · 待评分</span></div>`;
+      }
+      const avg = Number(user.avg_borderline_score).toFixed(1);
+      const low = user.low_value_reasons?.includes("low_score");
+      const high = `≥${valueWindows.high_score_min} 分 ${formatNumber(user.high_score_works)} 条`;
+      const pending = user.is_score_pending ? ` · 样本不足 ${valueWindows.low_score_min_scored} 条，不判擦边低` : "";
+      const title = `擦边均分 ${avg}（最高 ${user.max_borderline_score}）· ${high} · ${coverage}${pending}`;
+      return `<div class="rank-metric" title="${escapeHtml(title)}"><strong class="${low ? "score-low" : ""}">${avg}</strong><span class="rank-metric-note">擦边均分 · ${escapeHtml(high)} · ${escapeHtml(coverage)}</span></div>`;
+    }
+
+    function renderValueFlags(user) {
+      const reasons = Array.isArray(user.low_value_reasons) ? user.low_value_reasons : [];
+      return reasons.map((reason) => {
+        if (reason === "long_silent") {
+          return `<span class="pill warning value-flag" title="最近一次发布早于 ${valueWindows.long_silent_days} 天">长期沉默</span>`;
+        }
+        if (reason === "low_score") {
+          return `<span class="pill warning value-flag" title="已评分 ≥${valueWindows.low_score_min_scored} 条且擦边均分 < ${valueWindows.low_score_avg_below}">擦边低</span>`;
+        }
+        return "";
       }).join("");
     }
 
@@ -1206,6 +1305,10 @@
       document.getElementById("summarySilentHelp").textContent =
         `未知发布 ${formatNumber(summary.unknown_publish_users)}`;
 
+      document.getElementById("summaryLowValue").textContent = formatNumber(summary.low_value_users);
+      document.getElementById("summaryLowValueHelp").textContent =
+        `长期沉默 ${formatNumber(summary.long_silent_users)} / 擦边低 ${formatNumber(summary.low_score_users)} · 待评分 ${formatNumber(summary.score_pending_users)}`;
+
       document.getElementById("summaryAbnormal").textContent = formatNumber(summary.abnormal_users);
       document.getElementById("summaryAbnormalHelp").textContent =
         `注销 ${formatNumber(summary.deleted_users)} / 封禁 ${formatNumber(summary.banned_users)}`;
@@ -1226,6 +1329,7 @@
         tableState.pageSize = Number(data.page_size || tableState.pageSize || 20);
         tableState.total = Number(data.total || 0);
         tableState.totalPages = Number(data.total_pages || 1);
+        if (data.windows) valueWindows = { ...valueWindows, ...data.windows };
         if (data.applied) {
           if (data.applied.sort_by) tableState.sortBy = data.applied.sort_by;
           if (data.applied.sort_order) tableState.sortOrder = data.applied.sort_order;
@@ -1257,6 +1361,7 @@
         if (seq !== refreshSeq) return;
         cachedSummary = statistics.summary || {};
         cachedGeneratedAt = statistics.generated_at;
+        if (statistics.windows) valueWindows = { ...valueWindows, ...statistics.windows };
         renderStatus(status, cachedSummary);
         renderSummary(cachedSummary, cachedGeneratedAt);
       } catch (error) {

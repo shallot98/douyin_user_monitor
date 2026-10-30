@@ -175,11 +175,15 @@ def build_archive_item(record: Dict[str, Any]) -> Optional[Dict[str, Any]]:
 
 
 def _content_filter_summary(value: Any) -> Optional[Dict[str, Any]]:
-    """作品页只需要结论，不下发 signals/motion 等调试细节。"""
+    """作品页只需要结论，不下发 signals/motion 等调试细节。
+
+    version / caliber 要下发：判定口径变过（violation 规则、滞回），
+    前端得能区分新旧口径，否则同一列表里两种算法看起来完全一样。
+    """
     if not isinstance(value, dict):
         return None
     keys = ("status", "verdict", "category", "ad_type", "confidence", "reason", "error", "mode", "tags",
-            "appearance", "summary")
+            "appearance", "summary", "version", "caliber", "inconsistent")
     return {key: value.get(key) for key in keys if value.get(key) is not None}
 
 
@@ -194,13 +198,18 @@ def _sorted_items(records: Iterable[Any]) -> List[Dict[str, Any]]:
     return items
 
 
-AI_FILTER_VIEWS = ("", "flagged", "error", "borderline3", "borderline4")
+AI_FILTER_VIEWS = ("", "flagged", "error", "inconsistent", "borderline3", "borderline4",
+                   "borderline3_strict", "borderline4_strict")
+
+
+def _borderline(item: Dict[str, Any]) -> Dict[str, Any]:
+    appearance = (item.get("content_filter") or {}).get("appearance") or {}
+    borderline = appearance.get("borderline") if isinstance(appearance, dict) else None
+    return borderline if isinstance(borderline, dict) else {}
 
 
 def borderline_score(item: Dict[str, Any]) -> Optional[int]:
-    appearance = (item.get("content_filter") or {}).get("appearance") or {}
-    borderline = appearance.get("borderline") if isinstance(appearance, dict) else None
-    score = borderline.get("score") if isinstance(borderline, dict) else None
+    score = _borderline(item).get("score")
     return score if isinstance(score, int) else None
 
 
@@ -210,9 +219,16 @@ def _matches_ai_filter(item: Dict[str, Any], view: str) -> bool:
         return summary.get("verdict") == "reject"
     if view == "error":
         return summary.get("status") == "error"
+    if view == "inconsistent":
+        # 模型自相矛盾的条目：分数不能全信，值得重打或人工看一眼
+        return bool(summary.get("inconsistent"))
     if view.startswith("borderline"):
-        score = borderline_score(item)
-        return score is not None and score >= int(view.removeprefix("borderline"))
+        strict = view.endswith("_strict")
+        minimum = view.removeprefix("borderline").removesuffix("_strict")
+        # *_strict 用保守档 score_low：重跑一遍分数会抖，实测 15% 会换档，
+        # 想「宁可少判」时用这个视图
+        score = _borderline(item).get("score_low" if strict else "score")
+        return isinstance(score, int) and score >= int(minimum)
     return True
 
 

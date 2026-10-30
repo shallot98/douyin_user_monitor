@@ -2,11 +2,11 @@ import unittest
 from datetime import datetime, timedelta, timezone
 
 from fastapi.testclient import TestClient
+from record_helpers import patch_monitor_users
 
 from douyin_user_monitor.api import monitor as monitor_api
 from douyin_user_monitor.main import app
 from douyin_user_monitor.monitor.statistics import build_user_statistics
-from record_helpers import patch_monitor_users
 
 CHINA_TZ = timezone(timedelta(hours=8))
 

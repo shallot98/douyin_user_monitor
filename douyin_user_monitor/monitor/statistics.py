@@ -4,11 +4,19 @@ from collections.abc import Iterable
 from datetime import datetime, timedelta
 from typing import Any, Dict, List
 
+from douyin_user_monitor.monitor.library import LIBRARY_FILTER_VERSIONS
 from douyin_user_monitor.monitor.profile_parser import ACCOUNT_STATUS_NORMAL
 from douyin_user_monitor.monitor.timeutils import CHINA_TZ, safe_int
 
 SILENT_7D_DAYS = 7
 SILENT_30D_DAYS = 30
+# 沉默筛选可选的天数档；“长期沉默”（计入低价值）取其中的 90 天
+SILENT_WINDOW_DAYS = (7, 30, 60, 90, 180)
+LONG_SILENT_DAYS = 90
+# 擦边低：已评分作品够多（避免几条样本误判）且平均分低于阈值
+LOW_SCORE_MIN_SCORED = 5
+LOW_SCORE_AVG_BELOW = 1.5
+HIGH_SCORE_MIN = 3
 
 
 def build_user_statistics(
@@ -36,20 +44,34 @@ def build_user_statistics(
             "unknown_publish_users": [],
             "deactivated_users": [],
         },
-        "windows": {
-            "silent_7d_days": SILENT_7D_DAYS,
-            "silent_30d_days": SILENT_30D_DAYS,
-        },
+        "windows": value_windows(),
         "notes": {
             "downloaded_works": "累计下载作品数基于 downloaded_count 与已保存 aweme_id 去重后的较大值。",
             "content_mix": "视频/图集结构基于本地已保存的 download_records。",
             "silent_rule": "沉默用户仅统计存在最近发布时间记录且早于阈值的用户；无记录用户单独列出。",
             "account_status_rule": "注销/封禁列表仅基于明确状态信号；无明确信号保持正常。",
+            "low_value_rule": (
+                f"低价值 = 最近发布早于 {LONG_SILENT_DAYS} 天，或已评分作品 ≥{LOW_SCORE_MIN_SCORED} 条"
+                f"且擦边均分 < {LOW_SCORE_AVG_BELOW}；已评分不足的用户不参与擦边判定。"
+            ),
             "lists_deprecated": (
                 "rankings/lists preview arrays are empty; "
                 "use GET /api/monitor/users?page=... for user rows."
             ),
         },
+    }
+
+
+def value_windows() -> Dict[str, Any]:
+    """沉默/价值判定用到的阈值（统计摘要与用户表共用，前端据此写说明）。"""
+    return {
+        "silent_7d_days": SILENT_7D_DAYS,
+        "silent_30d_days": SILENT_30D_DAYS,
+        "silent_window_days": list(SILENT_WINDOW_DAYS),
+        "long_silent_days": LONG_SILENT_DAYS,
+        "low_score_min_scored": LOW_SCORE_MIN_SCORED,
+        "low_score_avg_below": LOW_SCORE_AVG_BELOW,
+        "high_score_min": HIGH_SCORE_MIN,
     }
 
 
@@ -90,6 +112,15 @@ def _count_user_flags(user_rows: List[Dict[str, Any]]) -> Dict[str, int]:
         "abnormal_users": sum(1 for user in user_rows if user["is_abnormal_account"]),
         "deleted_users": sum(1 for user in user_rows if user["account_status"] == "deleted"),
         "banned_users": sum(1 for user in user_rows if user["account_status"] == "banned"),
+        **{
+            f"silent_users_{days}d": sum(1 for user in user_rows if user["silent_days"].get(days))
+            for days in SILENT_WINDOW_DAYS
+            if days not in (SILENT_7D_DAYS, SILENT_30D_DAYS)
+        },
+        "long_silent_users": sum(1 for user in user_rows if user["is_long_silent"]),
+        "low_score_users": sum(1 for user in user_rows if user["is_low_score"]),
+        "score_pending_users": sum(1 for user in user_rows if user["is_score_pending"]),
+        "low_value_users": sum(1 for user in user_rows if user["is_low_value"]),
     }
 
 
@@ -100,7 +131,55 @@ def _build_user_row(user: Dict[str, Any], now: datetime) -> Dict[str, Any]:
     identity = _build_user_identity(user)
     identity.update(content)
     identity.update(activity)
+    identity.update(_build_user_score_metrics(records))
+    identity.update(_build_value_flags(identity))
     return identity
+
+
+def _borderline_score(record: Dict[str, Any]) -> int | None:
+    """已评分作品的擦边分；没评分/评分失败返回 None。
+
+    与作品库同一套版本（LIBRARY_FILTER_VERSIONS）。已评分但画面里没有可评的成年人物
+    （无 borderline 分档）按 0 分算：对“这个号值不值得看”来说它就是不擦边。
+    """
+    result = record.get("content_filter")
+    if not isinstance(result, dict):
+        return None
+    if result.get("version") not in LIBRARY_FILTER_VERSIONS or result.get("status") != "ok":
+        return None
+    appearance = result.get("appearance")
+    borderline = appearance.get("borderline") if isinstance(appearance, dict) else None
+    score = borderline.get("score") if isinstance(borderline, dict) else None
+    if isinstance(score, bool) or not isinstance(score, int):
+        return 0
+    return max(0, score)
+
+
+def _build_user_score_metrics(records: List[Dict[str, Any]]) -> Dict[str, Any]:
+    scores = [score for score in (_borderline_score(record) for record in records) if score is not None]
+    scored = len(scores)
+    high = sum(1 for score in scores if score >= HIGH_SCORE_MIN)
+    return {
+        "scored_works": scored,
+        "avg_borderline_score": round(sum(scores) / scored, 2) if scored else None,
+        "max_borderline_score": max(scores) if scores else None,
+        "high_score_works": high,
+        "high_score_ratio": round(high / scored, 3) if scored else None,
+    }
+
+
+def _build_value_flags(row: Dict[str, Any]) -> Dict[str, Any]:
+    long_silent = bool(row["silent_days"].get(LONG_SILENT_DAYS))
+    pending = row["scored_works"] < LOW_SCORE_MIN_SCORED
+    low_score = not pending and row["avg_borderline_score"] < LOW_SCORE_AVG_BELOW
+    reasons = [label for flag, label in ((long_silent, "long_silent"), (low_score, "low_score")) if flag]
+    return {
+        "is_long_silent": long_silent,
+        "is_low_score": low_score,
+        "is_score_pending": pending,
+        "is_low_value": bool(reasons),
+        "low_value_reasons": reasons,
+    }
 
 
 
@@ -170,6 +249,7 @@ def _build_user_activity(
         "has_publish_in_30d": _is_recent(last_publish_at, now, SILENT_30D_DAYS),
         "is_silent_7d": _is_silent(last_publish_at, now, SILENT_7D_DAYS),
         "is_silent_30d": _is_silent(last_publish_at, now, SILENT_30D_DAYS),
+        "silent_days": {days: _is_silent(last_publish_at, now, days) for days in SILENT_WINDOW_DAYS},
     }
 
 
@@ -194,6 +274,15 @@ def _public_list_user(user: Dict[str, Any]) -> Dict[str, Any]:
         "last_download_at": user.get("last_download_at"),
         "days_since_last_publish": user.get("days_since_last_publish"),
         "activity_known": user.get("activity_known"),
+        "structured_work_count": user.get("structured_work_count"),
+        "scored_works": user.get("scored_works"),
+        "avg_borderline_score": user.get("avg_borderline_score"),
+        "max_borderline_score": user.get("max_borderline_score"),
+        "high_score_works": user.get("high_score_works"),
+        "high_score_ratio": user.get("high_score_ratio"),
+        "is_score_pending": user.get("is_score_pending"),
+        "is_low_value": user.get("is_low_value"),
+        "low_value_reasons": user.get("low_value_reasons"),
     }
 
 
