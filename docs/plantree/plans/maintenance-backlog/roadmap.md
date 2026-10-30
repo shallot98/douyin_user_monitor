@@ -43,7 +43,7 @@ Updated: 2026-10-30
 | T11 | ~~导入不写盘 + lifespan~~ **Done 2026-10-31**：`MonitorService` 构造只读状态，`is_running` 归零与旧字段清理挪到 `auto_resume`（锁内 `update_state`）；`main.py` 改 lifespan。测试锁住"子进程 import main 后状态文件 mtime 不变"。按用户选择**不拆** `api/monitor.py` 单例组装 | — |
 | T12 | 逐处审 `except Exception`（约 40 处），去掉静默吞错 | 每处要么记录日志要么向上抛；`user_sync` 通知失败有日志 |
 | T13 | ~~弃用警告~~ **Done 2026-10-31**：pytest 警告 17 → 1。`on_event`→lifespan（T11）；crawlers `.dict()`→`model_dump()`；httpx `proxies=`→`mounts`（新增 `crawlers.utils.utils.proxy_mounts`，线上代理均为 null，行为不变）；`add_by_url` GET/POST 拆成两条路由各带 operation id。剩 1 条是 starlette 自身 `import multipart`，第三方，不处理。重启后真实解析请求验证通过 | — |
-| T14 | 为无直接测试的模块补测试：`telegram_notifier`、`schedule`、`media_urls`、`cover_image`、`sync_utils` | 每个模块至少一个直接测试 |
+| T14 | ~~补测试~~ **Done 2026-10-31**：`tests/test_small_modules.py` 18 个测试覆盖 `schedule`、`media_urls`、`cover_image`、`sync_utils`、`timeutils`、`telegram_notifier`（含 API 失败与非 JSON 回复） | — |
 
 ## Deferred
 
