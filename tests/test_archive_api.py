@@ -416,6 +416,18 @@ class OpenListClientTests(unittest.IsolatedAsyncioTestCase):
                 "/wopan/抖音视频/鱼幼薇🐱/a.mp4",
             )
 
+    def test_trailing_space_dirs_add_trimmed_candidate_on_both_drives(self):
+        """mover 落地时去掉目录尾空格；原名在前，去尾空格形态紧随，备份盘同样两种都查。"""
+        with tempfile.TemporaryDirectory() as tmp:
+            client = OpenListClient(archive_settings(Path(tmp), sanitize_primary_dirs=False))
+            candidates = client.remote_paths_for("知哦周/图片/20261027_标题截断 /1.jpg")
+            self.assertEqual(candidates[:2], [
+                "/wopan/抖音视频/知哦周/图片/20261027_标题截断 /1.jpg",
+                "/wopan/抖音视频/知哦周/图片/20261027_标题截断/1.jpg",
+            ])
+            self.assertIn("/kuake/抖音视频/知哦周/图片/20261027_标题截断/1.jpg", candidates)
+            self.assertIn("/kuake/抖音视频/知哦周/图片/20261027_标题截断 /1.jpg", candidates)
+
     def test_identical_bases_are_deduped(self):
         with tempfile.TemporaryDirectory() as tmp:
             client = OpenListClient(

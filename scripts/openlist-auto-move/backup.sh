@@ -78,6 +78,7 @@ backup_dir_for_local_file() {
 
   local relative_dir
   relative_dir=$(dirname -- "${relative_path}")
+  relative_dir=$(trim_relative_dir "${relative_dir}") || return 1
   if [[ "${relative_dir}" == "." ]]; then
     printf '%s' "${BACKUP_TARGET_BASE}"
     return 0
@@ -197,7 +198,7 @@ ensure_backup_copy() {
   backup_enabled || return 0
 
   local backup_dir
-  backup_dir=$(backup_dir_for_local_file "${local_file_path}")
+  backup_dir=$(backup_dir_for_local_file "${local_file_path}") || return 1
 
   local local_size=""
   if [[ -f "${local_file_path}" ]]; then
@@ -263,7 +264,7 @@ drain_backup_staging() {
   while IFS= read -r -d '' staged_path; do
     total=$((total + 1))
     relative_path="${staged_path#"${root}"/}"
-    backup_dir=$(backup_dir_for_local_file "${SOURCE_ROOT}/${relative_path}")
+    backup_dir=$(backup_dir_for_local_file "${SOURCE_ROOT}/${relative_path}") || { failed=$((failed + 1)); continue; }
     file_name="${staged_path##*/}"
     staged_size=$(stat -c '%s' -- "${staged_path}")
 
@@ -324,8 +325,9 @@ backup_local_originals_without_move() {
       log "原始文件备份达到本轮上限: ${processed}/${limit}"
       break
     fi
-    backup_dir=$(backup_dir_for_local_file "${file_path}")
-    src_dir="${SOURCE_MOUNT}${backup_dir#"${BACKUP_TARGET_BASE}"}"
+    backup_dir=$(backup_dir_for_local_file "${file_path}") || continue
+    # 源目录按原名（/qbt 挂载接受尾空格），不能从清理过的备份目录反推
+    src_dir=$(build_remote_paths "${file_path}" | sed -n 1p) || continue
     file_name="${file_path##*/}"
     local_size=$(stat -c '%s' -- "${file_path}")
     # 已有副本不消耗新增额度，后续轮次才能继续处理剩余原始文件。

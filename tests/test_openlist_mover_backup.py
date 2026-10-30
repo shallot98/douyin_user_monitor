@@ -467,3 +467,58 @@ def test_d2_direct_upload_stages_backup_and_cleans_local_source(tmp_path: Path) 
     )
     assert "moved=1 errors=0" in result.stdout
 
+
+
+def test_trailing_space_dir_is_trimmed_for_targets_but_source_keeps_original(tmp_path: Path) -> None:
+    """标题截断留下尾空格的图集目录：D2 与夸克目标去掉尾空格，/qbt 源路径和本地文件保持原名。"""
+    result = run_bash(
+        PRELUDE
+        + r'''
+        TARGET_BASE="/d2/target"
+        D2_DIRECT_UPLOAD="true"
+        D2_DIRECT_CALLS_FILE="${TMP_ROOT}/d2-direct-calls"
+        COPY_SRC_FILE="${TMP_ROOT}/copy-src"
+        : > "${D2_DIRECT_CALLS_FILE}"
+        : > "${COPY_SRC_FILE}"
+        rm -f "${SOURCE_ROOT}/acct/a.mp4"
+        mkdir -p "${SOURCE_ROOT}/acct/图片/标题截断 "
+        printf abcd > "${SOURCE_ROOT}/acct/图片/标题截断 /1.jpg"
+
+        mapfile -t ctx < <(build_remote_paths "${SOURCE_ROOT}/acct/图片/标题截断 /1.jpg")
+        [[ "${ctx[0]}" == "/qbt/source/acct/图片/标题截断 " ]]
+        [[ "${ctx[1]}" == "/d2/target/acct/图片/标题截断" ]]
+        [[ "$(backup_dir_for_local_file "${SOURCE_ROOT}/acct/图片/标题截断 /1.jpg")" == "/kuake/target/acct/图片/标题截断" ]]
+
+        d2_direct_upload_file() {
+          local local_file_path="$1" dst_dir="$2" file_name="$3"
+          printf '%s\t%s\n' "${dst_dir}" "${file_name}" >> "${D2_DIRECT_CALLS_FILE}"
+          rm -f -- "${local_file_path}"
+          unmark_file_pending "${local_file_path}"
+          return 0
+        }
+
+        api_post_json() {
+          local path="$2" payload="$3"
+          case "${path}" in
+            "/api/fs/mkdir") printf '{"code":200}' ;;
+            "/api/fs/list") jq -cn '{code:200,data:{total:0,content:[]}}' ;;
+            "/api/fs/copy")
+              jq -r '.dst_dir' <<< "${payload}" >> "${COPY_CALLS_FILE}"
+              jq -r '.src_dir' <<< "${payload}" >> "${COPY_SRC_FILE}"
+              jq -cn '{code:200,data:{tasks:[{id:"copy-1"}]}}'
+              ;;
+            *) printf 'unexpected: %s\n' "${path}" >&2; return 1 ;;
+          esac
+        }
+
+        process_files_batched "token" "$(date +%s)"
+
+        [[ "$(cat "${D2_DIRECT_CALLS_FILE}")" == $'/d2/target/acct/图片/标题截断\t1.jpg' ]]
+        [[ "$(cat "${COPY_CALLS_FILE}")" == "/kuake/target/acct/图片/标题截断" ]]
+        # 夸克 copy 从暂存区读，暂存区保留原目录名
+        [[ "$(cat "${COPY_SRC_FILE}")" == "/qbt/source/.backup-staging/acct/图片/标题截断 " ]]
+        printf 'moved=%s errors=%s\n' "${PROCESS_MOVED_COUNT}" "${PROCESS_ERROR_COUNT}"
+        ''',
+        tmp_path,
+    )
+    assert "moved=1 errors=0" in result.stdout

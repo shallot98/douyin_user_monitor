@@ -22,6 +22,7 @@ from douyin_user_monitor.monitor.path_sanitize import (
     sanitize_relative_dir,
     sanitize_relative_path,
     sanitize_user_dir_only,
+    trim_relative_dirs,
 )
 from douyin_user_monitor.monitor.record_store import load_state_with_records, record_db_path
 
@@ -201,6 +202,18 @@ class SanitizeUserDirOnlyTests(unittest.TestCase):
 
     def test_single_segment_has_no_user_dir(self):
         self.assertIsNone(sanitize_user_dir_only("带🍬.mp4"))
+
+
+class TrimRelativeDirsTests(unittest.TestCase):
+    def test_trailing_space_dirs_are_trimmed_and_filename_kept(self):
+        self.assertEqual(trim_relative_dirs("用户 /图片/标题截断 /1 .jpg"), "用户/图片/标题截断/1 .jpg")
+
+    def test_unchanged_or_single_segment_returns_none(self):
+        self.assertIsNone(trim_relative_dirs("用户/图片/标题/1.jpg"))
+        self.assertIsNone(trim_relative_dirs("a .mp4"))
+
+    def test_blank_dir_segment_returns_none(self):
+        self.assertIsNone(trim_relative_dirs("用户/ /1.jpg"))
 
 
 def _real_corpus() -> List[str]:

@@ -163,6 +163,23 @@ def sanitize_relative_path(
     return "/".join(cleaned_parts)
 
 
+def trim_relative_dirs(relative: str) -> Optional[str]:
+    """去掉各目录段首尾空白，文件名保持原样；与 mover ``trim_relative_dir`` 同源。
+
+    D2/夸克不接受尾空格目录名，mover 落地时去掉；记录里仍存原名。
+    无需变换或某段变空时返回 ``None``（调用方跳过该候选）。
+    """
+    text = str(relative or "").strip().strip("/")
+    parts = text.split("/")
+    if len(parts) < 2:
+        return None
+    dirs = [segment.strip() for segment in parts[:-1]]
+    if any(not segment for segment in dirs):
+        return None
+    trimmed = "/".join([*dirs, parts[-1]])
+    return trimmed if trimmed != text else None
+
+
 def sanitize_user_dir_only(relative: str, sec_user_id: Optional[str] = None) -> Optional[str]:
     """只清洗首段用户目录，其余目录与文件名保持原名。
 
