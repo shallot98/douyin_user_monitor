@@ -28,7 +28,7 @@ Updated: 2026-10-30
 1. 文件超过 `MIN_AGE_SECONDS=120` 才处理。
 2. 硬链接进 `download/.backup-staging/` → OpenList copy 到备份盘 `/kuake/抖音视频`。
 3. 并行直传主盘 `/d2/vps/抖音视频`（`D2_DIRECT_UPLOAD=true`），成功后删本地源。
-4. 远端已有同名文件时，只有大小完全一致才删本地（`SIZE_MISMATCH_TOLERANCE_BYTES=0`，`common.sh:42`）。只比大小，不比哈希。
+4. 远端已有同名文件时，只有大小完全一致才删本地（`SIZE_MISMATCH_TOLERANCE_BYTES=0`）；D2 目标另比对 `content_identity`（`d2_verify.py`），不一致转 skipped。目标目录每段去首尾空白。D2 5xx/超时下轮重试，连续 6 轮才计失败。
 
 日志 `logs/openlist-auto-move.log`。
 

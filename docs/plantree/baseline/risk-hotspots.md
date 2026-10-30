@@ -36,5 +36,5 @@ Updated: 2026-10-30（只读盘点；仅记录事实，修复与否未定）
 - `migrate_archive_to_primary.py` 文档称备份盘只读，实际会改名夸克目录，且默认不是 dry-run。
 - `relay_restore.py` 硬编码 boh2 主机和 `/root/boh2.pass`，远端 `rm -rf /tmp/relay_restore_stage`。
 - 去 emoji 规则两套实现：`scripts/openlist-auto-move/paths.sh` `sanitize_component`（perl）与 `monitor/path_sanitize.py`，靠人工同步。多个脚本各自实现 OpenList token 读取与 API 调用。
-- mover 删本地只比大小、不比哈希（D2 直传路径与备份暂存另有校验，未逐一审）。
+- mover 删本地：D2 目标 2026-10-30 起比对 `content_identity`；夸克备份盘仍只比大小（OpenList 不给哈希）。
 - 密钥经 `EnvironmentFile` 注入，root 可在 `/proc/<pid>/environ` 读到；仅 root 可读。
