@@ -15,7 +15,6 @@ Updated: 2026-10-30
 | `data/archive_path_aliases.json` | 已核实的历史归档精确路径 | 外部脚本 | 只在启动时加载 |
 | `data/parse_cookies/*.txt` | 详情/解析用过期 Cookie | 手动维护 | 目录变更自动重读 |
 | `config/douyin_web.yaml` | 爬虫配置与当前 Cookie | `InProcessDouyinClient._persist_cookie` | asyncio.Lock |
-| `data/douyin.db` | — | 代码中找不到引用 | Unknown / needs inventory |
 
 `data/` 总计约 1.2G，`runtime/` 168M，`logs/` 56M。根分区 2026-10-30 已用 88%，剩约 12G。
 

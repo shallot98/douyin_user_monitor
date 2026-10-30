@@ -15,8 +15,8 @@ Updated: 2026-10-30
 
 | ID | 任务 | 验收 | 需确认 |
 |----|------|------|--------|
-| T1 | 处理 `douyin-api-8900.service` 同端口冲突 | 该 unit disabled 或改端口；8900 只剩监控服务 | 是（属于另一项目） |
-| T2 | 清理磁盘：`runtime/` 旧补打 JSON、根目录 `config.yaml.bak-*`、`data/douyin.db`、`sync-douyin-monitor-download.sh` | 先列清单与大小，归档后删除；根分区用量下降 | 是（删除） |
+| T1 | ~~同端口冲突~~ **Done 2026-10-30**：unit 文件在 `/etc` 不能 mask，改加 drop-in `douyin-api-8900.service.d/disabled-port-conflict.conf`（ConditionPathExists 永不满足），`systemctl start` 实测被跳过；删 drop-in + daemon-reload 可恢复 | — | — |
+| T2 | ~~清理磁盘~~ **Done 2026-10-30**：已删 3 份 `config.yaml.bak-20261028-*`、0 字节 `data/douyin.db`、无引用的 `scripts/sync-douyin-monitor-download.sh`。保留：`runtime/` 播放修复证据、pre-split 回滚备份、旧 mover 日志（用户未选）。根分区 83G 主要是 `/root` 下其他项目与 docker 镜像（可回收 9.3G 多为 save-restricted-bot 当日回滚镜像，用户决定不动） | — | — |
 | T3 | ~~`scripts/systemd/` 与线上一致~~ **Done 2026-10-30**：单元与 drop-in 已收入并写 README，diff 一致 | — | — |
 
 ## Next — 数据安全
