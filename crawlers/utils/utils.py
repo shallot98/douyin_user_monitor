@@ -57,8 +57,19 @@ random.seed(seed_int)
 
 
 # 将模型实例转换为字典
+def proxy_mounts(proxies, transport_cls):
+    """把 {"http://": url, "https://": url} 转成 httpx 的 mounts；值为空的协议不走代理。
+
+    httpx 0.27 起 `proxies=` 已弃用，按协议分别挂代理要改用 mounts。
+    """
+    if not isinstance(proxies, dict):
+        return None
+    mounts = {scheme: transport_cls(proxy=url) for scheme, url in proxies.items() if url}
+    return mounts or None
+
+
 def model_to_query_string(model: BaseModel) -> str:
-    model_dict = model.dict()
+    model_dict = model.model_dump()
     # 使用urlencode进行URL编码
     query_string = urlencode(model_dict)
     return query_string

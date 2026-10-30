@@ -40,6 +40,7 @@ import re
 from httpx import Response
 
 from crawlers.utils.logger import logger
+from crawlers.utils.utils import proxy_mounts
 from crawlers.utils.http_errors import status_error_message
 from crawlers.utils.api_exceptions import (
     APIConnectionError,
@@ -95,7 +96,7 @@ class BaseCrawler:
         # 异步客户端 / Asynchronous client
         self.aclient = httpx.AsyncClient(
             headers=self.crawler_headers,
-            proxies=self.proxies,
+            mounts=proxy_mounts(self.proxies, httpx.AsyncHTTPTransport),
             timeout=self.timeout,
             limits=self.limits,
             transport=self.atransport,

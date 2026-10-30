@@ -1242,11 +1242,18 @@ async def add_user(request: Request, payload: AddUserPayload) -> ResponseModel:
     return _build_success(request, result)
 
 
-@router.api_route(
+# GET/POST 分两条路由注册同一个函数：多 method 的单条路由会生成重复 operation id
+@router.get(
     "/users/add_by_url",
-    methods=["GET", "POST"],
+    response_model=ResponseModel,
+    summary="通过主页链接快速添加监控用户（GET，已 deprecated）/Quick add user by profile URL",
+    operation_id="add_user_by_url_get",
+)
+@router.post(
+    "/users/add_by_url",
     response_model=ResponseModel,
     summary="通过主页链接快速添加监控用户/Quick add user by profile URL",
+    operation_id="add_user_by_url_post",
 )
 async def add_user_by_url(
     request: Request,
