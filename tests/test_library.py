@@ -318,6 +318,36 @@ class LibraryRouteTests(unittest.TestCase):
         self.assertIn("作品库", response.text)
         self.assertIn("no-store", response.headers["cache-control"])
 
+    def test_swipe_page_served_without_cache(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            page = Path(tmp) / "swipe.html"
+            page.write_text("<html>刷视频</html>", encoding="utf-8")
+            with patch.object(monitor_api, "SWIPE_DASHBOARD_PATH", page):
+                response = self.client.get("/api/monitor/swipe/dashboard")
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("刷视频", response.text)
+        self.assertIn("no-store", response.headers["cache-control"])
+
+    def test_swipe_page_uses_library_api_and_is_linked_from_every_sidebar(self):
+        web = Path(monitor_api.SWIPE_DASHBOARD_PATH).parent
+        page = (web / "swipe.html").read_text(encoding="utf-8")
+        self.assertIn("/library?", page)
+        self.assertIn('name="referrer" content="no-referrer"', page)
+        for name in ("dashboard", "statistics", "library", "cookies", "settings", "api", "works"):
+            self.assertIn("/api/monitor/swipe/dashboard", (web / f"{name}.html").read_text(encoding="utf-8"), name)
+
+    def test_filter_sheet_is_portaled_next_to_overlay(self):
+        # 回归：抽屉面板留在 main#mainScroll 里时，iOS 把滚动容器做成层叠上下文，
+        # body 下的 #filterOverlay 盖住面板 → 灰屏且点面板即关闭。抽屉模式必须挂到 body、排在遮罩后面。
+        page = (Path(monitor_api.LIBRARY_DASHBOARD_PATH).parent / "library.html").read_text(encoding="utf-8")
+        self.assertIn('<div class="overlay filter-overlay" id="filterOverlay"></div>', page)
+        self.assertIn("function placeFilterPanel(panel, sheet)", page)
+        self.assertIn("if (sheet) overlay.after(panel);", page)
+        self.assertIn("else panelAnchor.after(panel);", page)
+        apply_src = page.split("function applyPanelState() {", 1)[1].split("\n    }\n", 1)[0]
+        self.assertIn("placeFilterPanel(panel, sheet);", apply_src)
+        self.assertIn('window.addEventListener("resize", applyPanelState);', page)
+
 
 if __name__ == "__main__":
     unittest.main()

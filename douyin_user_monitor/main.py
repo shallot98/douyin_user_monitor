@@ -100,16 +100,40 @@ async def login(request: Request, payload: LoginBody) -> JSONResponse:
     return response
 
 
+@app.post("/auth/guest", include_in_schema=False)
+async def guest_login(request: Request) -> JSONResponse:
+    """游客入口：无需口令，发一个只能刷视频的游客会话。"""
+    if not auth.guest_enabled():
+        raise HTTPException(status_code=404, detail="未开放游客模式")
+    response = JSONResponse({"code": 200, "message": "ok", "data": {"next": auth.GUEST_HOME}})
+    response.set_cookie(
+        auth.GUEST_COOKIE,
+        auth.make_guest_token(int(time.time()) + auth.GUEST_SECONDS),
+        max_age=auth.GUEST_SECONDS,
+        httponly=True,
+        samesite="lax",
+        secure=_is_https(request),
+        path="/",
+    )
+    return response
+
+
 @app.post("/auth/logout", include_in_schema=False)
 async def logout(request: Request) -> JSONResponse:
     response = JSONResponse({"code": 200, "message": "ok", "data": None})
-    response.delete_cookie(auth.SESSION_COOKIE, path="/", httponly=True, samesite="lax", secure=_is_https(request))
+    for cookie in (auth.SESSION_COOKIE, auth.GUEST_COOKIE):
+        response.delete_cookie(cookie, path="/", httponly=True, samesite="lax", secure=_is_https(request))
     return response
 
 
 @app.get("/auth/status", include_in_schema=False)
 async def auth_status(request: Request) -> JSONResponse:
-    data = {"login_enabled": auth.login_enabled(), "authenticated": auth.is_authenticated(request)}
+    data = {
+        "login_enabled": auth.login_enabled(),
+        "authenticated": auth.is_authenticated(request),
+        "guest_enabled": auth.guest_enabled(),
+        "role": auth.session_role(request),
+    }
     return JSONResponse({"code": 200, "message": "ok", "data": data})
 
 

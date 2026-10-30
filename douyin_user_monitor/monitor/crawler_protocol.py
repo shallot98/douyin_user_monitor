@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, Dict, Protocol
+from typing import Any, Dict, Optional, Protocol
 
 
 class MonitorCrawlerProtocol(Protocol):
@@ -13,10 +13,10 @@ class MonitorCrawlerProtocol(Protocol):
     async def fetch_user_post_videos(self, sec_user_id: str, max_cursor: int, count: int) -> Dict[str, Any]:
         ...
 
-    async def fetch_one_video(self, aweme_id: str) -> Dict[str, Any]:
+    async def fetch_one_video(self, aweme_id: str, cookie: Optional[str] = None) -> Dict[str, Any]:
         ...
 
-    async def get_douyin_headers(self) -> Dict[str, Dict[str, str]]:
+    async def get_douyin_headers(self, cookie: Optional[str] = None) -> Dict[str, Dict[str, str]]:
         ...
 
     async def aclose(self) -> None:

@@ -1,5 +1,6 @@
 import asyncio
-from typing import Any, Dict, List, Set
+import logging
+from typing import Any, Dict, List, Optional, Set
 
 from douyin_user_monitor.monitor.crawler_protocol import MonitorCrawlerProtocol
 from douyin_user_monitor.monitor.downloader import AwemeAssetDownloader
@@ -12,6 +13,7 @@ from douyin_user_monitor.monitor.history_sync import (
     update_history_sync_progress,
 )
 from douyin_user_monitor.monitor.notifier import MonitorNotifierProtocol
+from douyin_user_monitor.monitor.parse_cookies import ParseCookiePool, ParseCookiesUnavailable
 from douyin_user_monitor.monitor.profile_parser import (
     ACCOUNT_STATUS_BANNED,
     ACCOUNT_STATUS_DELETED,
@@ -33,6 +35,10 @@ INCREMENTAL_FETCH_POSTS = 20
 HISTORY_RETRY_LIMIT = 5
 
 
+# 应用没单独配日志输出；借 uvicorn 已配好的通道，回落登录态的记录才进 journal
+LOGGER = logging.getLogger("uvicorn.error")
+
+
 class UserSyncService:
     def __init__(
         self,
@@ -43,8 +49,11 @@ class UserSyncService:
         *,
         cover_publisher=None,
         content_filter=None,
+        detail_cookie_pool: Optional[ParseCookiePool] = None,
     ):
         self._crawler = crawler
+        # 过期 Cookie：取作品详情、原画地址和下载文件用它，登录态只留给拉作品列表
+        self._detail_cookie_pool = detail_cookie_pool
         self._downloader = downloader
         self._notifier = notifier
         self._cookie_rotation_session = cookie_rotation_session
@@ -239,10 +248,7 @@ class UserSyncService:
         for post in reversed(posts):
             aweme_id = str(post.get("aweme_id", ""))
             try:
-                detail_data = await self._crawler.fetch_one_video(aweme_id)
-                aweme_detail = detail_data.get("aweme_detail")
-                if not isinstance(aweme_detail, dict):
-                    raise ValueError(f"作品 {aweme_id} 缺少 aweme_detail")
+                aweme_detail, download_headers = await self._fetch_detail_for_download(aweme_id, headers)
                 if notify:
                     await self._notifier.notify_new_aweme_detected(
                         user_nickname=user["nickname"],
@@ -253,7 +259,7 @@ class UserSyncService:
                     sec_user_id=user["sec_user_id"],
                     user_nickname=user["nickname"],
                     aweme_detail=aweme_detail,
-                    headers=headers,
+                    headers=download_headers,
                 )
                 record = self._build_download_record(
                     aweme_detail,
@@ -279,6 +285,32 @@ class UserSyncService:
                 if failed_posts is not None:
                     failed_posts[aweme_id] = safe_error
         return downloaded_records, errors
+
+    async def _fetch_detail_for_download(
+        self, aweme_id: str, login_headers: Dict[str, str]
+    ) -> tuple[Dict[str, Any], Dict[str, str]]:
+        """先用过期 Cookie 取详情（下载也带它）；取不到再用登录态重试一次并记日志，免得漏作品。"""
+        pool = self._detail_cookie_pool
+        if pool is not None:
+            try:
+                name, cookie = pool.take()
+            except ParseCookiesUnavailable as exc:
+                LOGGER.warning("过期 Cookie 不可用，作品 %s 改用登录态: %s", aweme_id, exc)
+            else:
+                try:
+                    data = await self._crawler.fetch_one_video(aweme_id, cookie=cookie)
+                    detail = data.get("aweme_detail") if isinstance(data, dict) else None
+                    if isinstance(detail, dict):
+                        return detail, (await self._crawler.get_douyin_headers(cookie))["headers"]
+                    reason = "缺少 aweme_detail"
+                except Exception as exc:  # noqa: BLE001
+                    reason = sanitize_public_error(exc)
+                LOGGER.warning("过期 Cookie %s 取作品 %s 详情失败（%s），改用登录态重试", name, aweme_id, reason)
+        detail_data = await self._crawler.fetch_one_video(aweme_id)
+        aweme_detail = detail_data.get("aweme_detail")
+        if not isinstance(aweme_detail, dict):
+            raise ValueError(f"作品 {aweme_id} 缺少 aweme_detail")
+        return aweme_detail, login_headers
 
     async def _fetch_posts_page(
         self,

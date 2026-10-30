@@ -16,7 +16,9 @@
     .viewer-close { flex-shrink:0; width:28px; height:28px; border:0; border-radius:8px; background:transparent; color:#cbd5e1; cursor:pointer; display:grid; place-items:center; }
     .viewer-close:hover { background:rgba(148,163,184,.18); color:#fff; }
     .viewer-close svg { width:16px; height:16px; }
-    .viewer-body { position:relative; }
+    /* 竖向手势留给播放器（上下滑切作品），不让背后的列表跟着滚/iOS 整页回弹 */
+    .viewer { overscroll-behavior:contain; }
+    .viewer-body { position:relative; touch-action:pan-x pinch-zoom; }
     .viewer-stage { position:relative; width:360px; height:640px; display:grid; place-items:center; background:#000; overflow:hidden; }
     /* 绝对定位铺满舞台：grid 子项的 height:100% 会退回视频原始尺寸，大分辨率视频被裁掉一截 */
     .viewer-stage video, .viewer-stage img { position:absolute; inset:0; display:block; width:100%; height:100%; object-fit:contain; }
@@ -34,7 +36,7 @@
     .viewer-nav { width:28px; height:28px; border:0; border-radius:999px; background:transparent; color:#fff; cursor:pointer; display:grid; place-items:center; }
     .viewer-nav:hover { background:rgba(255,255,255,.16); }
     .viewer-nav svg { width:16px; height:16px; }
-    .viewer-cf { padding:8px 14px; font-size:11.5px; line-height:1.5; color:#cbd5e1; background:#0f172a; border-top:1px solid rgba(148,163,184,.14); max-height:112px; overflow-y:auto; }
+    .viewer-cf { padding:8px 14px; font-size:11.5px; line-height:1.5; color:#cbd5e1; background:#0f172a; border-top:1px solid rgba(148,163,184,.14); max-height:112px; overflow-y:auto; overscroll-behavior:contain; }
     .viewer-cf[hidden] { display:none; }
     .viewer-cf-summary { color:#e2e8f0; margin-bottom:5px; }
     .viewer-cf-verdict { color:#fda4af; font-weight:700; margin-right:6px; }
@@ -68,7 +70,7 @@
         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" /></svg>
       </button>
     </div>
-    <div class="viewer-body">
+    <div class="viewer-body" id="viewerBody">
       <div class="viewer-stage" id="viewerStage"></div>
       <div class="viewer-works">
         <button type="button" class="viewer-work-btn" id="viewerPrevWork" aria-label="上一个作品" title="上一个作品（↑）">
@@ -278,8 +280,8 @@
     notifyPlaying(options.scroll);
   }
 
-  function notifyPlaying(scroll = false) {
-    if (opts.onPlayingChange) opts.onPlayingChange(vs.open ? vs.index : -1, { scroll: Boolean(scroll) });
+  function notifyPlaying(scroll = false, extra = {}) {
+    if (opts.onPlayingChange) opts.onPlayingChange(vs.open ? vs.index : -1, { scroll: Boolean(scroll), ...extra });
   }
 
   // 列表变化（翻页/筛选/加载更多）后重新定位正在播的作品；它可能已不在列表里
@@ -322,7 +324,7 @@
     const idx = vs.index;
     const target = idx < 0 ? (delta > 0 ? 0 : list.length - 1) : idx + delta;
     if (target >= 0 && target < list.length) {
-      open(target, { scroll: true });
+      open(target);
       return;
     }
     if (!opts.loadAdjacent) return;
@@ -349,7 +351,7 @@
       updateWorkNav();
       return;
     }
-    open(next, { scroll: true });
+    open(next);
   }
 
   function currentSource(item) {
@@ -674,6 +676,38 @@
     applyViewerPosition();
   }
 
+  // 画面区竖向滑动切换作品；底部原生控制条那一截不算（留给拖进度）
+  const SWIPE_MIN = 60;
+  const CONTROLS_STRIP = 56;
+  function initSwipe() {
+    const body = $("viewerBody");
+    let touch = null;
+    body.addEventListener("touchstart", (event) => {
+      if (event.touches.length !== 1 || event.target.closest("button, a")) { touch = null; return; }
+      const point = event.touches[0];
+      const rect = $("viewerStage").getBoundingClientRect();
+      touch = { x: point.clientX, y: point.clientY, swipe: point.clientY < rect.bottom - CONTROLS_STRIP };
+    }, { passive: true });
+    body.addEventListener("touchmove", (event) => {
+      if (!touch || event.touches.length !== 1) return;
+      const point = event.touches[0];
+      const dx = point.clientX - touch.x;
+      const dy = point.clientY - touch.y;
+      // 竖向为主就吃掉，iOS 老版本不认 touch-action 时靠这里挡住整页回弹
+      if (Math.abs(dy) > Math.abs(dx) && event.cancelable) event.preventDefault();
+    }, { passive: false });
+    body.addEventListener("touchend", (event) => {
+      if (!touch) return;
+      const point = event.changedTouches[0];
+      const dx = point.clientX - touch.x;
+      const dy = point.clientY - touch.y;
+      const swipe = touch.swipe;
+      touch = null;
+      if (swipe && Math.abs(dy) >= SWIPE_MIN && Math.abs(dy) > Math.abs(dx) * 1.5) stepWork(dy < 0 ? 1 : -1);
+    });
+    body.addEventListener("touchcancel", () => { touch = null; });
+  }
+
   function initDrag() {
     const viewer = $("viewer");
     const head = $("viewerHead");
@@ -713,11 +747,12 @@
     if (!opts) return;
     stopMedia();
     $("viewerStage").innerHTML = "";
+    const lastIndex = vs.index;
     vs.open = false;
     vs.item = null;
     vs.index = -1;
     $("viewer").classList.remove("show");
-    notifyPlaying();
+    notifyPlaying(false, { revealIndex: lastIndex });
   }
 
   function onKeydown(event) {
@@ -766,6 +801,7 @@
       if (button) stepImage(Number(button.dataset.imageStep));
     });
     initDrag();
+    initSwipe();
     document.addEventListener("keydown", onKeydown);
     window.addEventListener("resize", () => {
       if (vs.open) sizeStage(vs.ratio, 1);

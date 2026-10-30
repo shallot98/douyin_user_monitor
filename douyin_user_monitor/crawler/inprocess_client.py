@@ -86,9 +86,9 @@ class InProcessDouyinClient:
             finally:
                 headers["Cookie"] = previous
 
-    async def get_douyin_headers(self) -> Dict[str, Dict[str, str]]:
+    async def get_douyin_headers(self, cookie: str | None = None) -> Dict[str, Dict[str, str]]:
         try:
-            kwargs = await self._crawler.get_douyin_headers()
+            kwargs = await (self._crawler.get_douyin_headers(cookie) if cookie else self._crawler.get_douyin_headers())
         except Exception as exc:
             raise RuntimeError(f"读取抖音请求头失败: {exc}") from exc
         headers = kwargs.get("headers") if isinstance(kwargs, dict) else None
@@ -129,9 +129,10 @@ class InProcessDouyinClient:
             raise ValueError("爬虫返回的 aweme_list 不是列表")
         return data
 
-    async def fetch_one_video(self, aweme_id: str) -> Dict[str, Any]:
+    async def fetch_one_video(self, aweme_id: str, cookie: str | None = None) -> Dict[str, Any]:
+        """cookie 给定时只用于这一次请求（解析 API 的独立 Cookie），不动全局 Cookie。"""
         try:
-            data = await self._crawler.fetch_one_video(aweme_id)
+            data = await (self._crawler.fetch_one_video(aweme_id, cookie=cookie) if cookie else self._crawler.fetch_one_video(aweme_id))
         except Exception as exc:
             raise RuntimeError(f"获取作品详情失败: {exc}") from exc
         if not isinstance(data, dict):

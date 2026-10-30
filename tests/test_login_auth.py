@@ -120,8 +120,8 @@ class LoginAuthTests(unittest.TestCase):
         self._login()
         after = self.client.get("/auth/status").json()["data"]
 
-        self.assertEqual(before, {"login_enabled": True, "authenticated": False})
-        self.assertEqual(after, {"login_enabled": True, "authenticated": True})
+        self.assertEqual(before, {"login_enabled": True, "authenticated": False, "guest_enabled": False, "role": None})
+        self.assertEqual(after, {"login_enabled": True, "authenticated": True, "guest_enabled": False, "role": "admin"})
 
     def test_missing_session_secret_fails_loudly(self):
         with patch.dict(os.environ, {auth.SESSION_SECRET_ENV: ""}):

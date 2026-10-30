@@ -1,0 +1,1629 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
+  <meta http-equiv="Pragma" content="no-cache" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <!-- 视频直连国内 CDN 时不能带 Referer，否则网关 403 -->
+  <meta name="referrer" content="no-referrer" />
+  <meta name="theme-color" content="#000000" />
+  <title>刷视频 - 抖音用户监控</title>
+  <style>
+    :root {
+      --sw-fg: #fff;
+      --sw-muted: rgba(255, 255, 255, .6);
+      --sw-glass: rgba(0, 0, 0, .35);
+      --sw-line: rgba(255, 255, 255, .08);
+      --sw-accent: #fe2c55;
+      --sw-accent-2: #25f4ee; /* 只用在焦点环和加载小球上 */
+      --sw-panel: #161823;
+      --sw-panel-2: #252632;
+      --sw-ms: 320ms;
+      --sw-ease: cubic-bezier(.2, .85, .25, 1);
+      --sw-shadow-text: 0 1px 1px rgba(0, 0, 0, .35);
+      --sw-shadow-strong: 0 0 2px rgba(0, 0, 0, .5), 0 1px 2px rgba(0, 0, 0, .4);
+      --safe-top: env(safe-area-inset-top, 0px);
+      --safe-bottom: env(safe-area-inset-bottom, 0px);
+      --safe-left: env(safe-area-inset-left, 0px);
+      --safe-right: env(safe-area-inset-right, 0px);
+      --col-w: 100vw;        /* 桌面在媒体查询里覆盖 */
+      --top-y: 0px;          /* 顶栏所在卡片的上边 */
+      --top-pad: calc(max(var(--safe-top), 8px) + 4px);
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; height: 100%; background: #000; color: var(--sw-fg); overflow: hidden; overscroll-behavior: none; }
+    body { font: 15px/1.45 -apple-system, BlinkMacSystemFont, "PingFang SC", "HarmonyOS Sans SC", "MiSans", "Microsoft YaHei", system-ui, sans-serif; letter-spacing: .01em; -webkit-text-size-adjust: 100%; text-size-adjust: 100%; -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; }
+    button { font: inherit; color: inherit; letter-spacing: inherit; }
+    [hidden] { display: none !important; }
+    .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+
+    /* ---- 图标：Lucide 线性，24 网格 stroke 2；尺寸 16/20/24/30/64 五档 ---- */
+    .sw-ico { width: var(--ico, 24px); height: var(--ico, 24px); flex: none; display: block; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+
+    /* ---- 舞台：三张封面轮换 + 一个常驻 video（只换 src，保住 iOS 的手势授权） ---- */
+    .sw-page-bg { display: none; }
+    .sw-stage { position: fixed; inset: 0; height: 100dvh; overflow: hidden; touch-action: none; user-select: none; -webkit-user-select: none; background: #000; }
+    .sw-track, .sw-player { position: absolute; inset: 0; will-change: transform; transition: transform var(--sw-ms) var(--sw-ease); }
+    .sw-track.no-anim, .sw-player.no-anim { transition: none; }
+    .sw-slide { position: absolute; left: 0; right: 0; height: 100%; overflow: hidden; display: grid; place-items: center; background: #000; }
+    .sw-slide[data-slot="-1"] { top: -100%; }
+    .sw-slide[data-slot="0"] { top: 0; }
+    .sw-slide[data-slot="1"] { top: 100%; }
+    .sw-slide::after { content: ""; position: absolute; inset: 0; pointer-events: none; background: radial-gradient(ellipse at center, transparent 40%, rgba(0, 0, 0, .45) 100%); }
+    .sw-slide.fill::after, .sw-slide:has(.sw-end)::after { display: none; }
+    .sw-blur { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; transform: scale(1.25); filter: blur(40px) saturate(1.35) brightness(.55); opacity: .9; }
+    .sw-slide.fill .sw-blur { display: none; }
+    .sw-poster { position: relative; width: 100%; height: 100%; object-fit: contain; object-position: center 45%; }
+    .sw-slide.fill .sw-poster { object-fit: cover; object-position: center; }
+    .sw-player { z-index: 2; pointer-events: none; }
+    /* 出画面时淡入；切走时立刻隐藏，免得上一条的最后一帧盖在新封面上 */
+    .sw-video { display: block; width: 100%; height: 100%; object-fit: contain; object-position: center 45%; background: transparent; opacity: 0; }
+    .sw-video.ready { opacity: 1; transition: opacity .25s ease-out; }
+    .sw-player.fill .sw-video { object-fit: cover; object-position: center; }
+    .sw-preloader { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
+    /* ---- 浮层 UI ---- */
+    .sw-ui { position: fixed; inset: 0; height: 100dvh; z-index: 5; pointer-events: none; }
+    /* 顶部/底部固定高度遮罩；.sw-ui 是层叠上下文，-1 压在子元素下面 */
+    .sw-ui::before, .sw-ui::after { content: ""; position: absolute; left: 0; right: 0; z-index: -1; pointer-events: none; }
+    .sw-ui::before { top: 0; height: calc(var(--safe-top) + 120px); background: linear-gradient(to bottom, rgba(0, 0, 0, .45) 0%, rgba(0, 0, 0, .18) 50%, transparent 100%); }
+    .sw-ui::after { bottom: 0; height: calc(var(--safe-bottom) + 280px); background: linear-gradient(to top, rgba(0, 0, 0, .72) 0%, rgba(0, 0, 0, .42) 35%, rgba(0, 0, 0, .12) 70%, transparent 100%); }
+    .sw-ui button, .sw-ui a, .sw-ui .sw-progress, .sw-ui .sw-desc, .sw-ui .sw-tags { pointer-events: auto; }
+    .sw-info, .sw-rail { transition: opacity .15s ease; }
+    .sw-ui.dragging .sw-info, .sw-ui.dragging .sw-rail, .sw-ui.switching .sw-info, .sw-ui.switching .sw-rail, .sw-ui.seeking .sw-info, .sw-ui.seeking .sw-rail { opacity: 0; }
+
+    .sw-icon-btn { position: relative; width: 44px; height: 44px; padding: 0; border: 0; border-radius: 999px; background: none; color: #fff; display: grid; place-items: center; cursor: pointer; text-decoration: none; }
+    .sw-icon-btn, .sw-follow, .sw-btn, .sw-chip, .sw-pill, .sw-tag, .sw-sound { -webkit-tap-highlight-color: transparent; transition: transform .12s ease, background-color .15s ease; }
+    .sw-icon-btn:active, .sw-btn:active { transform: scale(.9); }
+    .sw-chip:active, .sw-pill:active, .sw-tag:active { transform: scale(.96); }
+    .sw-icon-btn:focus-visible, .sw-follow:focus-visible, .sw-btn:focus-visible, .sw-chip:focus-visible, .sw-pill:focus-visible, .sw-tag:focus-visible, .sw-sound:focus-visible, .sw-desc:focus-visible, .sw-link:focus-visible { outline: 2px solid var(--sw-accent-2); outline-offset: 2px; }
+
+    .sw-top { position: absolute; top: var(--top-y); left: 0; right: 0; display: flex; align-items: center; padding: var(--top-pad) max(8px, var(--safe-right)) 0 max(8px, var(--safe-left)); }
+    .sw-top .sw-ico { filter: drop-shadow(0 1px 2px rgba(0, 0, 0, .4)); }
+    .sw-top .sw-title { position: absolute; left: 50%; top: var(--top-pad); height: 44px; display: flex; align-items: center; transform: translateX(-50%); font-size: 16px; font-weight: 600; white-space: nowrap; text-shadow: var(--sw-shadow-text); pointer-events: none; }
+    .sw-counter { margin-left: 6px; font-size: 12px; font-weight: 500; color: rgba(255, 255, 255, .75); font-variant-numeric: tabular-nums; text-shadow: var(--sw-shadow-strong); }
+    .sw-top #filterBtn { margin-left: auto; }
+    .sw-badge { position: absolute; top: 6px; right: 6px; min-width: 16px; height: 16px; padding: 0 4px; border-radius: 999px; background: var(--sw-accent); color: #fff; font-size: 10px; font-weight: 600; line-height: 16px; text-align: center; font-variant-numeric: tabular-nums; box-shadow: 0 0 0 1.5px rgba(0, 0, 0, .45); }
+    .sw-sound { position: absolute; left: 50%; top: calc(var(--top-y) + var(--top-pad) + 56px); transform: translateX(-50%); display: inline-flex; align-items: center; gap: 6px; height: 32px; padding: 0 14px 0 10px; border: .5px solid rgba(255, 255, 255, .15); border-radius: 16px; background: rgba(0, 0, 0, .6); color: #fff; font-size: 13px; font-weight: 500; white-space: nowrap; cursor: pointer; animation: sw-drop .3s ease-out; }
+    .sw-sound .sw-ico { --ico: 16px; }
+    @keyframes sw-drop { from { opacity: 0; transform: translate(-50%, -6px); } }
+
+    /* ---- 右侧操作栏 ---- */
+    .sw-rail { position: absolute; right: max(8px, var(--safe-right)); bottom: calc(var(--safe-bottom) + 140px); display: flex; flex-direction: column; align-items: center; gap: 18px; }
+    .sw-rail-item { min-width: 48px; display: flex; flex-direction: column; align-items: center; gap: 2px; font-size: 12px; font-weight: 500; line-height: 16px; white-space: nowrap; color: rgba(255, 255, 255, .95); text-shadow: var(--sw-shadow-strong); }
+    .sw-rail .sw-icon-btn { width: 48px; height: 48px; }
+    .sw-rail .sw-ico { --ico: 30px; filter: drop-shadow(0 1px 2px rgba(0, 0, 0, .5)); }
+    .sw-rail .sw-icon-btn:active { transform: scale(.86); }
+    .sw-avatar-wrap { position: relative; padding-bottom: 10px; }
+    .sw-avatar { width: 48px; height: 48px; padding: 0; overflow: hidden; border: 1.5px solid #fff; border-radius: 999px; background: var(--sw-panel-2); color: #fff; display: grid; place-items: center; font-size: 18px; font-weight: 600; text-decoration: none; }
+    .sw-avatar img { width: 100%; height: 100%; object-fit: cover; grid-area: 1 / 1; }
+    .sw-avatar span { grid-area: 1 / 1; }
+    .sw-follow { position: absolute; left: 50%; bottom: 0; transform: translateX(-50%); width: 22px; height: 22px; padding: 0; border: 0; border-radius: 50%; background: var(--sw-accent); color: #fff; display: grid; place-items: center; cursor: pointer; }
+    .sw-follow::before { content: ""; position: absolute; inset: -8px; }
+    .sw-follow .sw-ico { --ico: 14px; stroke-width: 3; filter: none; }
+    .sw-follow:active { transform: translateX(-50%) scale(.88); }
+    .sw-follow[aria-pressed="true"] { background: #fff; color: var(--sw-accent); }
+    .sw-follow.pop { animation: sw-follow-pop .3s ease; }
+    @keyframes sw-follow-pop { 50% { transform: translateX(-50%) scale(1.25); } }
+    /* ---- 纯净模式：只留视频和“纯净”按钮本身，手势/播放照常 ---- */
+    .sw-rail.no-item .sw-rail-item:not(.sw-pure-item) { display: none; }
+    .sw-top, .sw-progress, .sw-rail-item, .sw-ui::before, .sw-ui::after, .sw-slide::after { transition: opacity .2s ease, visibility 0s; }
+    body.sw-pure .sw-top, body.sw-pure .sw-info, body.sw-pure .sw-progress, body.sw-pure .sw-time, body.sw-pure .sw-sound,
+    body.sw-pure .sw-guide, body.sw-pure .sw-rail-item:not(.sw-pure-item), body.sw-pure .sw-ui::before, body.sw-pure .sw-ui::after,
+    body.sw-pure .sw-slide::after { opacity: 0; visibility: hidden; pointer-events: none !important; transition: opacity .2s ease, visibility 0s .2s; }
+    body.sw-pure .sw-pure-item { opacity: .55; }
+    body.sw-pure .sw-pure-item:hover, body.sw-pure .sw-pure-item:focus-within { opacity: 1; }
+    /* ---- 游客模式：服务端给 body 加 sw-guest；只有视频和声音按钮，接口侧另有白名单兜底 ---- */
+    body.sw-guest .sw-top, body.sw-guest .sw-info, body.sw-guest .sw-progress, body.sw-guest .sw-time,
+    body.sw-guest .sw-sound, body.sw-guest .sw-guide, body.sw-guest .sw-rail-item:not(.sw-mute-item),
+    body.sw-guest .sw-sheet, body.sw-guest .sw-backdrop, body.sw-guest [data-action="open-filter"] { display: none !important; }
+    body.sw-guest .sw-rail.no-item .sw-mute-item { display: flex; }
+    /* ---- 左下信息区 ---- */
+    .sw-info { position: absolute; left: 0; right: calc(max(8px, var(--safe-right)) + 72px); bottom: 0; max-height: 40vh; padding: 0 16px calc(var(--safe-bottom) + 24px) max(16px, var(--safe-left)); text-shadow: var(--sw-shadow-text); }
+    .sw-author { display: flex; align-items: baseline; min-width: 0; font-size: 17px; font-weight: 600; letter-spacing: .2px; line-height: 24px; }
+    #authorName { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .sw-author small { flex: none; margin-left: 8px; font-size: 12px; font-weight: 500; letter-spacing: 0; color: #fff; opacity: .7; font-variant-numeric: tabular-nums; }
+    .sw-desc { position: relative; margin-top: 6px; font-size: 15px; line-height: 22px; max-height: 44px; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; color: rgba(255, 255, 255, .92); cursor: pointer; word-break: break-word; border-radius: 12px; }
+    .sw-desc .sw-topic { font-weight: 600; color: #fff; }
+    .sw-desc.expanded { max-height: min(40vh, 300px); overflow-y: auto; display: block; text-shadow: var(--sw-shadow-strong); overscroll-behavior: contain; }
+    .sw-desc .sw-more { margin-left: 4px; font-weight: 600; color: #fff; }
+    .sw-score { margin-top: 8px; display: flex; align-items: center; flex-wrap: wrap; row-gap: 4px; }
+    .sw-score:empty, .sw-tags:empty { display: none; }
+    .sw-score-pill { display: inline-flex; align-items: center; gap: 4px; height: 22px; padding: 0 8px; border-radius: 6px; background: rgba(254, 44, 85, .22); font-size: 12px; font-weight: 600; font-variant-numeric: tabular-nums; }
+    .sw-score-pill .sw-ico { --ico: 14px; color: #ff5c7c; }
+    .sw-score-pill b { font-weight: 600; }
+    .sw-score-subs { display: none; margin-left: 8px; font-size: 12px; color: var(--sw-muted); font-variant-numeric: tabular-nums; }
+    .sw-info.expanded .sw-score-subs { display: inline; }
+    .sw-tags { margin-top: 10px; display: flex; flex-wrap: nowrap; gap: 6px; overflow-x: auto; overflow-y: hidden; scrollbar-width: none; touch-action: pan-x; overscroll-behavior-x: contain; }
+    .sw-tags.overflow:not(.at-end) { -webkit-mask-image: linear-gradient(90deg, #000 88%, transparent); mask-image: linear-gradient(90deg, #000 88%, transparent); }
+    .sw-tags::-webkit-scrollbar { display: none; }
+    .sw-tags::after { content: ""; flex: 0 0 16px; }
+    .sw-tag { flex: none; display: inline-flex; align-items: center; height: 24px; padding: 0 10px; border: 0; border-radius: 6px; background: rgba(0, 0, 0, .32); color: #fff; font-size: 12px; font-weight: 500; white-space: nowrap; cursor: pointer; text-shadow: none; }
+    .sw-tag.on { background: rgba(254, 44, 85, .22); box-shadow: inset 0 0 0 1px rgba(254, 44, 85, .7); color: #ff7a93; }
+    .sw-info.rise > * { animation: sw-rise .28s ease-out both; }
+    .sw-info.rise > :nth-child(2) { animation-delay: 40ms; }
+    .sw-info.rise > :nth-child(3) { animation-delay: 80ms; }
+    .sw-info.rise > :nth-child(4) { animation-delay: 120ms; }
+    @keyframes sw-rise { from { opacity: 0; } }
+
+    /* ---- 进度条 ---- */
+    .sw-progress { position: absolute; left: 0; right: 0; bottom: var(--safe-bottom); height: 24px; cursor: pointer; touch-action: none; display: flex; align-items: flex-end; padding-bottom: 6px; }
+    .sw-progress-track { position: relative; width: 100%; height: 2px; border-radius: 1px; background: rgba(255, 255, 255, .25); transition: height .12s ease; }
+    .sw-progress-fill { position: relative; height: 100%; width: 0; border-radius: inherit; background: rgba(255, 255, 255, .75); }
+    .sw-progress.seeking .sw-progress-track { height: 4px; }
+    .sw-progress.seeking .sw-progress-fill { background: #fff; }
+    .sw-progress.seeking .sw-progress-fill::after { content: ""; position: absolute; right: -6px; top: 50%; width: 12px; height: 12px; margin-top: -6px; border-radius: 50%; background: #fff; box-shadow: 0 0 0 4px rgba(255, 255, 255, .2); }
+    .sw-time { position: absolute; left: 50%; bottom: calc(var(--safe-bottom) + 96px); transform: translateX(-50%); font-size: 28px; font-weight: 600; letter-spacing: 1px; font-variant-numeric: tabular-nums; white-space: nowrap; text-shadow: 0 1px 2px rgba(0, 0, 0, .4); }
+    .sw-time .sw-dur { color: rgba(255, 255, 255, .6); }
+
+    /* ---- 中央状态：暂停 / 点击播放 / 缓冲 / 出错 ---- */
+    .sw-center { position: absolute; inset: 0; display: grid; place-items: center; pointer-events: none; }
+    .sw-center > * { pointer-events: auto; }
+    .sw-play-icon { width: 64px; height: 64px; color: rgba(255, 255, 255, .7); pointer-events: none !important; animation: sw-play-in .22s cubic-bezier(.3, 1.5, .6, 1); }
+    @keyframes sw-play-in { from { opacity: 0; transform: scale(1.5); } }
+    .sw-play-btn { display: grid; justify-items: center; gap: 10px; padding: 0; border: 0; background: none; color: #fff; cursor: pointer; font-size: 13px; font-weight: 500; text-shadow: var(--sw-shadow-text); -webkit-tap-highlight-color: transparent; }
+    .sw-play-btn .sw-play-disc { width: 76px; height: 76px; border-radius: 50%; background: rgba(0, 0, 0, .5); display: grid; place-items: center; transition: transform .12s ease; }
+    .sw-play-btn .sw-play-icon { width: 34px; height: 34px; margin-left: 3px; color: #fff; filter: none; animation: none; }
+    .sw-play-btn:active .sw-play-disc { transform: scale(.92); }
+    .sw-play-btn:focus-visible { outline: none; }
+    .sw-play-btn:focus-visible .sw-play-disc { outline: 2px solid var(--sw-accent-2); outline-offset: 2px; }
+    .sw-loader { position: relative; width: 36px; height: 14px; pointer-events: none !important; }
+    .sw-loader i { position: absolute; top: 0; width: 14px; height: 14px; border-radius: 50%; mix-blend-mode: screen; }
+    .sw-loader i:first-child { background: var(--sw-accent); animation: sw-dot-a .9s ease-in-out infinite; }
+    .sw-loader i:last-child { background: var(--sw-accent-2); animation: sw-dot-b .9s ease-in-out infinite; }
+    @keyframes sw-dot-a { 0%, 100% { left: 0; } 50% { left: 22px; } }
+    @keyframes sw-dot-b { 0%, 100% { left: 22px; } 50% { left: 0; } }
+    /* 缓冲超过 300ms 才显示，免得每次翻页都闪一下 */
+    .sw-center .sw-loader { opacity: 0; animation: sw-fade .2s .3s forwards; }
+    @keyframes sw-fade { to { opacity: 1; } }
+    .sw-msg { display: grid; justify-items: center; gap: 14px; max-width: 80vw; padding: 20px 24px; border: .5px solid rgba(255, 255, 255, .1); border-radius: 16px; background: rgba(22, 24, 35, .9); font-size: 14px; font-weight: 500; text-align: center; }
+    .sw-msg > .sw-ico { --ico: 40px; color: rgba(255, 255, 255, .7); }
+
+    .sw-btn { height: 40px; padding: 0 20px; border: 0; border-radius: 20px; background: var(--sw-accent); color: #fff; display: inline-flex; align-items: center; justify-content: center; gap: 6px; font-size: 14px; font-weight: 600; white-space: nowrap; cursor: pointer; }
+    .sw-btn .sw-ico { --ico: 16px; }
+    .sw-btn.ghost { background: rgba(255, 255, 255, .1); box-shadow: inset 0 0 0 .5px rgba(255, 255, 255, .18); }
+    .sw-btn:disabled { cursor: default; }
+    .sw-toast { position: fixed; left: 50%; top: calc(var(--top-y) + var(--top-pad) + 104px); z-index: 30; transform: translateX(-50%); max-width: 86vw; padding: 9px 16px; border-radius: 10px; background: rgba(0, 0, 0, .78); font-size: 14px; font-weight: 500; text-align: center; pointer-events: none; opacity: 0; transition: opacity .2s ease; }
+    .sw-toast.show { opacity: 1; }
+
+    /* ---- 结束卡：加载中 / 失败 / 无结果 / 到底了 ---- */
+    .sw-slide:has(.sw-end) { background: radial-gradient(circle at 50% 35%, rgba(254, 44, 85, .12), transparent 55%), #0b0b0f; }
+    .sw-end { position: relative; z-index: 1; display: grid; justify-items: center; gap: 8px; max-width: 300px; padding: 32px 24px; text-align: center; }
+    .sw-end > .sw-ico { --ico: 48px; color: rgba(255, 255, 255, .75); }
+    .sw-end h3 { margin: 12px 0 0; font-size: 18px; font-weight: 600; color: #fff; }
+    .sw-end p { margin: 0; font-size: 13px; color: rgba(255, 255, 255, .55); word-break: break-word; }
+    .sw-end .sw-loader + p { margin-top: 10px; }
+    .sw-end-actions { display: flex; flex-wrap: wrap; justify-content: center; gap: 10px; margin-top: 16px; }
+
+    /* ---- 首次进入引导 ---- */
+    .sw-guide { position: absolute; left: 50%; bottom: 38%; transform: translateX(-50%); display: grid; justify-items: center; gap: 6px; max-width: calc(100vw - 48px); padding: 12px 18px; border-radius: 14px; background: rgba(0, 0, 0, .6); font-size: 13px; font-weight: 500; text-align: center; pointer-events: none; transition: opacity .3s; }
+    .sw-guide.out { opacity: 0; }
+    .sw-guide .sw-ico { --ico: 28px; animation: sw-bob 1.2s ease-in-out infinite; }
+    .sw-guide-desk { display: none; }
+    @keyframes sw-bob { 50% { transform: translateY(-6px); } }
+
+    .sw-link { display: inline-flex; align-items: center; gap: 2px; padding: 0; border: 0; background: none; color: rgba(255, 255, 255, .75); font-size: 12.5px; font-weight: 500; cursor: pointer; text-decoration: none; white-space: nowrap; }
+    .sw-link .sw-ico { --ico: 14px; }
+    /* ---- 筛选面板：手机底部抽屉，桌面右侧浮卡 ---- */
+    .sw-backdrop { position: fixed; inset: 0; z-index: 20; background: rgba(0, 0, 0, .45); opacity: 0; pointer-events: none; transition: opacity .25s ease; }
+    .sw-backdrop.show { opacity: 1; pointer-events: auto; }
+    .sw-sheet { position: fixed; z-index: 21; left: 0; right: 0; bottom: 0; max-height: 82vh; max-height: 82dvh; display: flex; flex-direction: column; background: var(--sw-panel); border-radius: 20px 20px 0 0; transform: translateY(105%); transition: transform .32s cubic-bezier(.32, .72, 0, 1); box-shadow: 0 -12px 40px rgba(0, 0, 0, .5); }
+    .sw-sheet::before { content: ""; display: block; flex: none; width: 36px; height: 4px; margin: 8px auto 0; border-radius: 2px; background: rgba(255, 255, 255, .2); }
+    .sw-sheet.show { transform: none; }
+    .sw-sheet-head { display: flex; align-items: center; gap: 12px; padding: 8px 12px 12px 16px; border-bottom: 1px solid var(--sw-line); }
+    .sw-sheet-head h2 { flex: 1; margin: 0; font-size: 16px; font-weight: 600; }
+    #sheetClose { width: 32px; height: 32px; background: rgba(255, 255, 255, .08); }
+    #sheetClose .sw-ico { --ico: 20px; }
+    .sw-sheet-body { flex: 1; overflow-y: auto; padding: 4px 16px 16px; overscroll-behavior: contain; }
+    .sw-sheet-foot { display: flex; gap: 10px; padding: 12px 16px calc(var(--safe-bottom) + 12px); border-top: 1px solid var(--sw-line); }
+    .sw-sheet-foot .sw-btn { height: 44px; border-radius: 12px; }
+    .sw-sheet-foot #sheetReset { flex: 0 0 auto; padding: 0 18px; }
+    .sw-sheet-foot #sheetApply { flex: 1; font-variant-numeric: tabular-nums; }
+    .sw-sheet-foot #sheetApply:disabled { opacity: .45; }
+    .sw-group { padding: 14px 0 2px; }
+    .sw-group h3 { margin: 0 0 10px; display: flex; align-items: center; gap: 8px; font-size: 12px; font-weight: 500; letter-spacing: .5px; color: rgba(255, 255, 255, .5); }
+    .sw-group h3 .sw-link { margin-left: auto; letter-spacing: 0; }
+    .sw-chips { display: flex; flex-wrap: wrap; gap: 8px; }
+    .sw-chip, .sw-pill { height: 32px; padding: 0 14px; border: 0; border-radius: 8px; background: rgba(255, 255, 255, .08); color: #fff; display: inline-flex; align-items: center; gap: 4px; font-size: 13px; cursor: pointer; }
+    .sw-pill { height: 30px; padding: 0 12px; font-size: 12.5px; }
+    .sw-pill small { margin-left: 2px; font-size: 11px; color: var(--sw-muted); font-variant-numeric: tabular-nums; }
+    .sw-chip[aria-pressed="true"] { background: var(--sw-accent); color: #fff; }
+    .sw-pill[aria-pressed="true"] { background: rgba(254, 44, 85, .16); color: #ff5c7c; box-shadow: inset 0 0 0 1px rgba(254, 44, 85, .6); }
+    .sw-pill[aria-pressed="true"] small { color: rgba(255, 92, 124, .8); }
+    .sw-input-wrap { position: relative; }
+    .sw-input-wrap > .sw-ico { --ico: 16px; position: absolute; left: 12px; top: 12px; color: var(--sw-muted); pointer-events: none; }
+    .sw-input { width: 100%; height: 40px; padding: 0 12px 0 36px; border: 0; border-radius: 10px; background: var(--sw-panel-2); color: var(--sw-fg); font: inherit; font-size: 14px; }
+    .sw-input::placeholder { color: rgba(255, 255, 255, .38); }
+    .sw-input:focus { outline: 2px solid var(--sw-accent-2); outline-offset: -1px; }
+    .sw-note { font-size: 12.5px; color: var(--sw-muted); }
+    .sw-users { display: flex; flex-wrap: wrap; gap: 8px; max-height: 200px; overflow-y: auto; margin-top: 10px; }
+
+    @media (hover: hover) {
+      .sw-top .sw-icon-btn:hover { background: rgba(255, 255, 255, .12); }
+      #sheetClose:hover { background: rgba(255, 255, 255, .14); }
+      .sw-tag:hover { background: rgba(255, 255, 255, .2); }
+      .sw-tag.on:hover { background: rgba(254, 44, 85, .3); }
+      .sw-chip:hover, .sw-pill:hover { background: rgba(255, 255, 255, .14); }
+      .sw-chip[aria-pressed="true"]:hover { background: #ff4468; }
+      .sw-pill[aria-pressed="true"]:hover { background: rgba(254, 44, 85, .24); }
+      .sw-btn:not(:disabled):hover { filter: brightness(1.08); }
+      .sw-link:hover { color: #fff; text-decoration: underline; }
+      .sw-progress:hover .sw-progress-track { height: 4px; }
+      .sw-progress:hover .sw-progress-fill { background: #fff; }
+      .sw-progress:hover .sw-progress-fill::after { content: ""; position: absolute; right: -6px; top: 50%; width: 12px; height: 12px; margin-top: -6px; border-radius: 50%; background: #fff; box-shadow: 0 0 0 4px rgba(255, 255, 255, .2); }
+    }
+    @media (hover: hover) and (min-width: 900px) {
+      .sw-guide-touch { display: none; }
+      .sw-guide-desk { display: inline; }
+    }
+    /* ---- 桌面：居中固定竖屏卡片列，背景铺当前封面的大模糊图 ---- */
+    @media (min-width: 900px) {
+      :root {
+        --col-w: min(calc((100vh - 32px) * 9 / 16), 560px);
+        --col-w: min(calc((100dvh - 32px) * 9 / 16), 560px);
+        --top-y: 16px;
+        --top-pad: 8px;
+      }
+      .sw-page-bg { display: block; position: fixed; inset: -80px; z-index: 0; background: #000 center / cover no-repeat; filter: blur(60px) saturate(1.2) brightness(.35); transition: background-image .4s ease; }
+      .sw-page-bg::after { content: ""; position: absolute; inset: 0; background: radial-gradient(circle at 50% 30%, rgba(255, 255, 255, .06), transparent 60%); }
+      .sw-stage { z-index: 1; background: transparent; }
+      /* track / player 保持 inset:0（翻页位移按 stage 高度算），只把 slide 和 video 层收成一列 */
+      .sw-slide, .sw-player { left: 50%; right: auto; width: var(--col-w); margin-left: calc(var(--col-w) / -2); clip-path: inset(16px 0 round 16px); }
+      .sw-player { inset: 0 auto 0 50%; }
+      .sw-top { left: calc(50% - var(--col-w) / 2); right: auto; width: var(--col-w); }
+      .sw-info { left: calc(50% - var(--col-w) / 2); right: auto; width: var(--col-w); bottom: 16px; margin: 0; padding: 0 20px 32px; }
+      .sw-progress { left: calc(50% - var(--col-w) / 2); right: auto; width: var(--col-w); bottom: 16px; clip-path: inset(-24px 0 0 0 round 0 0 16px 16px); }
+      .sw-rail { left: calc(50% + var(--col-w) / 2 + 20px); right: auto; bottom: 56px; }
+      .sw-ui::before, .sw-ui::after { left: calc(50% - var(--col-w) / 2); right: auto; width: var(--col-w); }
+      .sw-ui::before { top: 16px; border-radius: 16px 16px 0 0; }
+      .sw-ui::after { bottom: 16px; border-radius: 0 0 16px 16px; }
+      .sw-time { left: 50%; bottom: 128px; }
+      .sw-sheet { left: auto; top: 12px; bottom: 12px; right: 12px; width: 380px; max-height: none; border: .5px solid rgba(255, 255, 255, .08); border-radius: 20px; box-shadow: 0 24px 64px rgba(0, 0, 0, .6); transform: translateX(calc(100% + 24px)); }
+      .sw-sheet::before { display: none; }
+      .sw-sheet-head { padding-top: 14px; }
+      .sw-sheet-foot { padding-bottom: 14px; }
+    }
+    /* ---- 手机横屏：操作栏改挂顶栏下方，收紧尺寸，免得压住筛选按钮 ---- */
+    @media (max-height: 500px) and (orientation: landscape) and (max-width: 899px) {
+      .sw-rail { top: calc(var(--top-pad) + 52px); bottom: auto; gap: 8px; }
+      .sw-rail .sw-icon-btn { width: 40px; height: 40px; }
+      .sw-rail .sw-ico { --ico: 24px; }
+      .sw-avatar { width: 40px; height: 40px; font-size: 16px; }
+      .sw-avatar-wrap { padding-bottom: 8px; }
+      .sw-follow { width: 18px; height: 18px; }
+      .sw-follow .sw-ico { --ico: 12px; }
+      .sw-rail-item { font-size: 11px; line-height: 14px; }
+      .sw-info { max-height: 55vh; padding-bottom: calc(var(--safe-bottom) + 18px); }
+      .sw-ui::after { height: calc(var(--safe-bottom) + 180px); }
+      .sw-sound { top: calc(var(--top-y) + var(--top-pad) + 4px); }
+      .sw-time { bottom: calc(var(--safe-bottom) + 64px); }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after { animation-duration: 0s !important; animation-delay: 0s !important; transition-duration: 0s !important; }
+      .sw-loader i, .sw-guide .sw-ico { animation: none; }
+    }
+  </style>
+</head>
+<body>
+  <div class="sw-page-bg" id="pageBg" aria-hidden="true"></div>
+  <main class="sw-stage" id="stage" aria-label="视频流，上下滑动切换">
+    <div class="sw-track" id="track">
+      <section class="sw-slide" data-slot="-1" aria-hidden="true"></section>
+      <section class="sw-slide" data-slot="0"></section>
+      <section class="sw-slide" data-slot="1" aria-hidden="true"></section>
+    </div>
+    <div class="sw-player" id="playerLayer">
+      <video class="sw-video" id="player" playsinline webkit-playsinline loop preload="auto" disablepictureinpicture></video>
+    </div>
+  </main>
+  <video class="sw-preloader" id="preloader" muted playsinline preload="auto" aria-hidden="true" tabindex="-1"></video>
+
+  <div class="sw-ui" id="ui">
+    <header class="sw-top">
+      <a class="sw-icon-btn" id="backBtn" href="/api/monitor/library/dashboard" title="返回作品库" aria-label="返回作品库">
+        <svg class="sw-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="m15 18-6-6 6-6"/></svg>
+      </a>
+      <div class="sw-title">刷视频<span class="sw-counter" id="counter" aria-live="polite"></span></div>
+      <button type="button" class="sw-icon-btn" id="filterBtn" title="筛选 (F)" aria-label="筛选" aria-controls="sheet" aria-expanded="false">
+        <svg class="sw-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M21 4h-7"/><path d="M10 4H3"/><path d="M21 12h-9"/><path d="M8 12H3"/><path d="M21 20h-5"/><path d="M12 20H3"/><path d="M14 2v4"/><path d="M8 10v4"/><path d="M16 18v4"/></svg>
+        <span class="sw-badge" id="filterBadge" hidden></span>
+      </button>
+    </header>
+
+    <button type="button" class="sw-sound" id="soundHint" hidden>
+      <svg class="sw-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M11 4.702a.705.705 0 0 0-1.203-.498L6.413 7.587A1.4 1.4 0 0 1 5.416 8H3a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h2.416a1.4 1.4 0 0 1 .997.413l3.383 3.384A.705.705 0 0 0 11 19.298z"/><path d="m22 9-6 6"/><path d="m16 9 6 6"/></svg>
+      点击开启声音
+    </button>
+
+    <div class="sw-center" id="center" aria-live="polite"></div>
+
+    <nav class="sw-rail no-item" id="rail" aria-label="当前视频操作">
+      <div class="sw-rail-item">
+        <div class="sw-avatar-wrap">
+          <a class="sw-avatar" id="avatarLink" href="#" title="查看 TA 的全部作品" aria-label="查看博主的全部作品"><span id="avatarInitial"></span></a>
+          <button type="button" class="sw-follow" id="onlyUserBtn" aria-pressed="false" title="只看 TA"><svg class="sw-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 6v12"/><path d="M6 12h12"/></svg></button>
+        </div>
+        <span id="onlyUserText">只看TA</span>
+      </div>
+      <div class="sw-rail-item sw-mute-item">
+        <button type="button" class="sw-icon-btn" id="muteBtn" title="静音 (M)" aria-label="静音" aria-pressed="false"></button>
+        <span id="muteText">声音</span>
+      </div>
+      <div class="sw-rail-item">
+        <a class="sw-icon-btn" id="shareLink" href="#" target="_blank" rel="noopener noreferrer" title="在抖音打开" aria-label="在抖音打开">
+          <svg class="sw-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="m15 17 5-5-5-5"/><path d="M4 18v-2a4 4 0 0 1 4-4h12"/></svg>
+        </a>
+        <span>去抖音</span>
+      </div>
+      <div class="sw-rail-item sw-pure-item">
+        <button type="button" class="sw-icon-btn" id="pureBtn" title="纯净模式：只看视频 (C)" aria-label="纯净模式：只看视频" aria-pressed="false"></button>
+        <span id="pureText">纯净</span>
+      </div>
+    </nav>
+
+    <section class="sw-info" id="info" hidden>
+      <div class="sw-author"><span id="authorName"></span><small id="publishTime"></small></div>
+      <div class="sw-desc" id="desc" role="button" tabindex="0" title="展开/收起"></div>
+      <div class="sw-score" id="scoreLine"></div>
+      <div class="sw-tags" id="tags"></div>
+    </section>
+
+    <div class="sw-time" id="seekTime" hidden></div>
+    <div class="sw-progress" id="progress" role="slider" aria-label="播放进度" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" tabindex="-1" hidden>
+      <div class="sw-progress-track"><div class="sw-progress-fill" id="progressFill"></div></div>
+    </div>
+  </div>
+
+  <div class="sw-backdrop" id="backdrop"></div>
+  <aside class="sw-sheet" id="sheet" role="dialog" aria-modal="true" aria-labelledby="sheetTitle" aria-hidden="true">
+    <div class="sw-sheet-head">
+      <h2 id="sheetTitle">筛选视频</h2>
+      <a class="sw-link" id="openLibraryLink" href="/api/monitor/library/dashboard">在作品库中细调<svg class="sw-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg></a>
+      <button type="button" class="sw-icon-btn" id="sheetClose" aria-label="关闭筛选">
+        <svg class="sw-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+      </button>
+    </div>
+    <div class="sw-sheet-body" id="sheetBody"></div>
+    <div class="sw-sheet-foot">
+      <button type="button" class="sw-btn ghost" id="sheetReset">重置</button>
+      <button type="button" class="sw-btn" id="sheetApply">查看视频</button>
+    </div>
+  </aside>
+
+  <div class="sw-toast" id="toast" role="status"></div>
+
+  <script src="/static/common.js?v=live-20260929a"></script>
+  <script src="/static/swipe-core.js?v=swipe-20261001a"></script>
+  <script>
+    "use strict";
+    const Core = window.SwipeCore;
+    // 游客：服务端渲染时标记；只能随机刷视频、开关声音（接口侧按白名单拒绝其余请求）
+    const GUEST = document.body.classList.contains("sw-guest");
+    const PAGE_SIZE = 20;
+    const PREVIEW_PAGE_SIZE = 12;
+    // 剩余不足这么多条时加载下一页
+    const LOAD_AHEAD = 5;
+    const EDGE_RESISTANCE = 0.35;
+    const TAP_SLOP = 10;
+    const TRANSITION_MS = 320;  // 和 CSS --sw-ms 一致
+    const WHEEL_THRESHOLD = 30;
+    const WHEEL_IDLE_MS = 220;
+    const DIRECT_FAILURE_LIMIT = 2;
+    const MUTED_KEY = "dymon-swipe-muted";
+    const SAVED_KEY = "dymon-library-saved-filters";
+    const SORTS = [
+      ["random", "随机"], ["newest", "最新"], ["score", "擦边分最高"], ["body", "身材分最高"],
+      ["chest", "胸部分最高"], ["overall", "整体暴露最高"], ["camera", "镜头强调最高"], ["motion", "动作展示最高"],
+      ["duration", "时长最长"], ["oldest", "最早"],
+    ];
+    const TAG_LABELS = {
+      outfit: "着装", content: "内容", scene: "场景", style: "风格", subject: "主体", features: "特征", enhancers: "增强因素",
+    };
+    // 标签来源：着装在 appearance，增强因素在 borderline，其余在 tags
+    const TAG_SOURCES = { outfit: "appearance", enhancers: "borderline" };
+    const SUB_LABELS = [["chest", "胸"], ["body", "身材"], ["overall", "整体"], ["camera", "镜头"], ["motion", "动作"]];
+    const TAG_PILL_LIMIT = 24;
+    const USER_PILL_LIMIT = 60;
+
+    const GUIDED_KEY = "dymon-swipe-guided";
+
+    // 全页图标：Lucide 线性 24 网格，线宽/端点由 .sw-ico 统一；只有播放三角是实心
+    const svg = (body, cls = "sw-ico") => `<svg class="${cls}" viewBox="0 0 24 24" aria-hidden="true">${body}</svg>`;
+    const SPEAKER = '<path d="M11 4.702a.705.705 0 0 0-1.203-.498L6.413 7.587A1.4 1.4 0 0 1 5.416 8H3a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h2.416a1.4 1.4 0 0 1 .997.413l3.383 3.384A.705.705 0 0 0 11 19.298z"/>';
+    const ICONS = {
+      close: svg('<path d="M18 6 6 18"/><path d="m6 6 12 12"/>'),
+      sound: svg(`${SPEAKER}<path d="M16 9a5 5 0 0 1 0 6"/><path d="M19.364 18.364a9 9 0 0 0 0-12.728"/>`),
+      muted: svg(`${SPEAKER}<path d="m22 9-6 6"/><path d="m16 9 6 6"/>`),
+      plus: svg('<path d="M12 6v12"/><path d="M6 12h12"/>'),
+      tick: svg('<path d="m6 12.5 4 4L18 8"/>'),
+      play: '<svg class="sw-play-icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 5.5v13a1 1 0 0 0 1.52.85l10.2-6.5a1 1 0 0 0 0-1.7L9.52 4.65A1 1 0 0 0 8 5.5Z"/></svg>',
+      flame: svg('<path d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.072-2.143-.224-4.054 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.153.433-2.294 1-3a2.5 2.5 0 0 0 2.5 2.5z"/>'),
+      search: svg('<circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>'),
+      retry: svg('<path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/>'),
+      shuffle: svg('<path d="m18 14 4 4-4 4"/><path d="m18 2 4 4-4 4"/><path d="M2 18h1.973a4 4 0 0 0 3.3-1.7l5.454-8.6a4 4 0 0 1 3.3-1.7H22"/><path d="M2 6h1.972a4 4 0 0 1 3.3 1.7l.617.97"/><path d="M22 18h-6.041a4 4 0 0 1-3.3-1.8l-.359-.45"/>'),
+      done: svg('<circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/>'),
+      alert: svg('<circle cx="12" cy="12" r="10"/><path d="M12 8v4"/><path d="M12 16h.01"/>'),
+      empty: svg('<path d="m13.5 8.5-5 5"/><path d="m8.5 8.5 5 5"/><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>'),
+      pure: svg('<path d="M3 7V5a2 2 0 0 1 2-2h2"/><path d="M17 3h2a2 2 0 0 1 2 2v2"/><path d="M21 17v2a2 2 0 0 1-2 2h-2"/><path d="M7 21H5a2 2 0 0 1-2-2v-2"/>'),
+      restore: svg('<path d="M2.062 12.348a1 1 0 0 1 0-.696 10.75 10.75 0 0 1 19.876 0 1 1 0 0 1 0 .696 10.75 10.75 0 0 1-19.876 0"/><circle cx="12" cy="12" r="3"/>'),
+      swipeUp: svg('<path d="m17 11-5-5-5 5"/><path d="m17 18-5-5-5 5"/>'),
+    };
+    const LOADER = '<div class="sw-loader" role="status" aria-label="加载中"><i></i><i></i></div>';
+
+    const state = {
+      params: Core.readQuery(GUEST ? "" : window.location.search),
+      pure: false,
+      items: [],
+      seen: new Set(),
+      active: 0,
+      page: 0,
+      totalPages: 1,
+      total: 0,
+      seed: null,
+      facets: null,
+      loading: null,
+      loadError: "",
+      loadSeq: 0,
+      // 播放
+      playToken: 0,
+      playingKey: "",
+      waiting: false,
+      userPaused: false,
+      blocked: false,
+      mediaError: false,
+      muted: readMutedPref(),
+      directFailures: 0,
+      directDisabled: false,
+      // 手势 / 动画
+      offset: 0,
+      animating: false,
+      drag: null,
+      wheelAcc: 0,
+      wheelLocked: false,
+      wheelTimer: null,
+      // 筛选面板
+      sheetOpen: false,
+      draft: null,
+      draftFacets: null,
+      draftTotal: null,
+      previewSeq: 0,
+      previewTimer: null,
+      userSearch: "",
+      // 用户主动静音过：不再用“点击开启声音”提示打扰（被浏览器强制静音时照常提示）
+      soundHintDismissed: false,
+      guide: null,
+    };
+
+    const directCache = Core.createDirectCache((userId, awemeIds) => api(
+      `/users/${encodeURIComponent(userId)}/archive/playback-urls`,
+      { method: "POST", body: JSON.stringify({ aweme_ids: awemeIds }) },
+    ));
+
+    function $(id) { return document.getElementById(id); }
+    const player = $("player");
+    const preloader = $("preloader");
+    const slides = [...document.querySelectorAll(".sw-slide")];
+
+    function escapeHtml(value) {
+      return String(value ?? "")
+        .replaceAll("&", "&amp;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;")
+        .replaceAll('"', "&quot;")
+        .replaceAll("'", "&#39;");
+    }
+
+    function readMutedPref() {
+      try { return localStorage.getItem(MUTED_KEY) !== "0"; } catch { return true; }
+    }
+
+    function writeMutedPref(muted) {
+      try { localStorage.setItem(MUTED_KEY, muted ? "1" : "0"); } catch (error) { console.warn("保存静音偏好失败", error); }
+    }
+
+    // ---- 画面铺放：比例和画框接近的竖屏铺满（cover），其余完整显示（contain）+ 模糊底 ----
+    const isDesktop = () => window.matchMedia("(min-width: 900px)").matches;
+
+    // 可视画框的宽/高；桌面和 CSS 的 --col-w 同一算法
+    function frameRatio() {
+      const h = window.innerHeight || 1;
+      if (!isDesktop()) return (window.innerWidth || 1) / h;
+      const colH = Math.max(h - 32, 1);
+      return Math.min(colH * 9 / 16, 560) / colH;
+    }
+
+    // 封面和视频必须用同一个判定，否则封面切成视频时画面会跳
+    function shouldFill(w, h) {
+      if (!w || !h) return false;
+      const r = w / h;
+      const s = frameRatio();
+      return r <= 0.75 && Math.abs(r - s) / s <= 0.28;
+    }
+
+    function refreshFill() {
+      slides.forEach((slide) => {
+        const img = slide.querySelector(".sw-poster");
+        slide.classList.toggle("fill", !!img && img.complete && shouldFill(img.naturalWidth, img.naturalHeight));
+      });
+      $("playerLayer").classList.toggle("fill", shouldFill(player.videoWidth, player.videoHeight));
+    }
+
+    // ---- 首次进入的操作引导 ----
+    function readGuided() {
+      try { return localStorage.getItem(GUIDED_KEY) === "1"; } catch { return true; }
+    }
+
+    function showGuide() {
+      if (GUEST) return;
+      if (state.guide !== null) return;
+      if (readGuided()) { state.guide = false; return; }
+      const guide = document.createElement("div");
+      guide.className = "sw-guide";
+      guide.innerHTML = `${ICONS.swipeUp}<span class="sw-guide-touch">上滑看下一个</span><span class="sw-guide-desk">滚轮或 ↑↓ 切换 · 空格暂停 · M 静音 · F 筛选 · C 纯净</span>`;
+      $("ui").appendChild(guide);
+      state.guide = guide;
+      setTimeout(dismissGuide, 3000);
+    }
+
+    function dismissGuide() {
+      const guide = state.guide;
+      if (!guide) return;
+      state.guide = false;
+      try { localStorage.setItem(GUIDED_KEY, "1"); } catch (error) { console.warn("保存引导标记失败", error); }
+      guide.classList.add("out");
+      setTimeout(() => guide.remove(), 350);
+    }
+
+    let toastTimer = null;
+    function showToast(message) {
+      const toast = $("toast");
+      toast.textContent = message;
+      toast.classList.add("show");
+      clearTimeout(toastTimer);
+      toastTimer = setTimeout(() => toast.classList.remove("show"), 1800);
+    }
+
+    function formatClock(seconds) {
+      const total = Math.max(0, Math.floor(Number(seconds) || 0));
+      return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, "0")}`;
+    }
+
+    function relativeTime(value) {
+      const millis = parseTimeToMillis(value);
+      if (!millis) return "";
+      const days = Math.floor((Date.now() - millis) / 86400000);
+      if (days < 1) return "今天";
+      if (days < 30) return `${days} 天前`;
+      return formatTime(value).slice(0, 10);
+    }
+
+    // ---- 作品字段 ----
+    function archiveBase(item) {
+      return `${API_BASE}/users/${encodeURIComponent(item.user_id)}/archive/${encodeURIComponent(item.aweme_id)}`;
+    }
+
+    function proxyVideoUrl(item) {
+      return `${archiveBase(item)}/media/${Number(item.play_index)}`;
+    }
+
+    // 封面只认本服务地址（作品库接口给的带版本封面），否则退到归档里的封面文件
+    function coverUrl(item) {
+      const local = String(item.cover_url || "");
+      if (local.startsWith(`${archiveBase(item)}/cover`)) return local;
+      return item.cover_index !== null && item.cover_index !== undefined ? `${archiveBase(item)}/media/${Number(item.cover_index)}` : "";
+    }
+
+    function filterOf(item) {
+      return item.content_filter && typeof item.content_filter === "object" ? item.content_filter : {};
+    }
+
+    function borderlineOf(item) {
+      const borderline = filterOf(item).appearance?.borderline;
+      return borderline && typeof borderline === "object" ? borderline : {};
+    }
+
+    function tagsOf(item) {
+      const result = filterOf(item);
+      const tags = [];
+      // Core.TAG_GROUPS 已是 着装/内容 在前的展示顺序
+      for (const group of Core.TAG_GROUPS) {
+        const source = TAG_SOURCES[group] || "tags";
+        const bag = source === "borderline" ? borderlineOf(item) : result[source] || {};
+        const values = Array.isArray(bag[group]) ? bag[group] : [];
+        values.map((value) => String(value || "").trim()).filter(Boolean).forEach((value) => tags.push({ group, value }));
+      }
+      return tags;
+    }
+
+    function currentItem() {
+      return state.items[state.active] || null;
+    }
+
+    // ---- 加载列表 ----
+    function hasMore() {
+      return state.page < state.totalPages;
+    }
+
+    function resetFeed() {
+      state.loadSeq += 1;
+      state.items = [];
+      state.seen = new Set();
+      state.active = 0;
+      state.page = 0;
+      state.totalPages = 1;
+      state.total = 0;
+      state.seed = null;
+      state.facets = null;
+      state.loading = null;
+      state.loadError = "";
+      stopPlayer();
+    }
+
+    function loadNextPage() {
+      if (state.loading || !hasMore()) return state.loading;
+      const seq = state.loadSeq;
+      const page = state.page + 1;
+      const query = Core.apiQuery(state.params, { page, pageSize: PAGE_SIZE, seed: state.seed });
+      state.loadError = "";
+      let skipEmptyPage = false;
+      const promise = api(`/library?${query}`).then((data) => {
+        if (seq !== state.loadSeq) return;
+        state.page = page;
+        state.totalPages = Number(data.total_pages || 1);
+        state.total = Number(data.total || 0);
+        if (data.seed !== null && data.seed !== undefined) state.seed = data.seed;
+        if (page === 1) state.facets = data.facets || null;
+        const start = state.items.length;
+        const added = Core.mergeItems(state.items, data.items, state.seen);
+        directCache.prefetch(state.items.slice(start)).catch(() => {});
+        // 整页都没有可播放的（极少见）就接着翻，不让用户卡在“加载中”
+        skipEmptyPage = !added && hasMore();
+      }).catch((error) => {
+        if (seq !== state.loadSeq) return;
+        state.loadError = error.message || String(error);
+        console.error("加载视频列表失败", error);
+      }).finally(() => {
+        if (seq !== state.loadSeq) return;
+        state.loading = null;
+        renderAll();
+        if (skipEmptyPage) loadNextPage();
+      });
+      state.loading = promise;
+      renderAll();
+      return promise;
+    }
+
+    function ensureAhead() {
+      if (state.items.length - state.active <= LOAD_AHEAD) loadNextPage();
+    }
+
+    // ---- 播放：一个常驻 <video> 只换 src ----
+    function stopPlayer() {
+      state.playToken += 1;
+      state.playingKey = "";
+      player.classList.remove("ready");
+      $("playerLayer").classList.remove("fill");
+      player.pause();
+      player.removeAttribute("src");
+      player.load();
+    }
+
+    function playCurrent() {
+      const item = currentItem();
+      if (!item) {
+        stopPlayer();
+        return;
+      }
+      const token = ++state.playToken;
+      state.playingKey = Core.itemKey(item);
+      state.userPaused = false;
+      state.blocked = false;
+      state.mediaError = false;
+      state.waiting = true;
+      player.classList.remove("ready");
+      // 视频 .ready 之前是透明的，先清掉铺放态不会闪；loadedmetadata 时按新尺寸重判
+      $("playerLayer").classList.remove("fill");
+      player.pause();
+      const poster = coverUrl(item);
+      if (poster) player.poster = poster;
+      else player.removeAttribute("poster");
+      const direct = state.directDisabled ? null : directCache.peek(String(item.aweme_id));
+      if (direct !== undefined) {
+        // 直链已就绪或已知只能代理：同步设 src，保住手势触发的自动播放
+        setSource(item, direct);
+      } else {
+        directCache.resolve(item).then((url) => {
+          if (token === state.playToken) setSource(item, url);
+        });
+      }
+      renderOverlay();
+    }
+
+    // url 为 null 时走服务端代理：源站在国内、本服务在海外，冷启动慢，只作兜底
+    function setSource(item, url) {
+      player.dataset.mode = url ? "direct" : "proxy";
+      player.src = url || proxyVideoUrl(item);
+      player.muted = state.muted;
+      tryPlay();
+    }
+
+    function tryPlay() {
+      const token = state.playToken;
+      const attempt = player.play();
+      if (!attempt || typeof attempt.catch !== "function") return;
+      attempt.catch((error) => {
+        if (token !== state.playToken || error?.name !== "NotAllowedError") return;
+        if (!player.muted) {
+          // 浏览器不许有声自动播放：先静音播，提示点一下开声音（不改用户的偏好）
+          player.muted = true;
+          tryPlay();
+        } else {
+          state.blocked = true;
+          state.waiting = false;
+        }
+        renderOverlay();
+      });
+    }
+
+    function onPlayerPlaying() {
+      state.waiting = false;
+      state.blocked = false;
+      player.classList.add("ready");
+      if (player.dataset.mode === "direct") state.directFailures = 0;
+      renderOverlay();
+      preloadNext();
+    }
+
+    function onPlayerError() {
+      const item = currentItem();
+      if (!item || !player.getAttribute("src")) return;
+      if (player.dataset.mode === "direct") {
+        // 直链失败（过期/被拒）：丢掉这条改走代理；连续失败本次会话就不再用直链
+        directCache.invalidate(item.aweme_id);
+        state.directFailures += 1;
+        if (state.directFailures >= DIRECT_FAILURE_LIMIT) state.directDisabled = true;
+        console.warn("直链播放失败，改走代理", item.aweme_id, player.error, { directDisabled: state.directDisabled });
+        setSource(item, null);
+        return;
+      }
+      console.error("视频播放失败", item.aweme_id, player.error);
+      state.mediaError = true;
+      state.waiting = false;
+      renderOverlay();
+    }
+
+    // 当前视频出画面后再预载下一个，不和它抢首屏带宽；代理模式下顺带让服务端把文件拉进本机缓存
+    async function preloadNext() {
+      const token = state.playToken;
+      const next = state.items[state.active + 1];
+      if (!next) return;
+      const url = state.directDisabled ? null : await directCache.resolve(next);
+      if (token !== state.playToken) return;
+      const src = url || proxyVideoUrl(next);
+      if (preloader.getAttribute("src") !== src) preloader.src = src;
+      const poster = coverUrl(next);
+      if (poster) new Image().src = poster;
+    }
+
+    function togglePause() {
+      // 游客不能暂停，只在浏览器拦下自动播放时点一下开播
+      if (GUEST && !state.blocked) return;
+      if (!currentItem() || state.mediaError) return;
+      if (state.blocked || player.paused) {
+        state.userPaused = false;
+        tryPlay();
+      } else {
+        state.userPaused = true;
+        player.pause();
+      }
+      renderOverlay();
+    }
+
+    function setMuted(muted) {
+      if (muted && !player.muted) state.soundHintDismissed = true;
+      state.muted = muted;
+      player.muted = muted;
+      writeMutedPref(muted);
+      if (!muted && player.paused && !state.userPaused) tryPlay();
+      renderOverlay();
+    }
+
+    function retryCurrent() {
+      const item = currentItem();
+      if (!item) return;
+      directCache.invalidate(item.aweme_id);
+      playCurrent();
+    }
+
+    // ---- 渲染 ----
+    function slideHtml(item) {
+      const poster = coverUrl(item);
+      if (!poster) return "";
+      const safe = escapeHtml(poster);
+      return `<img class="sw-blur" src="${safe}" alt="" draggable="false" decoding="async" /><img class="sw-poster" src="${safe}" alt="" draggable="false" decoding="async" />`;
+    }
+
+    // title / sub 由调用方负责转义
+    function endCard(icon, title, sub, actions) {
+      return `<div class="sw-end">${icon}<h3>${title}</h3>${sub ? `<p>${sub}</p>` : ""}${actions ? `<div class="sw-end-actions">${actions}</div>` : ""}</div>`;
+    }
+
+    function endSlideHtml() {
+      // 第一页还没发出/没回来也算加载中，别先闪一下“没有结果”
+      if (state.loading || (!state.page && !state.loadError)) return `<div class="sw-end">${LOADER}<p>加载中…</p></div>`;
+      if (state.loadError) {
+        return endCard(ICONS.alert, "加载失败", escapeHtml(state.loadError),
+          `<button type="button" class="sw-btn" data-action="retry-load">${ICONS.retry}重试</button>`);
+      }
+      if (!state.items.length) {
+        return endCard(ICONS.empty, "没有符合条件的视频", "换个筛选条件试试",
+          '<button type="button" class="sw-btn" data-action="open-filter">调整筛选</button>');
+      }
+      const reshuffle = state.params.get("sort") === "random"
+        ? `<button type="button" class="sw-btn" data-action="reshuffle">${ICONS.shuffle}再随机一轮</button>` : "";
+      return endCard(ICONS.done, "已经看完了", `共 ${state.items.length} 个视频`,
+        `${reshuffle}<button type="button" class="sw-btn ghost" data-action="open-filter">调整筛选</button>`);
+    }
+
+    function renderSlides() {
+      slides.forEach((slide, position) => {
+        // 列表末尾之后一格是“结束卡”：加载中 / 失败 / 到底了 / 无结果
+        const index = state.active + position - 1;
+        const item = state.items[index];
+        const isEnd = index === state.items.length;
+        const key = item ? Core.itemKey(item) : isEnd ? `end:${!!state.loading}:${state.page}:${state.loadError}:${state.items.length}` : "";
+        if (slide.dataset.key === key) return;
+        slide.dataset.key = key;
+        slide.classList.remove("fill");
+        slide.innerHTML = item ? slideHtml(item) : isEnd ? endSlideHtml() : "";
+        slide.setAttribute("aria-hidden", position === 1 ? "false" : "true");
+      });
+    }
+
+    function scoreLineHtml(item) {
+      const borderline = borderlineOf(item);
+      const score = Number(borderline.score);
+      if (!Number.isInteger(score) || score < 1) return { html: "", title: "" };
+      const subs = SUB_LABELS
+        .filter(([key]) => Number(borderline[key]) > 0)
+        .map(([key, label]) => `${label} ${Number(borderline[key])}`);
+      return {
+        html: `<span class="sw-score-pill">${ICONS.flame}擦边 <b>${score}</b></span>${subs.length ? `<span class="sw-score-subs">${escapeHtml(subs.join(" · "))}</span>` : ""}`,
+        title: subs.join(" · "),
+      };
+    }
+
+    function tagSelected(group, value) {
+      return Core.parseList(state.params.get(group)).includes(value);
+    }
+
+    function renderInfo(item) {
+      $("info").hidden = !item;
+      $("rail").classList.toggle("no-item", !item);
+      $("progress").hidden = !item;
+      const cover = item ? coverUrl(item) : "";
+      $("pageBg").style.backgroundImage = cover ? `url(${JSON.stringify(cover)})` : "none";
+      if (!item) return;
+      const info = $("info");
+      const name = String(item.nickname || item.user_id || "");
+      $("authorName").textContent = `@${name}`;
+      const when = relativeTime(item.publish_time);
+      $("publishTime").textContent = when || "";
+      const desc = $("desc");
+      // 先切分再转义，免得把 &#39; 这类实体当成话题
+      state.descParts = String(item.desc || "").split(/(#[^\s#]+)/);
+      desc.innerHTML = descHtml(state.descParts);
+      desc.hidden = !item.desc;
+      desc.classList.remove("expanded", "clampable");
+      info.classList.remove("expanded");
+      requestAnimationFrame(fitDesc);
+      const score = scoreLineHtml(item);
+      $("scoreLine").innerHTML = score.html;
+      $("scoreLine").title = score.title;
+      if (state.riseKey !== item.aweme_id) {
+        state.riseKey = item.aweme_id;
+        info.classList.remove("rise");
+        void info.offsetWidth;
+        info.classList.add("rise");
+      }
+      const tags = $("tags");
+      tags.scrollLeft = 0;
+      tags.innerHTML = tagsOf(item).slice(0, 12).map(({ group, value }) => {
+        const on = tagSelected(group, value);
+        return `<button type="button" class="sw-tag${on ? " on" : ""}" data-group="${escapeHtml(group)}" data-value="${escapeHtml(value)}" title="${escapeHtml(TAG_LABELS[group] || group)}：${on ? "点击取消筛选" : "点击只看带这个标签的"}">#${escapeHtml(value)}</button>`;
+      }).join("");
+      requestAnimationFrame(updateTagsOverflow);
+
+      const avatar = $("avatarLink");
+      avatar.href = `/api/monitor/works/dashboard?user_id=${encodeURIComponent(item.user_id)}`;
+      avatar.title = `查看 ${name} 的全部作品`;
+      $("avatarInitial").textContent = Array.from(name)[0] || "?";
+      avatar.querySelector("img")?.remove();
+      const image = document.createElement("img");
+      image.alt = "";
+      image.onerror = () => image.remove();
+      image.src = `/api/monitor/users/${encodeURIComponent(item.user_id)}/avatar`;
+      avatar.appendChild(image);
+      $("shareLink").href = /^https:\/\/www\.douyin\.com\//.test(item.share_url || "") ? item.share_url : `https://www.douyin.com/video/${encodeURIComponent(item.aweme_id)}`;
+
+      const onlyThis = Core.parseList(state.params.get("user_ids"));
+      const only = onlyThis.length === 1 && onlyThis[0] === item.user_id;
+      const onlyBtn = $("onlyUserBtn");
+      onlyBtn.setAttribute("aria-pressed", String(only));
+      onlyBtn.setAttribute("aria-label", only ? "取消只看 TA" : `只看 ${name}`);
+      onlyBtn.title = only ? "取消只看 TA" : "只看 TA";
+      $("onlyUserText").textContent = only ? "看全部" : "只看TA";
+      if (onlyBtn.dataset.on !== String(only)) {
+        // 首次渲染不弹；之后切换 + / ✓ 时弹一下
+        if (onlyBtn.dataset.on !== undefined) {
+          onlyBtn.classList.remove("pop");
+          void onlyBtn.offsetWidth;
+          onlyBtn.classList.add("pop");
+        }
+        onlyBtn.dataset.on = String(only);
+        onlyBtn.innerHTML = only ? ICONS.tick : ICONS.plus;
+      }
+    }
+
+    function setDescExpanded(expanded) {
+      const desc = $("desc");
+      desc.classList.toggle("expanded", expanded);
+      $("info").classList.toggle("expanded", expanded);
+      if (expanded) desc.innerHTML = descHtml(state.descParts || []);
+      else fitDesc();
+    }
+
+    // 描述转 HTML；limit 给定时只取前 limit 个字符（按码点，免得切坏 emoji）
+    function descHtml(parts, limit = Infinity) {
+      let left = limit;
+      let html = "";
+      parts.forEach((part, index) => {
+        if (left <= 0) return;
+        const chars = Array.from(part);
+        const text = chars.length > left ? chars.slice(0, left).join("") : part;
+        left -= Math.min(chars.length, left);
+        html += index % 2 ? `<b class="sw-topic">${escapeHtml(text)}</b>` : escapeHtml(text);
+      });
+      return html;
+    }
+
+    // 收起态超过两行：截断文字，末尾接行内的“…展开”（抖音式，不垫暗块）
+    function fitDesc() {
+      const desc = $("desc");
+      const parts = state.descParts || [];
+      if (desc.hidden || desc.classList.contains("expanded")) return;
+      desc.innerHTML = descHtml(parts);
+      const fits = () => desc.scrollHeight <= desc.clientHeight + 1;
+      const clampable = !fits();
+      desc.classList.toggle("clampable", clampable);
+      if (!clampable) return;
+      const more = "…<span class=\"sw-more\">展开</span>";
+      let low = 0;
+      let high = parts.reduce((sum, part) => sum + Array.from(part).length, 0);
+      while (low < high) {
+        const mid = Math.ceil((low + high) / 2);
+        desc.innerHTML = descHtml(parts, mid) + more;
+        if (fits()) low = mid;
+        else high = mid - 1;
+      }
+      desc.innerHTML = descHtml(parts, low).replace(/\s+$/, "") + more;
+    }
+
+    // 标签条只在真溢出时加右侧渐隐，滚到头去掉
+    function updateTagsOverflow() {
+      const tags = $("tags");
+      const overflow = tags.scrollWidth > tags.clientWidth + 1;
+      tags.classList.toggle("overflow", overflow);
+      tags.classList.toggle("at-end", overflow && tags.scrollLeft + tags.clientWidth >= tags.scrollWidth - 1);
+    }
+
+    function renderOverlay() {
+      const item = currentItem();
+      const center = $("center");
+      let html = "";
+      if (item && state.mediaError) {
+        html = `<div class="sw-msg">${ICONS.alert}视频加载失败<button type="button" class="sw-btn" data-action="retry-play">${ICONS.retry}重试</button></div>`;
+      } else if (item && state.blocked) {
+        html = `<button type="button" class="sw-play-btn" data-action="play" aria-label="播放"><span class="sw-play-disc">${ICONS.play}</span>点击播放</button>`;
+      } else if (item && state.userPaused) {
+        html = ICONS.play;
+      } else if (item && state.waiting) {
+        html = LOADER;
+      }
+      if (center.dataset.html !== html) {
+        center.dataset.html = html;
+        center.innerHTML = html;
+      }
+      const muted = player.muted;
+      const muteBtn = $("muteBtn");
+      if (muteBtn.dataset.muted !== String(muted)) {
+        muteBtn.dataset.muted = String(muted);
+        muteBtn.innerHTML = muted ? ICONS.muted : ICONS.sound;
+      }
+      muteBtn.setAttribute("aria-pressed", String(muted));
+      muteBtn.setAttribute("aria-label", muted ? "开启声音" : "静音");
+      $("muteText").textContent = muted ? "已静音" : "声音";
+      // 主动静音过就不再提示；偏好是有声却被浏览器强制静音时照常提示
+      $("soundHint").hidden = !item || !muted || state.mediaError || (state.soundHintDismissed && state.muted);
+    }
+
+    function activeFilterCount(params) {
+      let count = Core.otherConditionCount(params);
+      if (params.get("q")) count += 1;
+      if (Number(params.get("score_min") || 1) > 1) count += 1;
+      count += Core.parseList(params.get("user_ids")).length;
+      Core.TAG_GROUPS.forEach((group) => { count += Core.parseList(params.get(group)).length; });
+      return count;
+    }
+
+    function renderAll() {
+      renderSlides();
+      const item = currentItem();
+      const key = item ? Core.itemKey(item) : "";
+      if (state.infoKey !== key) {
+        state.infoKey = key;
+        renderInfo(item);
+      }
+      if (key !== state.playingKey) {
+        if (item) playCurrent();
+        else stopPlayer();
+      }
+      $("counter").textContent = item ? `${state.active + 1} / ${state.total}` : state.page ? `共 ${state.total}` : "";
+      const count = activeFilterCount(state.params);
+      $("filterBadge").hidden = !count;
+      $("filterBadge").textContent = String(count);
+      renderOverlay();
+      if (item) showGuide();
+      ensureAhead();
+    }
+
+    // 筛选变了：重置列表从头刷；URL 同步（随机种子不写，刷新即换一批）
+    function applyParams(params, { toast } = {}) {
+      state.params = Core.readQuery(`?${params}`);
+      const query = Core.pageQuery(state.params);
+      history.replaceState(null, "", `${window.location.pathname}${query ? `?${query}` : ""}`);
+      updateLibraryLinks();
+      resetFeed();
+      state.infoKey = null;
+      renderAll();
+      if (toast) showToast(toast);
+    }
+
+    // 返回作品库时带上同一套筛选
+    function updateLibraryLinks() {
+      const params = new URLSearchParams(state.params);
+      params.delete("seed");
+      if (params.get("sort") === "newest") params.delete("sort");
+      params.set("media_type", "video");
+      const url = `/api/monitor/library/dashboard?${params}`;
+      $("backBtn").href = url;
+      $("openLibraryLink").href = url;
+    }
+
+    // ---- 翻页动画 ----
+    function viewportHeight() {
+      return $("stage").clientHeight || window.innerHeight || 1;
+    }
+
+    function canGo(delta) {
+      if (delta < 0) return state.active > 0;
+      if (state.active < state.items.length - 1) return true;
+      // 最后一条之后还能滑到“结束卡”；还有下一页时等它加载
+      return state.active === state.items.length - 1 && !hasMore() && !state.loading;
+    }
+
+    function setOffset(offset, animate) {
+      state.offset = offset;
+      const transform = `translate3d(0, ${offset}px, 0)`;
+      for (const layer of [$("track"), $("playerLayer")]) {
+        layer.classList.toggle("no-anim", !animate);
+        layer.style.transform = transform;
+      }
+      $("ui").classList.toggle("dragging", offset !== 0 && !animate);
+    }
+
+    function step(delta) {
+      if (state.animating || state.sheetOpen) return;
+      if (!canGo(delta)) {
+        if (delta > 0 && (state.loading || hasMore())) {
+          showToast("正在加载更多…");
+          loadNextPage();
+        } else if (delta < 0) {
+          showToast("已经是第一个了");
+        }
+        setOffset(0, true);
+        return;
+      }
+      state.animating = true;
+      // 翻页动画期间旧条目的信息区/操作栏保持隐藏，renderAll 换完内容再淡入接 rise
+      $("ui").classList.add("switching");
+      setOffset(-delta * viewportHeight(), true);
+      setTimeout(() => {
+        state.active += delta;
+        setOffset(0, false);
+        renderAll();
+        $("ui").classList.remove("switching");
+        state.animating = false;
+        dismissGuide();
+      }, TRANSITION_MS);
+    }
+
+    // ---- 手势：拖动跟手，松手按距离/速度判定 ----
+    const INTERACTIVE = "button, a, input, select, textarea, .sw-progress, .sw-desc.expanded";
+
+    function onPointerDown(event) {
+      if (state.animating || state.sheetOpen || event.button > 0) return;
+      if (event.target.closest(INTERACTIVE)) return;
+      state.drag = { id: event.pointerId, x: event.clientX, y: event.clientY, at: Date.now(), dragging: false };
+      $("stage").setPointerCapture?.(event.pointerId);
+    }
+
+    function onPointerMove(event) {
+      const drag = state.drag;
+      if (!drag || drag.id !== event.pointerId) return;
+      const dx = event.clientX - drag.x;
+      const dy = event.clientY - drag.y;
+      if (!drag.dragging) {
+        if (Math.abs(dy) <= TAP_SLOP || Math.abs(dy) <= Math.abs(dx)) return;
+        drag.dragging = true;
+      }
+      const edge = (dy > 0 && !canGo(-1)) || (dy < 0 && !canGo(1));
+      setOffset(edge ? dy * EDGE_RESISTANCE : dy, false);
+    }
+
+    function onPointerUp(event) {
+      const drag = state.drag;
+      if (!drag || drag.id !== event.pointerId) return;
+      state.drag = null;
+      const dx = event.clientX - drag.x;
+      const dy = event.clientY - drag.y;
+      if (!drag.dragging) {
+        if (Math.abs(dx) > TAP_SLOP || Math.abs(dy) > TAP_SLOP) return;
+        // 描述展开时点空白处先收起，不暂停
+        if ($("desc").classList.contains("expanded")) setDescExpanded(false);
+        else togglePause();
+        return;
+      }
+      const decision = Core.resolveSwipe({
+        deltaY: dy, elapsedMs: Date.now() - drag.at, viewportHeight: viewportHeight(),
+        canNext: canGo(1), canPrevious: canGo(-1),
+      });
+      if (decision === "next") step(1);
+      else if (decision === "previous") step(-1);
+      else if (dy < 0 && !canGo(1) && Math.abs(dy) > TAP_SLOP * 4) step(1);  // 到底再拉：给出提示
+      else setOffset(0, true);
+    }
+
+    function onPointerCancel(event) {
+      if (!state.drag || state.drag.id !== event.pointerId) return;
+      state.drag = null;
+      setOffset(0, true);
+    }
+
+    // 滚轮/触控板：一次手势只翻一条；触控板惯性事件在停下前一直算同一次
+    function onWheel(event) {
+      if (state.sheetOpen || event.target?.closest?.(".sw-desc.expanded")) return;
+      // 标签条溢出时：横向/Shift 滚轮交给原生横滑，竖向滚轮转成横滑，保证鼠标能看到所有标签
+      const tags = event.target?.closest?.(".sw-tags.overflow");
+      if (tags) {
+        if (event.shiftKey || Math.abs(event.deltaX) >= Math.abs(event.deltaY)) return;
+        event.preventDefault();
+        tags.scrollLeft += event.deltaY;
+        return;
+      }
+      event.preventDefault();
+      clearTimeout(state.wheelTimer);
+      state.wheelTimer = setTimeout(() => { state.wheelLocked = false; state.wheelAcc = 0; }, WHEEL_IDLE_MS);
+      if (state.wheelLocked || state.animating) return;
+      state.wheelAcc += event.deltaY;
+      if (Math.abs(state.wheelAcc) < WHEEL_THRESHOLD) return;
+      state.wheelLocked = true;
+      step(state.wheelAcc > 0 ? 1 : -1);
+      state.wheelAcc = 0;
+    }
+
+    // ---- 进度条：点击/拖动跳转 ----
+    function seekFromEvent(event) {
+      if (GUEST) return;
+      const rect = $("progress").getBoundingClientRect();
+      const ratio = Math.min(1, Math.max(0, (event.clientX - rect.left) / Math.max(rect.width, 1)));
+      if (Number.isFinite(player.duration) && player.duration > 0) {
+        player.currentTime = ratio * player.duration;
+        // 两段都是 formatClock 输出的纯数字，innerHTML 无注入风险
+        $("seekTime").innerHTML = `${formatClock(player.currentTime)}<span class="sw-dur"> / ${formatClock(player.duration)}</span>`;
+        renderProgress();
+      }
+    }
+
+    function renderProgress() {
+      const duration = player.duration;
+      const ratio = Number.isFinite(duration) && duration > 0 ? player.currentTime / duration : 0;
+      $("progressFill").style.width = `${(ratio * 100).toFixed(2)}%`;
+      $("progress").setAttribute("aria-valuenow", String(Math.round(ratio * 100)));
+    }
+
+    // ---- 筛选面板：改的是草稿，实时预览命中数与分面，点“查看”才生效 ----
+    function openSheet() {
+      if (GUEST) return;
+      state.sheetOpen = true;
+      state.draft = new URLSearchParams(state.params);
+      state.draftFacets = state.facets;
+      state.draftTotal = state.page ? state.total : null;
+      state.userSearch = "";
+      $("sheet").classList.add("show");
+      $("sheet").setAttribute("aria-hidden", "false");
+      $("backdrop").classList.add("show");
+      $("filterBtn").setAttribute("aria-expanded", "true");
+      renderSheet();
+      if (!state.draftFacets) schedulePreview(0);
+      $("sheetClose").focus();
+    }
+
+    function closeSheet() {
+      if (!state.sheetOpen) return;
+      state.sheetOpen = false;
+      state.previewSeq += 1;
+      clearTimeout(state.previewTimer);
+      $("sheet").classList.remove("show");
+      $("sheet").setAttribute("aria-hidden", "true");
+      $("backdrop").classList.remove("show");
+      $("filterBtn").setAttribute("aria-expanded", "false");
+      $("filterBtn").focus();
+    }
+
+    function updateDraft(next) {
+      state.draft = next;
+      renderSheet();
+      schedulePreview(250);
+    }
+
+    function schedulePreview(delay) {
+      clearTimeout(state.previewTimer);
+      const seq = ++state.previewSeq;
+      state.draftTotal = null;
+      renderApplyButton();
+      state.previewTimer = setTimeout(() => {
+        const query = Core.apiQuery(Core.readQuery(`?${state.draft}`), { page: 1, pageSize: PREVIEW_PAGE_SIZE });
+        api(`/library?${query}`).then((data) => {
+          if (seq !== state.previewSeq) return;
+          state.draftTotal = Number(data.total || 0);
+          state.draftFacets = data.facets || null;
+          renderSheet();
+        }).catch((error) => {
+          if (seq !== state.previewSeq) return;
+          state.draftTotal = -1;
+          renderApplyButton();
+          showToast(`筛选预览失败：${error.message || error}`);
+        });
+      }, delay);
+    }
+
+    function renderApplyButton() {
+      const total = state.draftTotal;
+      const button = $("sheetApply");
+      button.textContent = total === null ? "查看视频…" : total < 0 ? "查看视频" : `查看 ${total} 个视频`;
+      button.disabled = total === 0;
+    }
+
+    function chip(label, pressed, attrs) {
+      return `<button type="button" class="sw-chip" aria-pressed="${pressed}" ${attrs}>${escapeHtml(label)}</button>`;
+    }
+
+    function pill(label, count, pressed, attrs) {
+      const small = count === null || count === undefined ? "" : `<small>${Number(count)}</small>`;
+      return `<button type="button" class="sw-pill" aria-pressed="${pressed}" ${attrs}>${escapeHtml(label)}${small}</button>`;
+    }
+
+    function dataAttrs(values) {
+      return Object.entries(values).map(([key, value]) => `data-${key}="${escapeHtml(value)}"`).join(" ");
+    }
+
+    // 已选中的值即使不在分面前 N 名里也要显示，否则没法取消
+    function facetList(entries, selected, limit) {
+      const list = (entries || []).slice(0, limit);
+      const shown = new Set(list.map((entry) => entry.value));
+      selected.filter((value) => !shown.has(value)).forEach((value) => list.unshift({ value, count: null }));
+      return list;
+    }
+
+    function readSaved() {
+      try {
+        const parsed = JSON.parse(localStorage.getItem(SAVED_KEY) || "[]");
+        return Array.isArray(parsed) ? parsed.filter((entry) => entry && typeof entry.name === "string" && typeof entry.query === "string") : [];
+      } catch (error) {
+        console.error("读取作品库收藏的筛选失败", error);
+        return [];
+      }
+    }
+
+    function usersHtml() {
+      const draft = state.draft;
+      const selected = Core.parseList(draft.get("user_ids"));
+      const facet = state.draftFacets?.users || [];
+      const names = new Map(facet.map((entry) => [entry.user_id, entry.nickname]));
+      state.items.forEach((item) => { if (!names.has(item.user_id)) names.set(item.user_id, item.nickname); });
+      const needle = state.userSearch.trim().toLowerCase();
+      const list = facetList(facet.map((entry) => ({ value: entry.user_id, count: entry.count })), selected, USER_PILL_LIMIT)
+        .filter((entry) => !needle || String(names.get(entry.value) || entry.value).toLowerCase().includes(needle));
+      if (!list.length) return '<span class="sw-note">没有匹配的博主</span>';
+      return list.map((entry) => pill(names.get(entry.value) || entry.value, entry.count, selected.includes(entry.value),
+        dataAttrs({ action: "toggle", key: "user_ids", value: entry.value }))).join("");
+    }
+
+    function renderSheet() {
+      const draft = state.draft;
+      const sort = draft.get("sort") || Core.DEFAULT_SORT;
+      const scoreMin = Number(draft.get("score_min") || 1);
+      const sections = [];
+      const saved = readSaved();
+      if (saved.length) {
+        sections.push(`<div class="sw-group"><h3>作品库收藏的筛选</h3><div class="sw-chips">${saved.map((entry, index) =>
+          chip(entry.name, false, dataAttrs({ action: "saved", value: index }))).join("")}</div></div>`);
+      }
+      sections.push(`<div class="sw-group"><h3>排序</h3><div class="sw-chips">${SORTS.map(([value, label]) =>
+        chip(label, sort === value, dataAttrs({ action: "sort", value }))).join("")}</div></div>`);
+      sections.push(`<div class="sw-group"><h3>擦边分</h3><div class="sw-chips">${[1, 2, 3, 4, 5].map((value) =>
+        chip(value === 1 ? "不限" : `≥ ${value}`, scoreMin === value, dataAttrs({ action: "score", value }))).join("")}</div></div>`);
+      sections.push(`<div class="sw-group"><h3><label for="sheetQ">关键词</label></h3>
+        <div class="sw-input-wrap">${ICONS.search}<input class="sw-input" id="sheetQ" type="search" placeholder="昵称、描述、内容摘要" autocomplete="off" value="${escapeHtml(draft.get("q") || "")}" /></div></div>`);
+      sections.push(`<div class="sw-group"><h3>博主</h3>
+        <div class="sw-input-wrap">${ICONS.search}<input class="sw-input" id="sheetUserSearch" type="search" placeholder="搜索博主" autocomplete="off" aria-label="搜索博主" value="${escapeHtml(state.userSearch)}" /></div>
+        <div class="sw-users" id="sheetUsers">${usersHtml()}</div></div>`);
+      for (const group of Core.TAG_GROUPS) {
+        const selected = Core.parseList(draft.get(group));
+        const list = facetList(state.draftFacets?.[group], selected, TAG_PILL_LIMIT);
+        if (!list.length) continue;
+        sections.push(`<div class="sw-group"><h3>${escapeHtml(TAG_LABELS[group])}</h3><div class="sw-chips">${list.map((entry) =>
+          pill(entry.value, entry.count, selected.includes(entry.value), dataAttrs({ action: "toggle", key: group, value: entry.value }))).join("")}</div></div>`);
+      }
+      if (!state.draftFacets) sections.push('<div class="sw-group sw-note">正在加载标签…</div>');
+      const others = Core.otherConditionCount(draft);
+      if (others) {
+        sections.push(`<div class="sw-group"><h3>作品库条件<button type="button" class="sw-link" data-action="clear-others">清除</button></h3>
+          <div class="sw-note">另有 ${others} 项从作品库带来的条件（日期、单项分、分类或排除），可在作品库中调整</div></div>`);
+      }
+      const body = $("sheetBody");
+      const scrollTop = body.scrollTop;
+      // 预览结果回来时会重绘，正在输入的框要保住焦点和光标
+      const focused = document.activeElement?.id;
+      const selection = focused ? [document.activeElement.selectionStart, document.activeElement.selectionEnd] : null;
+      body.innerHTML = sections.join("");
+      body.scrollTop = scrollTop;
+      const refocus = focused === "sheetQ" || focused === "sheetUserSearch" ? $(focused) : null;
+      if (refocus) {
+        refocus.focus();
+        if (selection && selection[0] !== null) refocus.setSelectionRange(selection[0], selection[1]);
+      }
+      renderApplyButton();
+    }
+
+    function onSheetClick(event) {
+      const button = event.target.closest("[data-action]");
+      if (!button) return;
+      const { action, key, value } = button.dataset;
+      const next = new URLSearchParams(state.draft);
+      if (action === "sort") {
+        next.set("sort", value);
+        next.delete("seed");
+      } else if (action === "score") {
+        if (value === "1") next.delete("score_min");
+        else next.set("score_min", value);
+        // 上限低于新下限时放开上限，免得接口报错
+        if (Number(next.get("score_max") || 5) < Number(value)) next.delete("score_max");
+      } else if (action === "toggle") {
+        updateDraft(Core.toggleListValue(next, key, value));
+        return;
+      } else if (action === "clear-others") {
+        updateDraft(Core.clearOtherConditions(next));
+        return;
+      } else if (action === "saved") {
+        const entry = readSaved()[Number(value)];
+        if (!entry) return;
+        updateDraft(Core.readQuery(`?${entry.query}`));
+        return;
+      } else {
+        return;
+      }
+      updateDraft(next);
+    }
+
+    function onSheetInput(event) {
+      if (event.target.id === "sheetQ") {
+        const next = new URLSearchParams(state.draft);
+        const text = event.target.value.trim();
+        if (text) next.set("q", text);
+        else next.delete("q");
+        state.draft = next;
+        schedulePreview(350);
+      } else if (event.target.id === "sheetUserSearch") {
+        state.userSearch = event.target.value;
+        $("sheetUsers").innerHTML = usersHtml();
+      }
+    }
+
+    function applyDraft() {
+      const draft = state.draft;
+      closeSheet();
+      if (Core.pageQuery(Core.readQuery(`?${draft}`)) === Core.pageQuery(state.params) && state.items.length) return;
+      applyParams(draft);
+    }
+
+    // ---- 浮层按钮 ----
+    function onUiClick(event) {
+      const tag = event.target.closest(".sw-tag");
+      if (GUEST) {
+        // 游客能点的只有：被拦截时开播、重试、到底后再随机一轮
+        const guestAction = event.target.closest("[data-action]")?.dataset.action;
+        if (guestAction === "play") togglePause();
+        else if (guestAction === "retry-play") retryCurrent();
+        else if (guestAction === "retry-load") loadNextPage();
+        else if (guestAction === "reshuffle") applyParams(new URLSearchParams(), { toast: "换了一批" });
+        return;
+      }
+      if (tag) {
+        const { group, value } = tag.dataset;
+        const on = tagSelected(group, value);
+        applyParams(Core.toggleListValue(state.params, group, value), { toast: on ? `已取消筛选：${value}` : `已加入筛选：${value}` });
+        return;
+      }
+      const action = event.target.closest("[data-action]")?.dataset.action;
+      if (action === "retry-play") retryCurrent();
+      else if (action === "play") togglePause();
+      else if (action === "retry-load") loadNextPage();
+      else if (action === "open-filter") openSheet();
+      else if (action === "reshuffle") {
+        const next = new URLSearchParams(state.params);
+        next.delete("seed");
+        applyParams(next, { toast: "换了一批" });
+      }
+    }
+
+    function toggleOnlyUser() {
+      if (GUEST) return;
+      const item = currentItem();
+      if (!item) return;
+      const next = new URLSearchParams(state.params);
+      const current = Core.parseList(next.get("user_ids"));
+      if (current.length === 1 && current[0] === item.user_id) {
+        next.delete("user_ids");
+        applyParams(next, { toast: "已恢复全部博主" });
+      } else {
+        next.set("user_ids", item.user_id);
+        applyParams(next, { toast: `只看 ${item.nickname || item.user_id}` });
+      }
+    }
+
+    // 纯净模式只改显示，不影响播放、手势和筛选；刷新页面恢复普通模式
+    function setPure(pure) {
+      if (GUEST) return;
+      state.pure = Boolean(pure);
+      document.body.classList.toggle("sw-pure", state.pure);
+      renderPureButton();
+      if (state.pure) dismissGuide();
+    }
+
+    function renderPureButton() {
+      const button = $("pureBtn");
+      button.innerHTML = state.pure ? ICONS.restore : ICONS.pure;
+      button.setAttribute("aria-pressed", String(state.pure));
+      const label = state.pure ? "退出纯净模式，恢复画面 (C)" : "纯净模式：只看视频 (C)";
+      button.title = label;
+      button.setAttribute("aria-label", label);
+      $("pureText").textContent = state.pure ? "还原" : "纯净";
+    }
+
+    function onKeydown(event) {
+      if (event.target.closest?.("input, select, textarea")) {
+        if (event.key === "Escape") event.target.blur();
+        return;
+      }
+      if (state.sheetOpen) {
+        if (event.key === "Escape") closeSheet();
+        return;
+      }
+      if (event.metaKey || event.ctrlKey || event.altKey) return;
+      const key = event.key.toLowerCase();
+      if (GUEST) {
+        // 游客键盘只能切换视频和开关声音
+        if (key === "arrowdown" || key === "j" || key === "pagedown") { event.preventDefault(); step(1); }
+        else if (key === "arrowup" || key === "k" || key === "pageup") { event.preventDefault(); step(-1); }
+        else if (key === "m") setMuted(!player.muted);
+        return;
+      }
+      if (key === "arrowdown" || key === "j" || key === "pagedown") { event.preventDefault(); step(1); }
+      else if (key === "arrowup" || key === "k" || key === "pageup") { event.preventDefault(); step(-1); }
+      else if (key === " " && !event.target.closest?.("button, a")) { event.preventDefault(); togglePause(); }
+      else if (key === "m") setMuted(!player.muted);
+      else if (key === "f") openSheet();
+      else if (key === "c") setPure(!state.pure);
+      else if (key === "arrowright" || key === "arrowleft") {
+        if (Number.isFinite(player.duration)) player.currentTime = Math.max(0, player.currentTime + (key === "arrowright" ? 5 : -5));
+      }
+    }
+
+    function bindEvents() {
+      const stage = $("stage");
+      stage.addEventListener("pointerdown", onPointerDown);
+      stage.addEventListener("pointermove", onPointerMove);
+      stage.addEventListener("pointerup", onPointerUp);
+      stage.addEventListener("pointercancel", onPointerCancel);
+      stage.addEventListener("click", onUiClick);
+      window.addEventListener("wheel", onWheel, { passive: false });
+      $("ui").addEventListener("click", onUiClick);
+
+      player.addEventListener("playing", onPlayerPlaying);
+      player.addEventListener("waiting", () => { if (!state.userPaused) { state.waiting = true; renderOverlay(); } });
+      player.addEventListener("canplay", () => { state.waiting = false; renderOverlay(); });
+      player.addEventListener("error", onPlayerError);
+      player.addEventListener("timeupdate", renderProgress);
+      player.addEventListener("volumechange", renderOverlay);
+      player.addEventListener("loadedmetadata", () => $("playerLayer").classList.toggle("fill", shouldFill(player.videoWidth, player.videoHeight)));
+      // 封面 load 不冒泡，在 track 上用捕获阶段统一接
+      $("track").addEventListener("load", (event) => {
+        const img = event.target;
+        if (img.classList?.contains("sw-poster")) img.closest(".sw-slide")?.classList.toggle("fill", shouldFill(img.naturalWidth, img.naturalHeight));
+      }, true);
+
+      const progress = $("progress");
+      progress.addEventListener("pointerdown", (event) => {
+        progress.setPointerCapture?.(event.pointerId);
+        progress.classList.add("seeking");
+        $("ui").classList.add("seeking");
+        $("seekTime").hidden = false;
+        seekFromEvent(event);
+      });
+      progress.addEventListener("pointermove", (event) => { if (progress.classList.contains("seeking")) seekFromEvent(event); });
+      const endSeek = () => {
+        progress.classList.remove("seeking");
+        $("ui").classList.remove("seeking");
+        $("seekTime").hidden = true;
+      };
+      progress.addEventListener("pointerup", endSeek);
+      progress.addEventListener("pointercancel", endSeek);
+
+      const toggleDesc = () => { if (!GUEST) setDescExpanded(!$("desc").classList.contains("expanded")); };
+      $("desc").addEventListener("click", toggleDesc);
+      $("tags").addEventListener("scroll", updateTagsOverflow, { passive: true });
+      $("desc").addEventListener("keydown", (event) => {
+        if (event.key === "Enter") toggleDesc();
+      });
+      $("muteBtn").addEventListener("click", () => setMuted(!player.muted));
+      $("pureBtn").addEventListener("click", () => setPure(!state.pure));
+      $("soundHint").addEventListener("click", () => setMuted(false));
+      $("onlyUserBtn").addEventListener("click", toggleOnlyUser);
+      $("filterBtn").addEventListener("click", openSheet);
+      $("sheetClose").addEventListener("click", closeSheet);
+      $("backdrop").addEventListener("click", closeSheet);
+      $("sheetApply").addEventListener("click", applyDraft);
+      $("sheetReset").addEventListener("click", () => updateDraft(new URLSearchParams({ sort: Core.DEFAULT_SORT })));
+      $("sheetBody").addEventListener("click", onSheetClick);
+      $("sheetBody").addEventListener("input", onSheetInput);
+      document.addEventListener("keydown", onKeydown);
+
+      // 切到后台暂停，回来时按原状态续播
+      document.addEventListener("visibilitychange", () => {
+        if (document.hidden) player.pause();
+        else if (currentItem() && !state.userPaused && !state.mediaError && player.getAttribute("src")) tryPlay();
+      });
+      window.addEventListener("resize", () => {
+        setOffset(0, false);
+        refreshFill();
+        if (currentItem()) {
+          fitDesc();
+          updateTagsOverflow();
+        }
+      });
+    }
+
+    function init() {
+      bindEvents();
+      updateLibraryLinks();
+      player.muted = state.muted;
+      renderPureButton();
+      renderAll();
+    }
+
+    init();
+  </script>
+</body>
+</html>

@@ -70,7 +70,8 @@ from crawlers.douyin.web.web_sign import sign_web_request  # noqa: E402
 class DouyinWebCrawler:
 
     # 从配置文件中获取抖音的请求头
-    async def get_douyin_headers(self):
+    async def get_douyin_headers(self, cookie=None):
+        """cookie 给定时只替换本次请求的 Cookie，不改全局配置（解析 API 用独立 Cookie）。"""
         config = get_config()
         douyin_config = config["TokenManager"]["douyin"]
         kwargs = {
@@ -78,7 +79,7 @@ class DouyinWebCrawler:
                 "Accept-Language": douyin_config["headers"]["Accept-Language"],
                 "User-Agent": douyin_config["headers"]["User-Agent"],
                 "Referer": douyin_config["headers"]["Referer"],
-                "Cookie": douyin_config["headers"]["Cookie"],
+                "Cookie": cookie if cookie else douyin_config["headers"]["Cookie"],
             },
             "proxies": {"http://": douyin_config["proxies"]["http"], "https://": douyin_config["proxies"]["https"]},
         }
@@ -87,16 +88,19 @@ class DouyinWebCrawler:
     "-------------------------------------------------------handler接口列表-------------------------------------------------------"
 
     # 获取单个作品数据
-    async def fetch_one_video(self, aweme_id: str):
-        return await self._fetch_signed_get(DouyinAPIEndpoints.POST_DETAIL, PostDetail(aweme_id=aweme_id).dict())
+    async def fetch_one_video(self, aweme_id: str, cookie=None):
+        return await self._fetch_signed_get(
+            DouyinAPIEndpoints.POST_DETAIL, PostDetail(aweme_id=aweme_id).dict(), cookie=cookie
+        )
 
     # 获取用户发布作品数据
     async def fetch_user_post_videos(self, sec_user_id: str, max_cursor: int, count: int):
         params = UserPost(sec_user_id=sec_user_id, max_cursor=max_cursor, count=count)
         return await self._fetch_signed_get(DouyinAPIEndpoints.USER_POST, params.dict())
 
-    async def _fetch_signed_get(self, base_endpoint, params):
-        kwargs = await self.get_douyin_headers()
+    async def _fetch_signed_get(self, base_endpoint, params, cookie=None):
+        # 不覆盖 Cookie 时保持原调用方式（监控路径不变）
+        kwargs = await (self.get_douyin_headers(cookie) if cookie else self.get_douyin_headers())
         params_dict = {**params, "msToken": ""}
         a_bogus = BogusManager.ab_model_2_endpoint(params_dict, kwargs["headers"]["User-Agent"])
         endpoint = f"{base_endpoint}?{urlencode(params_dict)}&a_bogus={a_bogus}"

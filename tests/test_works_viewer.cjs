@@ -130,7 +130,7 @@ test("gallery fetches the cover image without creating video elements", () => {
 
 test("viewer DOM is injected by the shared module, not duplicated in the page", () => {
   assert.doesNotMatch(html, /id="viewer"/);
-  assert.match(html, /<script src="\/static\/works-viewer\.js\?v=lib-20260930a"><\/script>/);
+  assert.match(html, /<script src="\/static\/works-viewer\.js\?v=swipe-20260930b"><\/script>/);
   const page = pageContext();
   assert.ok(page.get("viewer"));
   assert.match(page.get("viewer").innerHTML, /id="viewerOriginalLink" download/);
@@ -371,4 +371,21 @@ test("syncAfterReload keeps the same user's work when aweme_id repeats across us
   // 列表重新加载后，正在播的仍是 u-b 那一条（只比 aweme_id 会错认成 u-a）
   page.run("state.items = list.map((item) => ({ ...item })); WorksViewer.syncAfterReload();");
   assert.equal(page.run("state.playingIndex"), 1);
+});
+
+test("switching works inside the viewer does not scroll the list; closing reveals the last card once", async () => {
+  const page = pageContext();
+  page.context.list = [videoItem, { ...videoItem, aweme_id: "7002" }];
+  page.run(`
+    scrollLog = [];
+    markPlayingCard = (scroll) => scrollLog.push(["mark", state.playingIndex, Boolean(scroll)]);
+    revealCard = (index) => scrollLog.push(["reveal", index]);
+    state.items = list; WorksViewer.open(0);
+  `);
+  page.handlers.keydown({ key: "ArrowDown", preventDefault() {} });
+  await flush();
+  assert.equal(page.run("WorksViewer.currentAwemeId()"), "7002");
+  page.handlers.keydown({ key: "Escape" });
+  assert.deepEqual(JSON.parse(page.run("JSON.stringify(scrollLog)")),
+    [["mark", 0, false], ["mark", 1, false], ["mark", -1, false], ["reveal", 1]]);
 });

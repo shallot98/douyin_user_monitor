@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import mimetypes
+import time
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
@@ -12,6 +13,7 @@ from fastapi import APIRouter, BackgroundTasks, HTTPException, Query, Request
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, Response, StreamingResponse
 from pydantic import BaseModel, Field
 
+from douyin_user_monitor import auth
 from douyin_user_monitor.api.archive_media_cache import ArchiveMediaCache
 from douyin_user_monitor.api.covers import cover_response, with_cover_urls
 from douyin_user_monitor.api.media_proxy import (
@@ -25,6 +27,7 @@ from douyin_user_monitor.api.media_proxy import (
 )
 from douyin_user_monitor.api.models import ErrorResponseModel, ResponseModel
 from douyin_user_monitor.crawler.inprocess_client import DEFAULT_HEADERS, InProcessDouyinClient
+from douyin_user_monitor.monitor import api_keys
 from douyin_user_monitor.monitor.archive_feed import (
     build_archive_item,
     build_archive_page,
@@ -60,13 +63,14 @@ from douyin_user_monitor.monitor.new_work_cover import NewWorkCoverPublisher
 from douyin_user_monitor.monitor.nickname_history import build_former_nicknames
 from douyin_user_monitor.monitor.notifier import NoopMonitorNotifier
 from douyin_user_monitor.monitor.openlist_client import ArchiveUnavailableError, OpenListClient
+from douyin_user_monitor.monitor.parse_cookies import ParseCookiePool
 from douyin_user_monitor.monitor.parse_service import ParseService
+from douyin_user_monitor.monitor.record_store import RecordStore
 from douyin_user_monitor.monitor.schedule import MODE_COVERAGE, MODE_INTERVAL
 from douyin_user_monitor.monitor.service import (
     MIN_INTERVAL_HOURS,
     MonitorService,
 )
-from douyin_user_monitor.monitor.record_store import RecordStore
 from douyin_user_monitor.monitor.statistics import build_user_statistics
 from douyin_user_monitor.monitor.storage import FileStamp, MonitorStorage, file_stamp
 from douyin_user_monitor.monitor.telegram_notifier import TelegramNotifier
@@ -134,10 +138,15 @@ SETTINGS_DASHBOARD_PATH = SETTINGS.project_root / "douyin_user_monitor" / "web" 
 API_DASHBOARD_PATH = SETTINGS.project_root / "douyin_user_monitor" / "web" / "api.html"
 WORKS_DASHBOARD_PATH = SETTINGS.project_root / "douyin_user_monitor" / "web" / "works.html"
 LIBRARY_DASHBOARD_PATH = SETTINGS.project_root / "douyin_user_monitor" / "web" / "library.html"
+SWIPE_DASHBOARD_PATH = SETTINGS.project_root / "douyin_user_monitor" / "web" / "swipe.html"
 
 CRAWLER_CLIENT = InProcessDouyinClient(SETTINGS.crawler.config_path)
 MONITOR_STORAGE = MonitorStorage(SETTINGS.monitor.state_path)
 COVER_STORE = CoverStore(SETTINGS.monitor.state_path.parent / "covers")
+# 网页自助管理的 API Key（auth 里校验并计数）
+# 应用自身没配日志输出；借 uvicorn 已配好的 INFO 通道，耗时才会进 journal
+PARSE_LOGGER = logging.getLogger("uvicorn.error")
+API_KEY_STORE = api_keys.configure(SETTINGS.monitor.state_path.parent / "api_keys.db")
 TG_SETTINGS = SETTINGS.notifications.telegram
 MONITOR_NOTIFIER = (
     TelegramNotifier(
@@ -190,6 +199,11 @@ COOKIE_POOL_SERVICE = CookiePoolService(
     rotation_skip_expired=COOKIE_ROTATION.skip_expired,
 )
 
+# 过期 Cookie（data/parse_cookies/*.txt）：单作品详情接口对 Cookie 要求低，解析 API 与监控下载共用；
+# 登录态 Cookie 池只用来拉作品列表，降低账号风险
+PARSE_COOKIES_DIR = SETTINGS.monitor.state_path.parent / "parse_cookies"
+DETAIL_COOKIE_POOL = ParseCookiePool(PARSE_COOKIES_DIR)
+
 monitor_service = MonitorService(
     crawler=CRAWLER_CLIENT,
     storage=MONITOR_STORAGE,
@@ -203,6 +217,7 @@ monitor_service = MonitorService(
         if SETTINGS.content_filter.enabled
         else None
     ),
+    detail_cookie_pool=DETAIL_COOKIE_POOL,
 )
 
 AWEME_FEED_SERVICE = AwemeFeedService(CRAWLER_CLIENT)
@@ -242,6 +257,11 @@ class StartMonitorPayload(BaseModel):
 
 class PlaybackUrlsPayload(BaseModel):
     aweme_ids: list[str] = Field(min_length=1, max_length=100, description="要取直链的作品 ID，最多 100 个")
+
+
+class ApiKeyCreateBody(BaseModel):
+    name: str = Field(min_length=1, max_length=api_keys.NAME_MAX_LENGTH, description="Key 名称，便于辨认用途")
+    scope: str = Field(default="parse", description="parse=只能调解析接口；full=管理员权限")
 
 
 class ParseBody(BaseModel):
@@ -385,6 +405,76 @@ async def library_dashboard() -> str:
     )
 
 
+@router.get("/swipe/dashboard", response_class=HTMLResponse, summary="刷视频页面/Vertical swipe video feed page")
+async def swipe_dashboard(request: Request) -> str:
+    """上下滑动刷作品库里的视频；筛选参数与作品库一致（页面侧读取查询串）。"""
+    if not SWIPE_DASHBOARD_PATH.exists():
+        raise HTTPException(status_code=404, detail=f"刷视频页面不存在: {SWIPE_DASHBOARD_PATH}")
+    content = SWIPE_DASHBOARD_PATH.read_text(encoding="utf-8")
+    if _is_guest_request(request):
+        # 游客在服务端就打上标记，页面不会先闪一下完整界面
+        if content.count("<body>") != 1:
+            raise HTTPException(status_code=500, detail="刷视频页面缺少唯一的 <body> 标签，无法进入游客模式")
+        content = content.replace("<body>", '<body class="sw-guest">', 1)
+    return HTMLResponse(content=content, headers=HTML_NO_CACHE_HEADERS)
+
+
+# ---- 游客：只能随机刷作品库里的视频，其余一律拒绝（路由白名单见 auth.GUEST_ROUTES） ----
+GUEST_PAGE_SIZE = 20
+# 游客只拿播放需要的字段：不下发昵称、描述、标签、评分等
+GUEST_ITEM_FIELDS = (
+    "aweme_id", "user_id", "media_type", "play_index", "cover_index", "cover_url",
+    "duration_ms", "has_fast_play", "video_source", "fast_play_source",
+)
+_GUEST_WORKS: tuple[int, dict[tuple[str, str], LibraryEntry]] | None = None
+
+
+def _is_guest_request(request: Request) -> bool:
+    return bool(getattr(request.state, "guest", False))
+
+
+async def _library_index() -> list[LibraryEntry]:
+    async with _LIBRARY_INDEX_LOCK:
+        return await asyncio.to_thread(_refresh_library_index)
+
+
+def _guest_works(index: list[LibraryEntry]) -> dict[tuple[str, str], LibraryEntry]:
+    """游客可看的作品：作品库里的视频。按索引对象缓存，索引重建后自动失效。"""
+    global _GUEST_WORKS
+    if _GUEST_WORKS is None or _GUEST_WORKS[0] != id(index):
+        works = {(entry.user_id, entry.aweme_id): entry for entry in index if entry.media_type == "video"}
+        _GUEST_WORKS = (id(index), works)
+    return _GUEST_WORKS[1]
+
+
+async def _require_guest_work(request: Request, user_id: str, aweme_id: str) -> None:
+    """游客请求具体作品时校验：必须是作品库里的视频，否则按不存在处理。"""
+    if not _is_guest_request(request):
+        return
+    if (user_id, aweme_id) not in _guest_works(await _library_index()):
+        raise HTTPException(status_code=404, detail="作品不存在")
+
+
+async def _require_guest_media(request: Request, user_id: str, aweme_id: str, file_index: int) -> None:
+    """游客只能取播放文件与封面，不能取原片等其他归档文件。"""
+    if not _is_guest_request(request):
+        return
+    entry = _guest_works(await _library_index()).get((user_id, aweme_id))
+    item = build_archive_item(entry.record) if entry is not None else None
+    if item is None or file_index not in {item.get("play_index"), item.get("cover_index")}:
+        raise HTTPException(status_code=404, detail="作品不存在")
+
+
+def _guest_library_query(params: Any):
+    """游客的查询只认页码和随机种子，其余参数（筛选、排序、类型）一律忽略。"""
+    allowed = {"sort": "random", "media_type": "video", "page_size": str(GUEST_PAGE_SIZE)}
+    for key in ("page", "seed"):
+        value = params.get(key)
+        if value is not None:
+            allowed[key] = value
+    return parse_library_query(allowed)
+
+
 def _library_users_key(users: list[dict[str, Any]]) -> tuple[tuple[str, str], ...]:
     return tuple((str(user.get("id") or ""), str(user.get("nickname") or "")) for user in users)
 
@@ -434,18 +524,24 @@ async def _library_page_items(entries: list[LibraryEntry]) -> list[dict[str, Any
 @router.get("/library", response_model=ResponseModel, summary="作品库：跨用户浏览已评分作品/Works library")
 async def list_library(request: Request) -> ResponseModel:
     """只收已打擦边分（score>=1）的作品；参数见 monitor/library.py，非法参数 400。"""
+    guest = _is_guest_request(request)
     try:
-        query = parse_library_query(request.query_params)
+        query = _guest_library_query(request.query_params) if guest else parse_library_query(request.query_params)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    async with _LIBRARY_INDEX_LOCK:
-        index = await asyncio.to_thread(_refresh_library_index)
+    index = await _library_index()
     result = await asyncio.to_thread(query_library, index, query)
+    items = await _library_page_items(result["entries"])
+    if guest:
+        # 游客不下发分面、用户统计和作品详情，只给翻页和播放需要的
+        payload = {key: result[key] for key in ("page", "page_size", "total", "total_pages", "seed")}
+        payload["items"] = [{key: item.get(key) for key in GUEST_ITEM_FIELDS} for item in items]
+        return _build_success(request, payload)
     payload = {key: value for key, value in result.items() if key != "entries"}
-    payload["items"] = await _library_page_items(result["entries"])
+    payload["items"] = items
     return _build_success(request, payload)
 
-PARSE_SERVICE = ParseService(CRAWLER_CLIENT)
+PARSE_SERVICE = ParseService(CRAWLER_CLIENT, cookie_pool=DETAIL_COOKIE_POOL)
 
 
 @router.post("/parse", response_model=ResponseModel, summary="解析抖音分享链接/Parse Douyin share link")
@@ -468,6 +564,78 @@ async def parse_share_get(
     except Exception as exc:  # noqa: BLE001
         raise _build_error(request, str(exc))
     return _build_success(request, data)
+
+@router.get(
+    "/parse/plugin",
+    response_model=ResponseModel,
+    summary="解析视频直链（下载插件格式）/Parse video URL for download plugins",
+)
+async def parse_share_for_plugin(
+    request: Request,
+    url: str = Query(min_length=1, description="抖音分享文本 / 口令 / 作品链接"),
+) -> ResponseModel:
+    """给下载插件用：成功时 HTTP 200、code=200，data.url / data.video_url 为最高画质直链。
+
+    只返回一个地址，插件直接下载不弹选择框。图文作品没有视频，按失败返回。
+    """
+    started = time.perf_counter()
+    try:
+        data = await PARSE_SERVICE.parse(url)
+    except Exception as exc:  # noqa: BLE001
+        PARSE_LOGGER.info("plugin parse failed elapsed=%.2fs err=%s", time.perf_counter() - started, exc)
+        raise _build_error(request, str(exc))
+    # 服务端耗时，和插件侧感受到的总时长对比，能分出是解析慢还是网络慢
+    PARSE_LOGGER.info("plugin parse ok aweme_id=%s elapsed=%.2fs", data.get("aweme_id"), time.perf_counter() - started)
+    if data.get("is_image_post"):
+        raise _build_error(request, f"作品 {data.get('aweme_id')} 是图文，没有视频可下载")
+    video_url = data.get("download_url")
+    if not video_url:
+        raise _build_error(request, f"作品 {data.get('aweme_id')} 未找到视频地址")
+    return _build_success(
+        request,
+        {
+            "url": video_url,
+            "video_url": video_url,
+            "title": data.get("desc") or "",
+            "aweme_id": data.get("aweme_id"),
+            "quality": data.get("quality_source"),
+        },
+    )
+
+
+def _require_key_admin(request: Request) -> None:
+    if not auth.can_manage_keys(request):
+        raise HTTPException(status_code=403, detail="只有管理员登录或系统 Key 能管理 API Key")
+
+
+@router.get("/api-keys", response_model=ResponseModel, summary="API Key 列表与使用次数/List API keys")
+async def list_api_keys(request: Request) -> ResponseModel:
+    _require_key_admin(request)
+    return _build_success(request, {"items": API_KEY_STORE.list(), "scopes": list(api_keys.SCOPES)})
+
+
+@router.post("/api-keys", response_model=ResponseModel, summary="新建 API Key/Create API key")
+async def create_api_key(request: Request, payload: ApiKeyCreateBody) -> ResponseModel:
+    _require_key_admin(request)
+    try:
+        record, plaintext = API_KEY_STORE.create(payload.name, payload.scope)
+    except ValueError as exc:
+        raise _build_error(request, str(exc)) from exc
+    # 明文只在这次响应里出现，库里只存哈希
+    return _build_success(request, {**record, "key": plaintext})
+
+
+@router.delete("/api-keys/{key_id}", response_model=ResponseModel, summary="删除 API Key/Delete API key")
+async def delete_api_key(request: Request, key_id: str) -> ResponseModel:
+    _require_key_admin(request)
+    try:
+        record = API_KEY_STORE.delete(key_id)
+    except KeyError as exc:
+        raise _build_error(request, "Key 不存在", status_code=404) from exc
+    except ValueError as exc:
+        raise _build_error(request, str(exc)) from exc
+    return _build_success(request, record)
+
 
 @router.get("/cookies", response_model=ResponseModel, summary="获取 Cookie 池列表/List cookie pool")
 async def list_cookies(request: Request) -> ResponseModel:
@@ -543,9 +711,14 @@ async def list_users(
     search: str | None = Query(None, description="Search nickname/sec_uid/id/profile_url"),
     monitor: str | None = Query(None, description="all|enabled|paused"),
     account: str | None = Query(None, description="all|normal|deleted|banned|abnormal"),
-    activity: str | None = Query(None, description="all|active_7d|active_30d|silent_7d|silent_30d|publish_unknown"),
+    activity: str | None = Query(
+        None, description="all|active_7d|active_30d|silent_7d|silent_30d|silent_60d|silent_90d|silent_180d|publish_unknown"
+    ),
     backfill: str | None = Query(None, description="all|idle|active|paused|completed|failed"),
-    sort_by: str | None = Query(None, description="downloads|last_publish|last_check|last_download|nickname|created"),
+    value: str | None = Query(None, description="all|low_value|long_silent|low_score|score_pending"),
+    sort_by: str | None = Query(
+        None, description="downloads|last_publish|last_check|last_download|nickname|created|avg_score|high_score_ratio"
+    ),
     sort_order: str | None = Query(None, description="asc|desc"),
     page: int | None = Query(None, description="1-based page; presence switches to table mode"),
     page_size: int | None = Query(None, description="20|50|100"),
@@ -563,6 +736,7 @@ async def list_users(
             account=account or "all",
             activity=activity or "all",
             backfill=backfill or "all",
+            value=value or "all",
             sort_by=sort_by or "downloads",
             sort_order=sort_order or "desc",
             page=1 if page is None else page,
@@ -734,6 +908,7 @@ async def read_archive_cover(
     request: Request, user_id: str, aweme_id: str, *,
     v: str | None = Query(None, pattern=r"^[0-9a-f]{64}$"),
 ) -> Response:
+    await _require_guest_work(request, user_id, aweme_id)
     user = await _find_user_with_records_or_raise(user_id)
     return await cover_response(request, user, COVER_STORE, aweme_id=aweme_id, version=v)
 
@@ -879,6 +1054,11 @@ async def resolve_archive_playback_urls(
     # 信号量只包住 OpenList 查询：图文作品内部还会并发解析多张图
     semaphore = asyncio.Semaphore(ARCHIVE_DIRECT_URL_CONCURRENCY)
     aweme_ids = list(dict.fromkeys(str(aweme_id) for aweme_id in payload.aweme_ids))
+    if _is_guest_request(request):
+        # 只读：解析播放直链不改任何数据；游客只能解析作品库里的视频
+        works = _guest_works(await _library_index())
+        if any((user_id, aweme_id) not in works for aweme_id in aweme_ids):
+            raise HTTPException(status_code=404, detail="作品不存在")
 
     async def resolve(aweme_id: str) -> tuple[str, tuple[str | None, list[str | None] | None] | None, str | None]:
         try:
@@ -925,6 +1105,7 @@ async def stream_archived_media(
     媒体不从项目本机读取；本机只保留状态和路径元数据。
     路径来自服务端记录，不接受调用方传路径，避免变成任意文件读取。
     """
+    await _require_guest_media(request, user_id, aweme_id, file_index)
     user = await _find_user_with_records_or_raise(user_id)
     try:
         relative_path = resolve_archive_file(user, aweme_id, file_index)

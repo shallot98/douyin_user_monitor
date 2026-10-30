@@ -31,6 +31,7 @@ from douyin_user_monitor.monitor.profile_parser import (
     ACCOUNT_STATUS_DELETED,
     ACCOUNT_STATUS_NORMAL,
 )
+from douyin_user_monitor.monitor.record_store import RecordStore
 from douyin_user_monitor.monitor.schedule import (
     LOOP_ERROR_RETRY_SECONDS,
     MODE_INTERVAL,
@@ -47,7 +48,6 @@ from douyin_user_monitor.monitor.storage import (
     DEFAULT_MODE,
     MonitorStorage,
 )
-from douyin_user_monitor.monitor.record_store import RecordStore
 from douyin_user_monitor.monitor.sync_utils import merge_synced_downloads
 from douyin_user_monitor.monitor.timeutils import CHINA_TZ, cn_now
 from douyin_user_monitor.monitor.user_lookup import find_user_by_id, find_user_by_sec_uid
@@ -132,6 +132,7 @@ class MonitorService:
         *,
         cover_publisher=None,
         content_filter=None,
+        detail_cookie_pool=None,
     ):
         self._crawler = crawler
         self._storage = storage
@@ -149,6 +150,7 @@ class MonitorService:
             cookie_rotation_session=rotation_session,
             cover_publisher=cover_publisher,
             content_filter=content_filter,
+            detail_cookie_pool=detail_cookie_pool,
         )
 
         self._run_lock = asyncio.Lock()
