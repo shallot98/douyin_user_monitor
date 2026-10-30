@@ -33,7 +33,7 @@ Updated: 2026-10-30（只读盘点；仅记录事实，修复与否未定）
 
 - 配置漂移（2026-10-30 已收进 `scripts/systemd/`，含 drop-in）：此前 timer 频率只在 `/etc/systemd/system/*.timer.d/`，playback-repair 单元源在 `runtime/`。
 - ~~`douyin-api-8900.service` 同端口冲突~~（2026-10-30 已用 drop-in 禁止启动）。
-- `migrate_archive_to_primary.py` 文档称备份盘只读，实际会改名夸克目录，且默认不是 dry-run。
+- ~~`migrate_archive_to_primary.py` 文档与默认行为不符~~（2026-10-30 已改为默认 dry-run、`--apply` 才执行）。
 - `relay_restore.py` 硬编码 boh2 主机和 `/root/boh2.pass`，远端 `rm -rf /tmp/relay_restore_stage`。
 - 去 emoji 规则两套实现：`scripts/openlist-auto-move/paths.sh` `sanitize_component`（perl）与 `monitor/path_sanitize.py`，靠人工同步。多个脚本各自实现 OpenList token 读取与 API 调用。
 - mover 删本地：D2 目标 2026-10-30 起比对 `content_identity`；夸克备份盘仍只比大小（OpenList 不给哈希）。

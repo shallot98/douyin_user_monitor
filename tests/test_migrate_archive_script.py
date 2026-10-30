@@ -467,3 +467,18 @@ class RenameParserTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class MigrateCliDefaultTests(unittest.TestCase):
+    """2026-10-30：不带参数运行必须是只读预演，--apply 才写云端。"""
+
+    def test_parser_defaults_to_dry_run(self):
+        args = mig.build_parser().parse_args([])
+        self.assertFalse(args.apply)
+        args = mig.build_parser().parse_args(["--rename-source"])
+        self.assertFalse(args.apply)
+
+    def test_apply_and_dry_run_are_exclusive(self):
+        self.assertTrue(mig.build_parser().parse_args(["--apply"]).apply)
+        with self.assertRaises(SystemExit):
+            mig.build_parser().parse_args(["--apply", "--dry-run"])

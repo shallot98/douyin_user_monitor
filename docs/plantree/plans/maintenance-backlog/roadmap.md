@@ -25,7 +25,7 @@ Updated: 2026-10-30
 |----|------|------|--------|
 | T4 | ~~两套路径规则一致性~~ **Done 2026-10-30**：去 emoji 已有 shell/Python 对拍测试（样本 + 真实语料 120 条）；本次补尾空格样本与 `trim_relative_dir` 对拍。对拍发现 Python 侧对整串 `strip()` 会吞掉首段前导空白，已修（真实记录无此类路径，线上未受影响） | — | — |
 | T5 | ~~删本地前哈希校验~~ **Done 2026-10-30**：OpenList 对 D2/夸克都不返回哈希；D2 自身 `/v6/userfile/get` 有 `content_identity`（4MiB 分块：单块 raw CID，多块一层 UnixFS dag-pb，已与 D2 上 1/2/13 块文件实测一致）。新增 `scripts/cloud_playback/d2_verify.py`，mover 在"同名同大小即删"前对 D2 目标比对，不同→skipped 保留本地，校验失败→下轮再试。夸克仍只比大小。开关 `D2_VERIFY_BEFORE_DELETE` | — | — |
-| T6 | `migrate_archive_to_primary.py` 默认 dry-run，文档改为如实说明会改名夸克目录 | 不带参数运行不写云端 | 否 |
+| T6 | ~~迁移脚本默认 dry-run~~ **Done 2026-10-30**：不带参数只打印计划，`--apply` 才执行（与 `--dry-run` 互斥，旧命令兼容）；文档如实写明 `--rename-source` 会改名夸克目录 | — | — |
 | T7 | `relay_restore.py`：删除，或主机与密码文件改为参数后入库 | 不再有未跟踪的硬编码凭据路径脚本 | 是 |
 
 ## Next — 遗留数据

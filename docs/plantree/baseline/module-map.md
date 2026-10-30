@@ -53,7 +53,7 @@ Updated: 2026-10-30（全量只读盘点，工作区 = 线上代码，含未提�
 | `cloud_playback/` | 媒体处理在 boh；回执同步在 hdz timer | 队列 2026-09-19 跑完；同步 timer 2026-10-30 已 disable |
 | `cover_backfill/` | boh 提帧 → hdz 导入 | 历史任务，已结束 |
 | `content_filter_backfill.py`（+ `resume_content_filter_backfill.sh`） | hdz，`systemd-run` 临时单元 | 按需；当前全量已打完 |
-| `migrate_archive_to_primary.py` | hdz，OpenList 服务端 copy | 历史任务。**默认真跑，会改名夸克目录** |
+| `migrate_archive_to_primary.py` | hdz，OpenList 服务端 copy | 历史任务。默认 dry-run，`--apply` 才执行；`--rename-source` 会改名夸克目录 |
 | `split_download_records.py` | hdz，需停服务 | 已完成（2026-09-29） |
 | `archive_sec_dir_aliases.py`、`recalculate_borderline.py` | hdz | 按需；默认 dry-run，`--write` / `--apply` 才写 |
 | `audit_staging_vs_d2.py`、`count_unscored.py`、`dump_scoring_sample.py` | hdz | 只读工具 |
