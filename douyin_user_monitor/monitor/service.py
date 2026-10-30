@@ -1,10 +1,12 @@
 import asyncio
+import logging
 import uuid
 from copy import deepcopy
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Set, Tuple
 
+from douyin_user_monitor.monitor.content_filter_queue import RESUME_WINDOW_DAYS as CONTENT_FILTER_RESUME_WINDOW_DAYS
 from douyin_user_monitor.monitor.cookie_liveness_service import CookieLivenessService
 from douyin_user_monitor.monitor.crawler_protocol import MonitorCrawlerProtocol
 from douyin_user_monitor.monitor.dashboard_payload import (
@@ -53,6 +55,7 @@ from douyin_user_monitor.monitor.timeutils import CHINA_TZ, cn_now
 from douyin_user_monitor.monitor.user_lookup import find_user_by_id, find_user_by_sec_uid
 from douyin_user_monitor.monitor.user_sync import UserSyncService
 
+LOGGER = logging.getLogger("uvicorn.error")
 MIN_INTERVAL_HOURS = SCHEDULE_MIN_INTERVAL_HOURS
 COVERAGE_PHASE_RUNNING = "running"
 COVERAGE_PHASE_IDLE = "idle"
@@ -132,6 +135,7 @@ class MonitorService:
         *,
         cover_publisher=None,
         content_filter=None,
+        content_filter_queue=None,
         detail_cookie_pool=None,
     ):
         self._crawler = crawler
@@ -150,8 +154,10 @@ class MonitorService:
             cookie_rotation_session=rotation_session,
             cover_publisher=cover_publisher,
             content_filter=content_filter,
+            content_filter_queue=content_filter_queue,
             detail_cookie_pool=detail_cookie_pool,
         )
+        self._content_filter_queue = content_filter_queue
 
         self._run_lock = asyncio.Lock()
         self._loop_task: Optional[asyncio.Task] = None
@@ -185,6 +191,7 @@ class MonitorService:
 
     async def auto_resume(self) -> None:
         """进程启动后若用户意图仍是监控中，则恢复循环并接续覆盖进度。"""
+        self._start_content_filter_queue()
         if self._was_running:
             await self.start_monitoring(
                 mode=self._mode,
@@ -527,8 +534,20 @@ class MonitorService:
             activity_limit=activity_limit,
         )
 
+    def _start_content_filter_queue(self) -> None:
+        queue = self._content_filter_queue
+        if queue is None:
+            return
+        since = (datetime.now(CHINA_TZ) - timedelta(days=CONTENT_FILTER_RESUME_WINDOW_DAYS)).isoformat(timespec="seconds")
+        added = queue.enqueue_unlabeled(self._storage.load_state().get("users", []), since=since)
+        if added:
+            LOGGER.info("内容标注队列：启动时补回 %d 条未标注的新作品", added)
+        queue.start()
+
     async def shutdown(self) -> None:
         """进程退出：保留 desired_running 与覆盖进度，便于重启后续跑。"""
+        if self._content_filter_queue is not None:
+            await self._content_filter_queue.stop()
         await self._graceful_pause_for_restart()
         await self._close_resource(self._crawler)
         await self._close_resource(self._notifier)

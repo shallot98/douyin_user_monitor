@@ -39,7 +39,7 @@ Updated: 2026-10-30
 
 ## AI 内容标注
 
-- 新作品下载后同步 await `ContentFilter.__call__`（`user_sync.py` 约 271），默认并发 1，异常全部吞掉，结论写 `record["content_filter"]`。
+- 新作品下载后入队 `ContentFilterQueue`（2026-10-31 起，`monitor/content_filter_queue.py`），不在 `_run_lock` 内等模型；队列串行打标，锁内按 aweme_id 补进记录。异常落到 `status=error`。未配置队列时（测试）仍走旧的同步 `ContentFilter.__call__`。
 - OpenAI 兼容 `{api_base}/chat/completions`，图片 base64。2026-10-28 起 `config.yaml` 为本机 `127.0.0.1:18317/v1` + `gemini-3.8-flash-high`（之前为 grok2api `:18082`，代码默认值仍是 grok）。`mode` 只支持 `shadow`。
 - 2026-10-30 实测：`monitor_records.db` 30,720 条记录全部为 `version=5`，`ok` 30,703、`error` 17。
 - 历史补打：`scripts/content_filter_backfill.py`，改 prompt/结构时升 `RESULT_VERSION` 会自动重做旧版本。

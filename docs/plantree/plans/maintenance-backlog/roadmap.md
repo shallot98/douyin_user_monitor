@@ -39,7 +39,7 @@ Updated: 2026-10-30
 
 | ID | 任务 | 验收 |
 |----|------|------|
-| T10 | coverage 模式缩短 `_run_lock` 持锁范围（AI 标注移出锁外或改队列） | 手动 run_once / 停止在同步中途能及时响应 |
+| T10 | **Landed 2026-10-31，线上验证中**：新作品标注改为进程内后台队列 `monitor/content_filter_queue.py`。下载记录先提交、通知照发；队列在 run_lock 外逐条打标，`update_state` 锁内按 aweme_id 补丁，不覆盖已有当前版本结论；本地文件被 mover 搬走后从网盘读；启动时补回近 3 天缺结论的作品。实测前此项每天占锁约 42 分钟 | 手动 run_once / 停止在同步中途能及时响应 |
 | T11 | 拆分 `api/monitor.py`：单例组装与路由分开；`on_event` 改 lifespan；导入不再写 state | 导入 `main` 不产生写盘；现有测试全过 |
 | T12 | 逐处审 `except Exception`（约 40 处），去掉静默吞错 | 每处要么记录日志要么向上抛；`user_sync` 通知失败有日志 |
 | T13 | 清理弃用警告：Pydantic `.dict()`、httpx `proxies`、重复 operation id `add_user_by_url` | pytest 无这些警告 |

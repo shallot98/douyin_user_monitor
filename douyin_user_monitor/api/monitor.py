@@ -43,6 +43,8 @@ from douyin_user_monitor.monitor.aweme_feed import (
     clamp_feed_count,
 )
 from douyin_user_monitor.monitor.content_filter import ContentFilter
+from douyin_user_monitor.monitor.content_filter_media import ArchiveMediaLoader
+from douyin_user_monitor.monitor.content_filter_queue import ContentFilterQueue
 from douyin_user_monitor.monitor.cookie_liveness import CookieLivenessConfig
 from douyin_user_monitor.monitor.cookie_liveness_service import CookieLivenessService
 from douyin_user_monitor.monitor.cookie_pool import CookiePoolService
@@ -204,6 +206,19 @@ COOKIE_POOL_SERVICE = CookiePoolService(
 PARSE_COOKIES_DIR = SETTINGS.monitor.state_path.parent / "parse_cookies"
 DETAIL_COOKIE_POOL = ParseCookiePool(PARSE_COOKIES_DIR)
 
+OPENLIST_CLIENT = OpenListClient(SETTINGS.archive)
+ARCHIVE_PATH_ALIASES = load_archive_path_aliases(SETTINGS.monitor.state_path)
+# 新作品标注走后台队列，不占 run_lock；mover 搬走本地文件后从网盘读
+CONTENT_FILTER_QUEUE = (
+    ContentFilterQueue(
+        ContentFilter(SETTINGS.content_filter, SETTINGS.monitor.download_root),
+        MONITOR_STORAGE,
+        ArchiveMediaLoader(SETTINGS.monitor.download_root, OPENLIST_CLIENT, ARCHIVE_PATH_ALIASES, COVER_STORE),
+    )
+    if SETTINGS.content_filter.enabled
+    else None
+)
+
 monitor_service = MonitorService(
     crawler=CRAWLER_CLIENT,
     storage=MONITOR_STORAGE,
@@ -212,17 +227,11 @@ monitor_service = MonitorService(
     cookie_liveness_service=COOKIE_LIVENESS_SERVICE,
     cookie_pool_service=COOKIE_POOL_SERVICE,
     cover_publisher=NewWorkCoverPublisher(SETTINGS.monitor.download_root, COVER_STORE).publish,
-    content_filter=(
-        ContentFilter(SETTINGS.content_filter, SETTINGS.monitor.download_root)
-        if SETTINGS.content_filter.enabled
-        else None
-    ),
+    content_filter_queue=CONTENT_FILTER_QUEUE,
     detail_cookie_pool=DETAIL_COOKIE_POOL,
 )
 
 AWEME_FEED_SERVICE = AwemeFeedService(CRAWLER_CLIENT)
-OPENLIST_CLIENT = OpenListClient(SETTINGS.archive)
-ARCHIVE_PATH_ALIASES = load_archive_path_aliases(SETTINGS.monitor.state_path)
 # 跟状态文件放一起（生产即 data/media_cache），测试的临时状态目录也就自然隔离
 ARCHIVE_MEDIA_CACHE = ArchiveMediaCache(
     SETTINGS.monitor.state_path.parent / "media_cache",
