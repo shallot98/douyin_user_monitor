@@ -57,4 +57,4 @@ Updated: 2026-10-30（全量只读盘点，工作区 = 线上代码，含未提�
 | `split_download_records.py` | hdz，需停服务 | 已完成（2026-09-29） |
 | `archive_sec_dir_aliases.py`、`recalculate_borderline.py` | hdz | 按需；默认 dry-run，`--write` / `--apply` 才写 |
 | `audit_staging_vs_d2.py`、`count_unscored.py`、`dump_scoring_sample.py` | hdz | 只读工具 |
-| `relay_restore.py` | hdz ← boh2 | 一次性；硬编码主机与密码文件路径 |
+| ~~`relay_restore.py`~~ | hdz ← boh2 | 已完成，2026-10-30 归档到 `runtime/relay-20261016/` |
