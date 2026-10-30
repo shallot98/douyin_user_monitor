@@ -39,7 +39,7 @@ Updated: 2026-10-30
 
 | ID | 任务 | 验收 |
 |----|------|------|
-| T10 | **Landed 2026-10-31，线上验证中**：新作品标注改为进程内后台队列 `monitor/content_filter_queue.py`。下载记录先提交、通知照发；队列在 run_lock 外逐条打标，`update_state` 锁内按 aweme_id 补丁，不覆盖已有当前版本结论；本地文件被 mover 搬走后从网盘读；启动时补回近 3 天缺结论的作品。实测前此项每天占锁约 42 分钟 | 手动 run_once / 停止在同步中途能及时响应 |
+| T10 | ~~标注改后台队列~~ **Done 2026-10-31**（线上实测：新作品 `7702408640128635570` 记录先落盘、6.6s 后队列补上结论）：新作品标注改为进程内后台队列 `monitor/content_filter_queue.py`。下载记录先提交、通知照发；队列在 run_lock 外逐条打标，`update_state` 锁内按 aweme_id 补丁，不覆盖已有当前版本结论；本地文件被 mover 搬走后从网盘读；启动时补回近 3 天缺结论的作品。实测前此项每天占锁约 42 分钟 | 手动 run_once / 停止在同步中途能及时响应 |
 | T11 | ~~导入不写盘 + lifespan~~ **Done 2026-10-31**：`MonitorService` 构造只读状态，`is_running` 归零与旧字段清理挪到 `auto_resume`（锁内 `update_state`）；`main.py` 改 lifespan。测试锁住"子进程 import main 后状态文件 mtime 不变"。按用户选择**不拆** `api/monitor.py` 单例组装 | — |
 | T12 | ~~审 `except Exception`~~ **Done 2026-10-31**：实为 52 处，分类 静默 1 / 已记录 17 / 重抛或转换 34。修了唯一的静默项 `user_sync._notify_if_status_changed`（封号/注销通知失败现记 warning，附测试）。另补两处服务端不留痕的：监控主循环异常（`loop_error` 会被下一轮覆盖）与 Cookie 接口非预期异常，均加 `exc_info` 日志 | — |
 | T13 | ~~弃用警告~~ **Done 2026-10-31**：pytest 警告 17 → 1。`on_event`→lifespan（T11）；crawlers `.dict()`→`model_dump()`；httpx `proxies=`→`mounts`（新增 `crawlers.utils.utils.proxy_mounts`，线上代理均为 null，行为不变）；`add_by_url` GET/POST 拆成两条路由各带 operation id。剩 1 条是 starlette 自身 `import multipart`，第三方，不处理。重启后真实解析请求验证通过 | — |

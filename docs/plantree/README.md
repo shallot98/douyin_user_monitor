@@ -19,7 +19,7 @@ Last full inventory 2026-10-30: [baseline/README.md](baseline/README.md)
 
 | Plan | Status | Current Phase | Last Landed | Next Target |
 |------|--------|---------------|-------------|-------------|
-| [maintenance-backlog](plans/maintenance-backlog/README.md) | Planning（2026-10-30 建立） | 14 项待办已排序 | 2026-10-30：main 合并 `ff279dc`，mover 两处修复，同步 timer 停用 | T1–T3 运维小项 |
+| [maintenance-backlog](plans/maintenance-backlog/README.md) | Done — 2026-10-31 | T1–T14 全部完成（T8 结案不重跑） | 2026-10-31：PR #3 CI 通过，8900 已重启验证 | 合并 PR #3；之后按需另开计划 |
 
 ## Closed plans（2026-10-30 关闭，原文保留）
 

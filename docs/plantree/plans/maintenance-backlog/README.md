@@ -1,8 +1,8 @@
 # 维护与修复待办
 
 Role: entrypoint
-Mode: shape-plan
-Status: Planning — 2026-10-30 建立
+Mode: status-update
+Status: Done — 2026-10-31，T1–T14 全部完成；实现见 PR #3
 Baseline: [risk-hotspots](../../baseline/risk-hotspots.md) · [runtime-flows](../../baseline/runtime-flows.md) · [test-and-release-gates](../../baseline/test-and-release-gates.md)
 
 ## 目的
