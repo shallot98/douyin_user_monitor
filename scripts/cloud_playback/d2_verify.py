@@ -7,7 +7,6 @@ the one D2 reports. Exit 0 = same content, 3 = different, 1 = could not verify.
 
 import argparse
 import json
-import sys
 from pathlib import Path
 
 from .d2_cid import file_content_identity
