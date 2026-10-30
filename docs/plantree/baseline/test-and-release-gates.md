@@ -29,7 +29,7 @@ node --test tests/test_works_viewer.cjs tests/test_swipe_core.cjs
 
 ## CI（`.github/workflows/ci.yml`）
 
-push main / PR 触发，Python 3.10：安装 `requirements-dev.txt` → `ruff check .` → 复制两份 example 配置 → `pytest tests/ -q`。不跑 Node 测试，无覆盖率、无类型检查、无部署。2026-10-30 修复后本地按 CI 步骤通过；尚未推送，GitHub 上未实际运行。
+push main / PR 触发，Python 3.10：安装 `requirements-dev.txt` → `ruff check .` → 复制两份 example 配置 → `pytest tests/ -q`。2026-10-30 起另装 ffmpeg（播放/封面测试真实调用）并跑 `node --test tests/*.cjs`。无覆盖率、无类型检查、无部署。功能分支 push 不触发，靠 PR #1 触发。首次 GitHub 运行（2026-10-30，PR #1）pytest 因 runner 无 ffmpeg 失败 22 项，已补装。
 
 ## 测试覆盖空白
 

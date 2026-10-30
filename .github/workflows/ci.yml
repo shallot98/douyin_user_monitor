@@ -13,6 +13,9 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.10"
+      - name: Install system tools
+        # 播放文件与封面测试会真实调用 ffmpeg/ffprobe
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
@@ -23,3 +26,5 @@ jobs:
         run: cp config/douyin_web.example.yaml config/douyin_web.yaml && cp config.example.yaml config.yaml
       - name: Test
         run: python -m pytest tests/ -q
+      - name: Frontend tests
+        run: node --test tests/*.cjs
