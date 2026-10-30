@@ -52,6 +52,28 @@ def shell_sanitize_component(text: str) -> str:
     return result.stdout
 
 
+def shell_trim_relative_dir(relative_dir: str) -> tuple[int, str]:
+    """调用 paths.sh 的 trim_relative_dir，返回 (退出码, 输出)。"""
+    script = f"""
+    set -uo pipefail
+    SCRIPT_DIR="{REPO_ROOT}/scripts"
+    SCRIPT_BASENAME="openlist-auto-move-mp4.sh"
+    DEFAULT_CONFIG_FILE="${{SCRIPT_DIR}}/openlist-auto-move.conf"
+    OPENLIST_MOVER_PROJECT_ROOT="{REPO_ROOT}"
+    source "${{SCRIPT_DIR}}/openlist-auto-move/common.sh"
+    source "${{SCRIPT_DIR}}/openlist-auto-move/paths.sh"
+    log() {{ :; }}
+    trim_relative_dir "$1"
+    """
+    result = subprocess.run(
+        ["bash", "-c", script, "bash", relative_dir],
+        cwd=REPO_ROOT,
+        text=True,
+        capture_output=True,
+    )
+    return result.returncode, result.stdout
+
+
 class SanitizeComponentTests(unittest.TestCase):
     def test_strips_trailing_and_leading_emoji(self):
         self.assertEqual(sanitize_component("鱼幼薇🐱"), "鱼幼薇")
@@ -262,7 +284,33 @@ class ShellParityTests(unittest.TestCase):
         "𓇼",
         "🇲🇴澳门",
         "𠮷野家",
+        # 标题截断落在空格上（2026-10-30 mover 静默卡住的来源）
+        "20261027_221728_7701351591635407345_或许有一天我还会再次来到北京 但那时又会是新的篇章 ",
+        "标题\t带制表符 ",
     )
+
+    TRIM_SAMPLES = (
+        "知哦周/图片/20261027_221728_7701351591635407345_或许有一天我还会再次来到北京 ",
+        "nana/图片/20260803_老板我们苏州继续见🤍🤍🤍🎻 澳门场圆满结束🔚🫶#演唱会 ",
+        " 前导空格用户/图片/标题",
+        "用户/图片/没有空格",
+        "单层目录 ",
+    )
+
+    def test_trim_matches_shell_on_samples(self):
+        """mover 写目标目录与网页侧找文件必须算出同一路径。"""
+        for relative_dir in self.TRIM_SAMPLES:
+            with self.subTest(relative_dir=relative_dir):
+                rc, shell_out = shell_trim_relative_dir(relative_dir)
+                self.assertEqual(rc, 0)
+                python_out = trim_relative_dirs(f"{relative_dir}/1.jpg")
+                expected = (python_out or f"{relative_dir}/1.jpg").rsplit("/", 1)[0]
+                self.assertEqual(shell_out, expected)
+
+    def test_trim_blank_segment_fails_on_both_sides(self):
+        rc, _ = shell_trim_relative_dir("用户/ /图片")
+        self.assertNotEqual(rc, 0)
+        self.assertIsNone(trim_relative_dirs("用户/ /图片/1.jpg"))
 
     def test_matches_shell_on_samples(self):
         for text in self.SAMPLES:
