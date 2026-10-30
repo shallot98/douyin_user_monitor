@@ -1,12 +1,22 @@
 # Web UI surfaces
 
 ## Routes
-| URL | File |
-|-----|------|
-| `/api/monitor/dashboard` | `web/dashboard.html` |
-| `/api/monitor/statistics/dashboard` | `web/statistics.html` |
-| `/api/monitor/cookies/dashboard` | `web/cookies.html` |
-| `/static/*` | `web/static/*` |
+Updated 2026-10-30. 前缀 `/api/monitor`，除登录页外均需鉴权（游客仅作品库/刷视频相关白名单）。
+
+| URL | File | Lines |
+|-----|------|------:|
+| `/login` | `web/login.html` | 396 |
+| `/api/monitor/dashboard` | `web/dashboard.html` | 578 |
+| `/api/monitor/statistics/dashboard` | `web/statistics.html` | 1448 |
+| `/api/monitor/cookies/dashboard` | `web/cookies.html` | 297 |
+| `/api/monitor/settings/dashboard` | `web/settings.html` | 244 |
+| `/api/monitor/api/dashboard` | `web/api.html`（解析 API、网页 Key） | 494 |
+| `/api/monitor/works/dashboard` | `web/works.html`（单用户归档） | 638 |
+| `/api/monitor/library/dashboard` | `web/library.html`（跨用户作品库） | 1934 |
+| `/api/monitor/swipe/dashboard` | `web/swipe.html`（上下滑） | 1629 |
+| `/static/*` | `web/static/*`：`common.css` 788、`common.js` 213、`works-viewer.js` 826（作品页与作品库共用播放器）、`swipe-core.js` 233 | |
+
+下方 "Architecture today / Size" 段落是 2026-08 为 ui-green-console 写的三页快照，行数已过期，以上表为准。
 
 ## Architecture today
 - Three large single-file HTML pages
