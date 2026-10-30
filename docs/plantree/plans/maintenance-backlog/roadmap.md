@@ -40,7 +40,7 @@ Updated: 2026-10-30
 | ID | 任务 | 验收 |
 |----|------|------|
 | T10 | **Landed 2026-10-31，线上验证中**：新作品标注改为进程内后台队列 `monitor/content_filter_queue.py`。下载记录先提交、通知照发；队列在 run_lock 外逐条打标，`update_state` 锁内按 aweme_id 补丁，不覆盖已有当前版本结论；本地文件被 mover 搬走后从网盘读；启动时补回近 3 天缺结论的作品。实测前此项每天占锁约 42 分钟 | 手动 run_once / 停止在同步中途能及时响应 |
-| T11 | 拆分 `api/monitor.py`：单例组装与路由分开；`on_event` 改 lifespan；导入不再写 state | 导入 `main` 不产生写盘；现有测试全过 |
+| T11 | ~~导入不写盘 + lifespan~~ **Done 2026-10-31**：`MonitorService` 构造只读状态，`is_running` 归零与旧字段清理挪到 `auto_resume`（锁内 `update_state`）；`main.py` 改 lifespan。测试锁住"子进程 import main 后状态文件 mtime 不变"。按用户选择**不拆** `api/monitor.py` 单例组装 | — |
 | T12 | 逐处审 `except Exception`（约 40 处），去掉静默吞错 | 每处要么记录日志要么向上抛；`user_sync` 通知失败有日志 |
 | T13 | 清理弃用警告：Pydantic `.dict()`、httpx `proxies`、重复 operation id `add_user_by_url` | pytest 无这些警告 |
 | T14 | 为无直接测试的模块补测试：`telegram_notifier`、`schedule`、`media_urls`、`cover_image`、`sync_utils` | 每个模块至少一个直接测试 |

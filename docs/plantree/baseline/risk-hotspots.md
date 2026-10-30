@@ -17,7 +17,7 @@ Updated: 2026-10-30（只读盘点；仅记录事实，修复与否未定）
 
 - 大文件：`api/monitor.py` 1367（路由 + 单例组装）、`content_filter.py` 1337、`service.py` 1185、`web/library.html` 1934、`web/statistics.html` 1448。
 - `api/monitor.py` 顶层单例 + `global` 缓存，测试只能靠环境变量隔离；跨模块访问私有成员（`monitor_service._storage.records`、`OPENLIST_CLIENT._self_proxy_prefix()`）。
-- 导入即写 state（见 [runtime-flows.md](runtime-flows.md)）。
+- ~~导入即写 state~~（2026-10-31 已修，见 [runtime-flows.md](runtime-flows.md)）。
 
 ## 事件循环与锁
 

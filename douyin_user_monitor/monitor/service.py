@@ -169,28 +169,37 @@ class MonitorService:
         self._coverage_priority_user_ids: List[str] = []
         self._coverage_cycle_active = False
         self._wake_event = asyncio.Event()
-        self._reset_runtime_state()
+        self._load_runtime_state()
 
-    def _reset_runtime_state(self) -> None:
-        state = self._storage.load_state()
-        monitoring = state["monitoring"]
+    def _load_runtime_state(self) -> None:
+        """构造时只读状态：任何 import（脚本、测试、临时实例）都不能写线上 state。"""
+        monitoring = self._storage.load_state()["monitoring"]
         # 优先用 desired_running（用户意图）；兼容旧数据里只有 is_running=True 的情况
         if "desired_running" in monitoring:
             self._was_running = bool(monitoring.get("desired_running"))
         else:
             self._was_running = bool(monitoring.get("is_running", False))
-            monitoring["desired_running"] = self._was_running
-        monitoring["is_running"] = False
         self._apply_runtime_from_monitoring(monitoring)
-        monitoring["updated_at"] = cn_now()
-        monitoring.pop("interval_seconds", None)
-        monitoring.pop("random_min_seconds", None)
-        monitoring.pop("random_max_seconds", None)
-        self._drop_legacy_scan_keys(monitoring)
-        self._storage.save_state(state)
+
+    def _reset_runtime_state(self) -> None:
+        """进程启动时把上次残留的运行标记归零，并清掉旧字段。"""
+        was_running = self._was_running
+
+        def _apply(state: Dict[str, Any]) -> None:
+            monitoring = state["monitoring"]
+            monitoring.setdefault("desired_running", was_running)
+            monitoring["is_running"] = False
+            monitoring["updated_at"] = cn_now()
+            monitoring.pop("interval_seconds", None)
+            monitoring.pop("random_min_seconds", None)
+            monitoring.pop("random_max_seconds", None)
+            self._drop_legacy_scan_keys(monitoring)
+
+        self._storage.update_state(_apply)
 
     async def auto_resume(self) -> None:
         """进程启动后若用户意图仍是监控中，则恢复循环并接续覆盖进度。"""
+        self._reset_runtime_state()
         self._start_content_filter_queue()
         if self._was_running:
             await self.start_monitoring(

@@ -8,8 +8,8 @@ Updated: 2026-10-30
 ## 启动
 
 1. `api/monitor.py` 被导入时创建单例：`load_settings`、crawler、`MonitorStorage`、`MonitorService`、`OPENLIST_CLIENT` 等。
-2. `MonitorService.__init__` 同步写一次状态文件（`service.py` 约 168-184）。**任何 `import douyin_user_monitor.main` 都会写 state**；脚本和临时实例必须用 `DYMON_STATE_PATH` 指向副本。
-3. startup 事件 `auto_resume()`：`desired_running` 为真时 `create_task(_monitor_loop)`。shutdown 事件关闭 service 与 OpenList client。使用已弃用的 `on_event`，没有 lifespan。
+2. `MonitorService.__init__` 只读状态（2026-10-31 起）；`import douyin_user_monitor.main` 不再写 state。启动时 `auto_resume` 才把 `is_running` 归零、清旧字段。脚本若要启动服务实例，仍应用 `DYMON_STATE_PATH` 指向副本。
+3. lifespan 启动阶段 `auto_resume()`：重置运行标记、启动内容标注队列，`desired_running` 为真时 `create_task(_monitor_loop)`。退出阶段停队列、关闭 service 与 OpenList client。
 
 ## 监控循环（`service.py` `_monitor_loop`）
 

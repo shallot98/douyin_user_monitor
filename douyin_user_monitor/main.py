@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import time
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import Depends, FastAPI, HTTPException, Request
@@ -38,7 +39,18 @@ class LoginBody(BaseModel):
 
 
 # 默认的 /docs、/openapi.json 会公开完整路由表，下面改成带鉴权的版本
-app = FastAPI(title="Douyin User Monitor", version="0.3.0", docs_url=None, redoc_url=None, openapi_url=None)
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    await monitor_service.auto_resume()
+    try:
+        yield
+    finally:
+        await monitor_service.shutdown()
+        await OPENLIST_CLIENT.close()
+
+
+app = FastAPI(title="Douyin User Monitor", version="0.3.0", docs_url=None, redoc_url=None, openapi_url=None,
+              lifespan=lifespan)
 app.add_middleware(ShortCacheStaticMiddleware)
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 app.include_router(
@@ -151,13 +163,3 @@ def _is_https(request: Request) -> bool:
     # nginx 反代时 uvicorn 看到的是 http，以 nginx 传来的协议为准
     return request.headers.get("X-Forwarded-Proto", request.url.scheme) == "https"
 
-
-@app.on_event("startup")
-async def startup_monitor() -> None:
-    await monitor_service.auto_resume()
-
-
-@app.on_event("shutdown")
-async def shutdown_monitor() -> None:
-    await monitor_service.shutdown()
-    await OPENLIST_CLIENT.close()
