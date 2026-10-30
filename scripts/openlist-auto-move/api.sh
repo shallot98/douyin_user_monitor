@@ -278,3 +278,58 @@ float_gt() {
   local right="$2"
   awk -v l="${left}" -v r="${right}" -v eps="${PENDING_PROGRESS_EPSILON}" 'BEGIN { exit !(l > r + eps) }'
 }
+
+is_d2_direct_upload_target() {
+  local dst_dir="${1:-${TARGET_BASE}}"
+  [[ "${D2_DIRECT_UPLOAD}" == "true" ]] && [[ "${dst_dir}" == /d2/* || "${dst_dir}" == "/d2" ]]
+}
+
+d2_direct_upload_file() {
+  local local_file_path="$1"
+  local dst_dir="$2"
+  local file_name="$3"
+  local d2_rel="${dst_dir#/d2}"
+  local d2_path="${d2_rel}/${file_name}"
+  [[ "${d2_rel}" == "" || "${d2_rel}" == "/" ]] && d2_path="/${file_name}"
+
+  local py_bin="${D2_DIRECT_PYTHON}"
+  if [[ ! -x "${py_bin}" ]]; then
+    py_bin="python3"
+  fi
+
+  local out="" rc=0
+  set +e
+  out=$(PYTHONPATH="${OPENLIST_MOVER_PROJECT_DIR}${PYTHONPATH:+:${PYTHONPATH}}" \
+    "${py_bin}" -m scripts.cloud_playback.d2_upload \
+    --openlist-db "${OPENLIST_DB}" \
+    --mount-path "/d2" \
+    --insecure-block-tls \
+    --check-quota \
+    --exit-2-on-existing \
+    --file "${local_file_path}" \
+    --path "${d2_path}" 2>&1)
+  rc=$?
+  set -e
+
+  if [[ "${rc}" -eq 0 ]]; then
+    rm -f -- "${local_file_path}"
+    unmark_file_pending "${local_file_path}"
+    log "D2直传完成并清理本地源文件: file=${local_file_path}, dst=${dst_dir}/${file_name}"
+    return 0
+  fi
+
+  if [[ "${rc}" -eq 2 ]]; then
+    return 2
+  fi
+
+  local err_msg
+  err_msg=$(jq -r '.error // empty' <<< "${out}" 2>/dev/null || printf '')
+  [[ -z "${err_msg}" ]] && err_msg="${out}"
+  if is_capacity_limit_error "${err_msg}"; then
+    mark_capacity_limit_hit "${local_file_path}" "error=${err_msg}"
+    return 3
+  fi
+
+  log "D2直传失败: file=${local_file_path}, dst=${dst_dir}/${file_name} (${err_msg})"
+  return 1
+}

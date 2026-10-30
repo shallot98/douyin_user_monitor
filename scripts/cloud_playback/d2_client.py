@@ -6,6 +6,7 @@ import hashlib
 import hmac
 import http.client
 import json
+import ssl
 import time
 import urllib.error
 import urllib.request
@@ -19,7 +20,8 @@ REQUEST_SUFFIX = "hl6_request"
 REQUEST_TIMEOUT_SECONDS = 30
 NANOSECONDS_PER_SECOND = 1_000_000_000
 JSON_CONTENT_TYPE = "application/json; charset=utf-8"
-SAFE_ERROR_MESSAGES = frozenset({"file not found"})
+SAFE_ERROR_MESSAGES = frozenset({"file not found", "USER_DAILY_UPLOAD_QUOTA_EXCEEDED", "capacity limit"})
+INSECURE_BLOCK_HOSTS = frozenset({"simple-file-proxy.2dland.cn"})
 
 
 class D2Error(RuntimeError):
@@ -118,13 +120,33 @@ class _NoRedirect(urllib.request.HTTPRedirectHandler):
 class HttpTransport:
     """Use direct connections; do not forward signed requests on redirects."""
 
-    def __init__(self):
+    def __init__(self, *, insecure_hosts=()):
         self._opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), _NoRedirect())
+        self._insecure_hosts = frozenset(
+            host.strip().lower() for host in insecure_hosts if isinstance(host, str) and host.strip()
+        )
+        self._insecure_opener = None
+        if self._insecure_hosts:
+            context = ssl.create_default_context()
+            context.check_hostname = False
+            context.verify_mode = ssl.CERT_NONE
+            self._insecure_opener = urllib.request.build_opener(
+                urllib.request.ProxyHandler({}),
+                urllib.request.HTTPSHandler(context=context),
+                _NoRedirect(),
+            )
+
+    def _opener_for(self, url):
+        if self._insecure_opener is not None:
+            hostname = (urlsplit(url).hostname or "").lower()
+            if hostname in self._insecure_hosts:
+                return self._insecure_opener
+        return self._opener
 
     def request(self, method, url, *, body=None, headers=None, timeout=REQUEST_TIMEOUT_SECONDS):
         try:
             request = urllib.request.Request(url, data=body, headers=headers or {}, method=method)
-            with self._opener.open(request, timeout=timeout) as response:
+            with self._opener_for(url).open(request, timeout=timeout) as response:
                 return HttpReply(response.status, response.read())
         except urllib.error.HTTPError as exc:
             with exc:

@@ -15,14 +15,15 @@ import unittest
 from pathlib import Path
 from typing import List
 
-from douyin_user_monitor.monitor.record_store import load_state_with_records, record_db_path
 from douyin_user_monitor.monitor.path_sanitize import (
     FALLBACK_DIR_PREFIX,
     fallback_dir_for,
     sanitize_component,
     sanitize_relative_dir,
     sanitize_relative_path,
+    sanitize_user_dir_only,
 )
+from douyin_user_monitor.monitor.record_store import load_state_with_records, record_db_path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 STATE_FILE = REPO_ROOT / "data" / "monitor_users.json"
@@ -185,6 +186,21 @@ class SanitizeRelativePathTests(unittest.TestCase):
     def test_sec_fallback_prefix_matches_helper(self):
         path = sanitize_relative_path("☁️ ☁️/x.mp4", sec_user_id="ABC")
         self.assertEqual(path, f"{FALLBACK_DIR_PREFIX}ABC/x.mp4")
+
+
+class SanitizeUserDirOnlyTests(unittest.TestCase):
+    def test_only_first_segment_is_sanitised(self):
+        self.assertEqual(
+            sanitize_user_dir_only("小米糕🐑/图片/20260717_205055_黑武士和他的公主🪽/1.jpg"),
+            "小米糕/图片/20260717_205055_黑武士和他的公主🪽/1.jpg",
+        )
+
+    def test_all_emoji_user_dir_uses_sec_fallback(self):
+        self.assertEqual(sanitize_user_dir_only("🐱/作品🍬/1.jpg", sec_user_id="sid-1"), "sec_sid-1/作品🍬/1.jpg")
+        self.assertIsNone(sanitize_user_dir_only("🐱/作品🍬/1.jpg"))
+
+    def test_single_segment_has_no_user_dir(self):
+        self.assertIsNone(sanitize_user_dir_only("带🍬.mp4"))
 
 
 def _real_corpus() -> List[str]:

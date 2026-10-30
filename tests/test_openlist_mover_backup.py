@@ -416,3 +416,54 @@ def test_target_base_switch_is_blocked_while_tasks_are_in_flight(tmp_path: Path)
     )
     assert "then_allowed=ok" in result.stdout
     assert "guard_blocked=1" in result.stdout
+
+
+def test_d2_direct_upload_stages_backup_and_cleans_local_source(tmp_path: Path) -> None:
+    """开启 D2_DIRECT_UPLOAD 时，先硬链接进暂存区并提交夸克 copy，再直传 D2 并删除本地源文件。"""
+    result = run_bash(
+        PRELUDE
+        + r'''
+        TARGET_BASE="/d2/target"
+        D2_DIRECT_UPLOAD="true"
+        D2_DIRECT_CALLS_FILE="${TMP_ROOT}/d2-direct-calls"
+        : > "${D2_DIRECT_CALLS_FILE}"
+
+        d2_direct_upload_file() {
+          local local_file_path="$1" dst_dir="$2" file_name="$3"
+          printf '%s\t%s\n' "${dst_dir}" "${file_name}" >> "${D2_DIRECT_CALLS_FILE}"
+          rm -f -- "${local_file_path}"
+          unmark_file_pending "${local_file_path}"
+          return 0
+        }
+
+        api_post_json() {
+          local path="$2" payload="$3"
+          case "${path}" in
+            "/api/fs/mkdir") printf '{"code":200}' ;;
+            "/api/fs/list") jq -cn '{code:200,data:{total:0,content:[]}}' ;;
+            "/api/fs/copy")
+              jq -r '.dst_dir' <<< "${payload}" >> "${COPY_CALLS_FILE}"
+              jq -cn '{code:200,data:{tasks:[{id:"copy-1"}]}}'
+              ;;
+            "/api/fs/move")
+              printf 'unexpected /api/fs/move call\n' >&2
+              return 1
+              ;;
+            *) printf 'unexpected: %s\n' "${path}" >&2; return 1 ;;
+          esac
+        }
+
+        process_files_batched "token" "$(date +%s)"
+
+        # 本地原路径已删，但暂存区硬链接保留以供夸克 copy 读取
+        [[ ! -f "${SOURCE_ROOT}/acct/a.mp4" ]]
+        [[ -f "${SOURCE_ROOT}/.backup-staging/acct/a.mp4" ]]
+        [[ "$(cat "${SOURCE_ROOT}/.backup-staging/acct/a.mp4")" == "abcd" ]]
+        [[ "$(cat "${COPY_CALLS_FILE}")" == "/kuake/target/acct" ]]
+        [[ "$(cat "${D2_DIRECT_CALLS_FILE}")" == $'/d2/target/acct\ta.mp4' ]]
+        printf 'moved=%s errors=%s\n' "${PROCESS_MOVED_COUNT}" "${PROCESS_ERROR_COUNT}"
+        ''',
+        tmp_path,
+    )
+    assert "moved=1 errors=0" in result.stdout
+

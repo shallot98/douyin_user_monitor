@@ -161,3 +161,22 @@ def sanitize_relative_path(
         else:
             raise ValueError(f"目录名去除 emoji 后为空: {segment!r}")
     return "/".join(cleaned_parts)
+
+
+def sanitize_user_dir_only(relative: str, sec_user_id: Optional[str] = None) -> Optional[str]:
+    """只清洗首段用户目录，其余目录与文件名保持原名。
+
+    去 emoji 迁移里有一批作品只改了用户目录、作品目录没改成功（如
+    ``小米糕/图片/20260717_..._黑武士和他的公主🪽/1.jpg``），全清洗和全原名两种
+    候选都命中不了。首段空时同样用 ``sec_user_id`` 兜底；单段路径没有用户目录，返 ``None``。
+    """
+    text = str(relative or "").strip().strip("/")
+    first, sep, rest = text.partition("/")
+    if not sep or not rest:
+        return None
+    cleaned = sanitize_component(first)
+    if not cleaned:
+        if not sec_user_id:
+            return None
+        cleaned = fallback_dir_for(sec_user_id)
+    return f"{cleaned}/{rest}"

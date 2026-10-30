@@ -151,3 +151,27 @@ class DirectoryOnlyArchivePathsTests(unittest.IsolatedAsyncioTestCase):
                 candidates = archive.remote_paths_for("用户🐱/子目录🍬/123_庆祝🎉.mp4")
                 self.assertEqual(len(candidates), len(set(candidates)))
                 self.assertIn(existing, candidates)
+
+    async def test_half_migrated_paths_clean_only_user_dir(self):
+        """去 emoji 迁移半途：用户目录已清洗、作品目录仍是原名，两个盘都这样。"""
+        for clean_primary in (True, False):
+            with self.subTest(sanitize_primary_dirs=clean_primary):
+                archive = OpenListClient(replace(
+                    monitor_api.SETTINGS.archive, enabled=True, openlist_token="test-token",
+                    primary_base="/primary", backup_base="/backup", sanitize_primary_dirs=clean_primary,
+                ))
+                existing = "/primary/小米糕/图片/20260717_黑武士和他的公主🪽/1.jpg"
+
+                async def metadata(path, **kwargs):
+                    if path != existing:
+                        raise ArchiveUnavailableError("object not found")
+                    return {"raw_url": "https://primary.test/1.jpg"}
+
+                with patch.object(archive, "_fs_get", side_effect=metadata):
+                    resolved = await archive.resolve_stream_url("小米糕🐑/图片/20260717_黑武士和他的公主🪽/1.jpg")
+                self.assertEqual(resolved, "https://primary.test/1.jpg")
+                candidates = archive.remote_paths_for("小米糕🐑/图片/20260717_黑武士和他的公主🪽/1.jpg")
+                self.assertEqual(len(candidates), len(set(candidates)))
+                # 主力盘候选仍全部排在备份盘前面
+                self.assertLess(candidates.index(existing),
+                                min(i for i, p in enumerate(candidates) if p.startswith("/backup/")))
