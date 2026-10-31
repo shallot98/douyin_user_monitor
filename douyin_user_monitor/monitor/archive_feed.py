@@ -14,6 +14,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
+from douyin_user_monitor.monitor.library import rated_borderline_score
 from douyin_user_monitor.monitor.timeutils import CHINA_TZ, safe_int
 
 MEDIA_TYPE_IMAGE = "image"
@@ -232,15 +233,52 @@ def _matches_ai_filter(item: Dict[str, Any], view: str) -> bool:
     return True
 
 
+SCORE_FILTER_MIN, SCORE_FILTER_MAX = 0, 5
+
+
+def _score_bound(raw: Optional[int], name: str) -> Optional[int]:
+    if raw is None:
+        return None
+    if isinstance(raw, bool) or not isinstance(raw, int) or not SCORE_FILTER_MIN <= raw <= SCORE_FILTER_MAX:
+        raise ValueError(f"{name}须在 {SCORE_FILTER_MIN}~{SCORE_FILTER_MAX} 之间：{raw!r}")
+    return raw
+
+
 def build_archive_page(
-    user: Dict[str, Any], *, page: Any = 1, page_size: Any = DEFAULT_PAGE_SIZE, ai_filter: str = ""
+    user: Dict[str, Any],
+    *,
+    page: Any = 1,
+    page_size: Any = DEFAULT_PAGE_SIZE,
+    ai_filter: str = "",
+    media_type: str = "",
+    score_min: Optional[int] = None,
+    score_max: Optional[int] = None,
+    unscored: bool = False,
 ) -> Dict[str, Any]:
+    """score_min/score_max 按作品库同口径的擦边分（已评分无人物按 0 分）筛，只留已评分作品；
+    unscored 只看没评分/评分失败的作品，不能和区间同时用。"""
     if ai_filter not in AI_FILTER_VIEWS:
         raise ValueError(f"未知的 AI 筛选视图：{ai_filter!r}")
+    if media_type and media_type not in (MEDIA_TYPE_VIDEO, MEDIA_TYPE_IMAGE):
+        raise ValueError(f"作品类型须为 {MEDIA_TYPE_VIDEO}/{MEDIA_TYPE_IMAGE}：{media_type!r}")
+    low = _score_bound(score_min, "擦边分下限")
+    high = _score_bound(score_max, "擦边分上限")
+    if low is not None and high is not None and low > high:
+        raise ValueError(f"擦边分下限不能大于上限：{low} > {high}")
+    if unscored and (low is not None or high is not None):
+        raise ValueError("「未评分」不能和擦边分区间同时使用")
     records = user.get("download_records")
     items = _sorted_items(records if isinstance(records, list) else [])
     if ai_filter:
         items = [item for item in items if _matches_ai_filter(item, ai_filter)]
+    if media_type:
+        items = [item for item in items if item["media_type"] == media_type]
+    if unscored:
+        items = [item for item in items if rated_borderline_score(item) is None]
+    elif low is not None or high is not None:
+        low = SCORE_FILTER_MIN if low is None else low
+        high = SCORE_FILTER_MAX if high is None else high
+        items = [item for item in items if (score := rated_borderline_score(item)) is not None and low <= score <= high]
 
     size = clamp_page_size(page_size)
     total = len(items)

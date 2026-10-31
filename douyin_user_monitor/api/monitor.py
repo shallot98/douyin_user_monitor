@@ -893,6 +893,10 @@ async def list_user_archive(
     page: int | None = Query(None, description="1-based 页码"),
     page_size: int | None = Query(None, description="每页条数 20|50|100"),
     ai_filter: str = Query("", description="AI 筛选视图：空=全部 | flagged=判为筛掉 | error=检测失败"),
+    media_type: str = Query("", description="作品类型：空=全部 | video | image"),
+    score_min: int | None = Query(None, description="擦边分下限 0~5（只留已评分作品）"),
+    score_max: int | None = Query(None, description="擦边分上限 0~5（只留已评分作品）"),
+    unscored: bool = Query(False, description="只看未评分/评分失败的作品，不能与擦边分区间同用"),
 ) -> ResponseModel:
     """只读本地 download_records，不发起任何抖音请求。
 
@@ -901,7 +905,16 @@ async def list_user_archive(
     """
     user = await _find_user_with_records_or_raise(user_id)
     try:
-        payload = build_archive_page(user, page=page, page_size=page_size, ai_filter=ai_filter)
+        payload = build_archive_page(
+            user,
+            page=page,
+            page_size=page_size,
+            ai_filter=ai_filter,
+            media_type=media_type,
+            score_min=score_min,
+            score_max=score_max,
+            unscored=unscored,
+        )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     payload["items"] = await with_cover_urls(COVER_STORE, user_id, payload["items"])

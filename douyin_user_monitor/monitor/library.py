@@ -118,6 +118,27 @@ def eligible_borderline(record: Any) -> Optional[Dict[str, Any]]:
     return borderline
 
 
+def rated_borderline_score(record: Any) -> Optional[int]:
+    """已评分作品的擦边分；没评分/评分失败返回 None。
+
+    与作品库同一套版本（LIBRARY_FILTER_VERSIONS）。已评分但画面里没有可评的成年人物
+    （无 borderline 分档）按 0 分算：对“这个号值不值得看”来说它就是不擦边。
+    """
+    if not isinstance(record, dict):
+        return None
+    result = record.get("content_filter")
+    if not isinstance(result, dict):
+        return None
+    if result.get("version") not in LIBRARY_FILTER_VERSIONS or result.get("status") != "ok":
+        return None
+    appearance = result.get("appearance")
+    borderline = appearance.get("borderline") if isinstance(appearance, dict) else None
+    score = borderline.get("score") if isinstance(borderline, dict) else None
+    if isinstance(score, bool) or not isinstance(score, int):
+        return 0
+    return max(0, score)
+
+
 def _build_entry(user_id: str, nickname: str, record: Dict[str, Any]) -> Optional[LibraryEntry]:
     borderline = eligible_borderline(record)
     aweme_id = str(record.get("aweme_id") or "").strip() if borderline is not None else ""

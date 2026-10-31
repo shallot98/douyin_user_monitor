@@ -4,7 +4,7 @@ from collections.abc import Iterable
 from datetime import datetime, timedelta
 from typing import Any, Dict, List
 
-from douyin_user_monitor.monitor.library import LIBRARY_FILTER_VERSIONS
+from douyin_user_monitor.monitor.library import rated_borderline_score
 from douyin_user_monitor.monitor.profile_parser import ACCOUNT_STATUS_NORMAL
 from douyin_user_monitor.monitor.timeutils import CHINA_TZ, safe_int
 
@@ -136,27 +136,8 @@ def _build_user_row(user: Dict[str, Any], now: datetime) -> Dict[str, Any]:
     return identity
 
 
-def _borderline_score(record: Dict[str, Any]) -> int | None:
-    """已评分作品的擦边分；没评分/评分失败返回 None。
-
-    与作品库同一套版本（LIBRARY_FILTER_VERSIONS）。已评分但画面里没有可评的成年人物
-    （无 borderline 分档）按 0 分算：对“这个号值不值得看”来说它就是不擦边。
-    """
-    result = record.get("content_filter")
-    if not isinstance(result, dict):
-        return None
-    if result.get("version") not in LIBRARY_FILTER_VERSIONS or result.get("status") != "ok":
-        return None
-    appearance = result.get("appearance")
-    borderline = appearance.get("borderline") if isinstance(appearance, dict) else None
-    score = borderline.get("score") if isinstance(borderline, dict) else None
-    if isinstance(score, bool) or not isinstance(score, int):
-        return 0
-    return max(0, score)
-
-
 def _build_user_score_metrics(records: List[Dict[str, Any]]) -> Dict[str, Any]:
-    scores = [score for score in (_borderline_score(record) for record in records) if score is not None]
+    scores = [score for score in (rated_borderline_score(record) for record in records) if score is not None]
     scored = len(scores)
     high = sum(1 for score in scores if score >= HIGH_SCORE_MIN)
     return {

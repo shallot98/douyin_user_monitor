@@ -171,11 +171,39 @@
                   <option value="">全部</option>
                   <option value="flagged">判为筛掉</option>
                   <option value="error">检测失败</option>
-                  <option value="borderline3">擦边 3 分以上</option>
-                  <option value="borderline4">擦边 4 分以上</option>
                   <option value="borderline3_strict">擦边 3 分以上（保守档）</option>
                   <option value="borderline4_strict">擦边 4 分以上（保守档）</option>
                   <option value="inconsistent">结论自相矛盾</option>
+                </select>
+              </label>
+              <label class="help-text" style="display:flex;align-items:center;gap:6px;">
+                类型
+                <select class="input" id="worksMediaType" onchange="onMediaTypeChange()" style="width:auto;padding:6px 8px;">
+                  <option value="">全部</option>
+                  <option value="video">视频</option>
+                  <option value="image">图文</option>
+                </select>
+              </label>
+              <label class="help-text" style="display:flex;align-items:center;gap:6px;">
+                擦边分
+                <select class="input" id="worksScoreMin" onchange="onScoreChange('min')" style="width:auto;padding:6px 8px;">
+                  <option value="">不限</option>
+                  <option value="unscored">未评分</option>
+                  <option value="0">≥0</option>
+                  <option value="1">≥1</option>
+                  <option value="2">≥2</option>
+                  <option value="3">≥3</option>
+                  <option value="4">≥4</option>
+                  <option value="5">≥5</option>
+                </select>
+                <select class="input" id="worksScoreMax" onchange="onScoreChange('max')" style="width:auto;padding:6px 8px;" aria-label="擦边分上限">
+                  <option value="">不限</option>
+                  <option value="0">≤0</option>
+                  <option value="1">≤1</option>
+                  <option value="2">≤2</option>
+                  <option value="3">≤3</option>
+                  <option value="4">≤4</option>
+                  <option value="5">≤5</option>
                 </select>
               </label>
               <label class="help-text" style="display:flex;align-items:center;gap:6px;">
@@ -236,6 +264,11 @@
       total: 0,
       totalPages: 1,
       aiFilter: "",
+      mediaType: "",
+      // scoreMin 为 "unscored" 时只看未评分，scoreMax 不生效
+      scoreMin: "",
+      scoreMax: "",
+      filtersDirty: false,
       mediaCounts: {},
       archiveEnabled: true,
       loading: false,
@@ -532,6 +565,12 @@
           page_size: String(state.pageSize),
         });
         if (state.aiFilter) query.set("ai_filter", state.aiFilter);
+        if (state.mediaType) query.set("media_type", state.mediaType);
+        if (state.scoreMin === "unscored") query.set("unscored", "true");
+        else {
+          if (state.scoreMin) query.set("score_min", state.scoreMin);
+          if (state.scoreMax) query.set("score_max", state.scoreMax);
+        }
         const data = await api(`/users/${encodeURIComponent(USER_ID)}/archive?${query.toString()}`);
         renderOwner(data.user);
         state.items = Array.isArray(data.items) ? data.items : [];
@@ -549,6 +588,19 @@
         state.loading = false;
         renderAll();
       }
+      if (state.filtersDirty) {
+        state.filtersDirty = false;
+        loadPage(1);
+      }
+    }
+
+    // 连着改几个筛选时上一次请求可能还没回来：先记下，等它结束再按最新条件重载第 1 页
+    function applyFilters() {
+      if (state.loading) {
+        state.filtersDirty = true;
+        return;
+      }
+      loadPage(1);
     }
 
     function goToPage(page) {
@@ -561,13 +613,33 @@
 
     function onAiFilterChange() {
       state.aiFilter = document.getElementById("worksAiFilter")?.value || "";
-      loadPage(1);
+      applyFilters();
+    }
+
+    function onMediaTypeChange() {
+      state.mediaType = document.getElementById("worksMediaType")?.value || "";
+      applyFilters();
+    }
+
+    // 上下限交叉时把另一端拉到同一分，避免后端报「下限大于上限」
+    function onScoreChange(changed) {
+      const minEl = document.getElementById("worksScoreMin");
+      const maxEl = document.getElementById("worksScoreMax");
+      const unscored = minEl.value === "unscored";
+      maxEl.disabled = unscored;
+      if (!unscored && minEl.value && maxEl.value && Number(minEl.value) > Number(maxEl.value)) {
+        if (changed === "min") maxEl.value = minEl.value;
+        else minEl.value = maxEl.value;
+      }
+      state.scoreMin = minEl.value;
+      state.scoreMax = unscored ? "" : maxEl.value;
+      applyFilters();
     }
 
     function onPageSizeChange() {
       const el = document.getElementById("worksPageSize");
       state.pageSize = Number(el?.value || 20);
-      loadPage(1);
+      applyFilters();
     }
 
     function reloadWorks() {
