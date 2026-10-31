@@ -5,6 +5,7 @@ from test_openlist_mover_backup import PRELUDE, run_bash
 
 RETENTION_API = r'''
 TARGET_BASE="/d2/target"
+d2_verify_content() { printf '{"match":true}'; }
 api_get_json() { printf '{"code":200,"data":[]}'; }
 get_move_task_by_id() { printf '{"id":"move-1","state":2,"progress":100}'; }
 api_post_json() {

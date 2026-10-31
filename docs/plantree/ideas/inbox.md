@@ -4,7 +4,7 @@
 - Optional later: extract Icons/toast to common.js
 - Optional later: PWA install for phone home-screen
 
-## 2026-10-30 全量审计候选（未承诺，见 [risk-hotspots](../baseline/risk-hotspots.md)）
+## 2026-10-30 全量审计候选（已全部转入 [maintenance-backlog](../plans/maintenance-backlog/roadmap.md)）
 
 - ~~提交工作区~~（已做，2026-10-30，未推送）
 - ~~恢复 CI 绿~~（已做）；~~CI 加 node 测试~~（已做，并补装 ffmpeg）

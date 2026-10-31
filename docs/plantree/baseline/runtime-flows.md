@@ -8,8 +8,8 @@ Updated: 2026-10-30
 ## 启动
 
 1. `api/monitor.py` 被导入时创建单例：`load_settings`、crawler、`MonitorStorage`、`MonitorService`、`OPENLIST_CLIENT` 等。
-2. `MonitorService.__init__` 同步写一次状态文件（`service.py` 约 168-184）。**任何 `import douyin_user_monitor.main` 都会写 state**；脚本和临时实例必须用 `DYMON_STATE_PATH` 指向副本。
-3. startup 事件 `auto_resume()`：`desired_running` 为真时 `create_task(_monitor_loop)`。shutdown 事件关闭 service 与 OpenList client。使用已弃用的 `on_event`，没有 lifespan。
+2. `MonitorService.__init__` 只读状态（2026-10-31 起）；`import douyin_user_monitor.main` 不再写 state。启动时 `auto_resume` 才把 `is_running` 归零、清旧字段。脚本若要启动服务实例，仍应用 `DYMON_STATE_PATH` 指向副本。
+3. lifespan 启动阶段 `auto_resume()`：重置运行标记、启动内容标注队列，`desired_running` 为真时 `create_task(_monitor_loop)`。退出阶段停队列、关闭 service 与 OpenList client。
 
 ## 监控循环（`service.py` `_monitor_loop`）
 
@@ -28,7 +28,7 @@ Updated: 2026-10-30
 1. 文件超过 `MIN_AGE_SECONDS=120` 才处理。
 2. 硬链接进 `download/.backup-staging/` → OpenList copy 到备份盘 `/kuake/抖音视频`。
 3. 并行直传主盘 `/d2/vps/抖音视频`（`D2_DIRECT_UPLOAD=true`），成功后删本地源。
-4. 远端已有同名文件时，只有大小完全一致才删本地（`SIZE_MISMATCH_TOLERANCE_BYTES=0`，`common.sh:42`）。只比大小，不比哈希。
+4. 远端已有同名文件时，只有大小完全一致才删本地（`SIZE_MISMATCH_TOLERANCE_BYTES=0`）；D2 目标另比对 `content_identity`（`d2_verify.py`），不一致转 skipped。目标目录每段去首尾空白。D2 5xx/超时下轮重试，连续 6 轮才计失败。
 
 日志 `logs/openlist-auto-move.log`。
 
@@ -39,7 +39,7 @@ Updated: 2026-10-30
 
 ## AI 内容标注
 
-- 新作品下载后同步 await `ContentFilter.__call__`（`user_sync.py` 约 271），默认并发 1，异常全部吞掉，结论写 `record["content_filter"]`。
+- 新作品下载后入队 `ContentFilterQueue`（2026-10-31 起，`monitor/content_filter_queue.py`），不在 `_run_lock` 内等模型；队列串行打标，锁内按 aweme_id 补进记录。异常落到 `status=error`。未配置队列时（测试）仍走旧的同步 `ContentFilter.__call__`。
 - OpenAI 兼容 `{api_base}/chat/completions`，图片 base64。2026-10-28 起 `config.yaml` 为本机 `127.0.0.1:18317/v1` + `gemini-3.8-flash-high`（之前为 grok2api `:18082`，代码默认值仍是 grok）。`mode` 只支持 `shadow`。
 - 2026-10-30 实测：`monitor_records.db` 30,720 条记录全部为 `version=5`，`ok` 30,703、`error` 17。
 - 历史补打：`scripts/content_filter_backfill.py`，改 prompt/结构时升 `RESULT_VERSION` 会自动重做旧版本。

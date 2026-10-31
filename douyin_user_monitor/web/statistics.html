@@ -648,7 +648,8 @@
               <label>
                 排序
                 <select id="sortBySelect" onchange="onSortByChange()">
-                  <option value="downloads">下载数</option>
+                  <option value="downloads:desc">下载数（多→少）</option>
+                  <option value="downloads:asc">下载数（少→多）</option>
                   <option value="last_publish">最近发布</option>
                   <option value="last_check">最近检查</option>
                   <option value="last_download">最近下载</option>
@@ -828,7 +829,7 @@
     }
 
     // --- 作品浮层：不跳页，所以返回时筛选/页码/滚动位置都还在 ---
-    const worksOverlayState = { open: false };
+    const worksOverlayState = { open: false, closing: false };
 
     function onAvatarClick(event, userId) {
       // 带修饰键或非左键时交回浏览器，走原生新标签页行为
@@ -842,27 +843,43 @@
     function openWorksOverlay(userId) {
       const id = String(userId || "").trim();
       if (!id) return;
-      document.getElementById("worksFrame").src = `${worksPageUrl(id)}&embed=1`;
+      // iframe 换页用 location.replace：改 src 会多压一条 iframe 历史，右滑返回要多退一次，还会退到空白页
+      document.getElementById("worksFrame").contentWindow.location.replace(`${worksPageUrl(id)}&embed=1`);
       document.getElementById("worksOverlay").classList.add("show");
       worksOverlayState.open = true;
       // 压一个历史条目，让浏览器返回键关掉浮层而不是离开本页
       history.pushState({ worksOverlay: id }, "");
     }
 
+    // 关闭按钮 / Esc / 点遮罩只负责退历史，真正的关闭统一在 popstate 里做，
+    // 否则先清空 iframe 再退历史，会把 iframe 退回作品页在后台重新加载
     function closeWorksOverlay(options = {}) {
       if (!worksOverlayState.open) return;
+      const frameWindow = document.getElementById("worksFrame").contentWindow;
+      if (!options.fromHistory) {
+        // 连按 Esc 时 popstate 还没到，再退一次就离开本页了
+        if (worksOverlayState.closing) return;
+        worksOverlayState.closing = true;
+        // 浮层里的播放器开着时它也压了一条历史，要连它一起退掉
+        history.go(frameWindow.history.state?.worksViewer ? -2 : -1);
+        return;
+      }
       worksOverlayState.open = false;
+      worksOverlayState.closing = false;
       document.getElementById("worksOverlay").classList.remove("show");
       // 清空 iframe 让里面的视频停止拉流，否则代理连接会挂着继续下载
-      document.getElementById("worksFrame").src = "about:blank";
-      if (!options.fromHistory) history.back();
+      frameWindow.location.replace("about:blank");
     }
 
     function onWorksOverlayBackdrop(event) {
       if (event.target === document.getElementById("worksOverlay")) closeWorksOverlay();
     }
 
-    window.addEventListener("popstate", () => closeWorksOverlay({ fromHistory: true }));
+    window.addEventListener("popstate", (event) => {
+      // 还停在浮层那条历史上（比如前进回来）就不动
+      if (event.state?.worksOverlay) return;
+      closeWorksOverlay({ fromHistory: true });
+    });
 
     window.addEventListener("message", (event) => {
       if (event.origin !== window.location.origin) return;

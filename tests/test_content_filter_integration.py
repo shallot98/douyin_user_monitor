@@ -104,5 +104,45 @@ class ContentFilterPipelineTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(notifier.notify_download_completed.await_count, 1)
 
 
+    async def test_queue_mode_commits_record_before_model_answers(self):
+        """有队列时 run_user_once 不等模型：记录先落盘，结论之后由队列补进去。"""
+        import asyncio
+
+        from douyin_user_monitor.monitor.content_filter_queue import ContentFilterQueue
+
+        reply = json.dumps({"category": "normal", "ad_type": None, "confidence": 0.9, "reason": "r",
+                            "tags": {"subject": [], "scene": [], "content": [], "style": [], "features": []},
+                            "appearance": {"age": "无法判断", "outfit": [], "exposed_areas": [], "camera_focus": [],
+                                           "poses": [], "borderline": None},
+                            "summary": "s"})
+        gate = asyncio.Event()
+
+        async def gated_handler(request):
+            await gate.wait()
+            return httpx.Response(200, json={"choices": [{"message": {"content": reply}}]})
+
+        content_filter = ContentFilter(SETTINGS, self.download_root, transport=httpx.MockTransport(gated_handler))
+        queue = ContentFilterQueue(content_filter, self.storage, content_filter._local, record_wait_seconds=(0.05,) * 20)
+        notifier = AsyncMock(spec=MonitorNotifierProtocol)
+        service = MonitorService(crawler=self.crawler, storage=self.storage, download_root=self.download_root,
+                                 notifier=notifier, content_filter_queue=queue)
+        queue.start()
+        self.addAsyncCleanup(queue.stop)
+        with patch.object(service._downloader, "_create_shared_client", side_effect=lambda: httpx.AsyncClient(
+            transport=httpx.MockTransport(lambda request: httpx.Response(200, content=self.picture)),
+        )):
+            result = await asyncio.wait_for(service.run_user_once("user-1"), timeout=10)
+
+        self.assertEqual(result["errors"], [])
+        record = self.storage.records.get("user-1")[0]
+        self.assertNotIn("content_filter", record)
+        self.assertEqual(notifier.notify_download_completed.await_count, 1)
+
+        gate.set()
+        await asyncio.wait_for(queue.drain(), timeout=10)
+        verdict = self.storage.records.get("user-1")[0]["content_filter"]
+        self.assertEqual((verdict["status"], verdict["version"]), ("ok", RESULT_VERSION))
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -69,6 +69,8 @@ CAPACITY_ERROR_PATTERN='capacity limit|USER_DAILY_UPLOAD_QUOTA_EXCEEDED'
 # 同一文件连续这么多轮仍失败才算真失败（10 分钟一轮约 1 小时）。
 D2_TRANSIENT_ERROR_PATTERN='HTTP 5[0-9][0-9]|transport failed'
 D2_TRANSIENT_MAX_ATTEMPTS=6
+# 远端已有同名同大小文件时，删本地前先比对 D2 content_identity
+D2_VERIFY_BEFORE_DELETE="true"
 
 is_capacity_limit_error() {
   local err="${1:-${MOVE_TASK_ERROR:-}}"

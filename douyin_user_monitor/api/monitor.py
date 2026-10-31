@@ -43,6 +43,8 @@ from douyin_user_monitor.monitor.aweme_feed import (
     clamp_feed_count,
 )
 from douyin_user_monitor.monitor.content_filter import ContentFilter
+from douyin_user_monitor.monitor.content_filter_media import ArchiveMediaLoader
+from douyin_user_monitor.monitor.content_filter_queue import ContentFilterQueue
 from douyin_user_monitor.monitor.cookie_liveness import CookieLivenessConfig
 from douyin_user_monitor.monitor.cookie_liveness_service import CookieLivenessService
 from douyin_user_monitor.monitor.cookie_pool import CookiePoolService
@@ -204,6 +206,19 @@ COOKIE_POOL_SERVICE = CookiePoolService(
 PARSE_COOKIES_DIR = SETTINGS.monitor.state_path.parent / "parse_cookies"
 DETAIL_COOKIE_POOL = ParseCookiePool(PARSE_COOKIES_DIR)
 
+OPENLIST_CLIENT = OpenListClient(SETTINGS.archive)
+ARCHIVE_PATH_ALIASES = load_archive_path_aliases(SETTINGS.monitor.state_path)
+# 新作品标注走后台队列，不占 run_lock；mover 搬走本地文件后从网盘读
+CONTENT_FILTER_QUEUE = (
+    ContentFilterQueue(
+        ContentFilter(SETTINGS.content_filter, SETTINGS.monitor.download_root),
+        MONITOR_STORAGE,
+        ArchiveMediaLoader(SETTINGS.monitor.download_root, OPENLIST_CLIENT, ARCHIVE_PATH_ALIASES, COVER_STORE),
+    )
+    if SETTINGS.content_filter.enabled
+    else None
+)
+
 monitor_service = MonitorService(
     crawler=CRAWLER_CLIENT,
     storage=MONITOR_STORAGE,
@@ -212,17 +227,11 @@ monitor_service = MonitorService(
     cookie_liveness_service=COOKIE_LIVENESS_SERVICE,
     cookie_pool_service=COOKIE_POOL_SERVICE,
     cover_publisher=NewWorkCoverPublisher(SETTINGS.monitor.download_root, COVER_STORE).publish,
-    content_filter=(
-        ContentFilter(SETTINGS.content_filter, SETTINGS.monitor.download_root)
-        if SETTINGS.content_filter.enabled
-        else None
-    ),
+    content_filter_queue=CONTENT_FILTER_QUEUE,
     detail_cookie_pool=DETAIL_COOKIE_POOL,
 )
 
 AWEME_FEED_SERVICE = AwemeFeedService(CRAWLER_CLIENT)
-OPENLIST_CLIENT = OpenListClient(SETTINGS.archive)
-ARCHIVE_PATH_ALIASES = load_archive_path_aliases(SETTINGS.monitor.state_path)
 # 跟状态文件放一起（生产即 data/media_cache），测试的临时状态目录也就自然隔离
 ARCHIVE_MEDIA_CACHE = ArchiveMediaCache(
     SETTINGS.monitor.state_path.parent / "media_cache",
@@ -288,6 +297,8 @@ def _map_cookie_error(request: Request, exc: Exception) -> HTTPException:
         return _build_error(request, str(exc) or "Cookie 不存在", status_code=404)
     if isinstance(exc, ValueError):
         return _build_error(request, str(exc), status_code=400)
+    # 非预期异常类型多半是代码问题，客户端只看到 400，服务端要留堆栈
+    LOGGER.warning("Cookie 接口异常 %s", request.url.path, exc_info=exc)
     return _build_error(request, str(exc), status_code=400)
 
 async def _find_user_or_raise(user_id: str) -> dict[str, Any]:
@@ -882,6 +893,10 @@ async def list_user_archive(
     page: int | None = Query(None, description="1-based 页码"),
     page_size: int | None = Query(None, description="每页条数 20|50|100"),
     ai_filter: str = Query("", description="AI 筛选视图：空=全部 | flagged=判为筛掉 | error=检测失败"),
+    media_type: str = Query("", description="作品类型：空=全部 | video | image"),
+    score_min: int | None = Query(None, description="擦边分下限 0~5（只留已评分作品）"),
+    score_max: int | None = Query(None, description="擦边分上限 0~5（只留已评分作品）"),
+    unscored: bool = Query(False, description="只看未评分/评分失败的作品，不能与擦边分区间同用"),
 ) -> ResponseModel:
     """只读本地 download_records，不发起任何抖音请求。
 
@@ -890,7 +905,16 @@ async def list_user_archive(
     """
     user = await _find_user_with_records_or_raise(user_id)
     try:
-        payload = build_archive_page(user, page=page, page_size=page_size, ai_filter=ai_filter)
+        payload = build_archive_page(
+            user,
+            page=page,
+            page_size=page_size,
+            ai_filter=ai_filter,
+            media_type=media_type,
+            score_min=score_min,
+            score_max=score_max,
+            unscored=unscored,
+        )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     payload["items"] = await with_cover_urls(COVER_STORE, user_id, payload["items"])
@@ -1233,11 +1257,18 @@ async def add_user(request: Request, payload: AddUserPayload) -> ResponseModel:
     return _build_success(request, result)
 
 
-@router.api_route(
+# GET/POST 分两条路由注册同一个函数：多 method 的单条路由会生成重复 operation id
+@router.get(
     "/users/add_by_url",
-    methods=["GET", "POST"],
+    response_model=ResponseModel,
+    summary="通过主页链接快速添加监控用户（GET，已 deprecated）/Quick add user by profile URL",
+    operation_id="add_user_by_url_get",
+)
+@router.post(
+    "/users/add_by_url",
     response_model=ResponseModel,
     summary="通过主页链接快速添加监控用户/Quick add user by profile URL",
+    operation_id="add_user_by_url_post",
 )
 async def add_user_by_url(
     request: Request,

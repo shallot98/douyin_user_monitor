@@ -3,15 +3,17 @@
 
 复制走 OpenList 的服务端 copy，字节不经过本机——比「下载再上传」省一半流量。
 
-安全性：**只复制，绝不删除**，对备份盘是只读操作。任何一步失败都只是跳过该文件，
+安全性：**不删除任何文件**。默认模式只读，只打印计划；加 ``--apply`` 才实际执行。
+copy 对备份盘只读；但 ``--rename-source`` 会**在备份盘（夸克）上改名目录与文件**去 emoji，
+``--rollback-renames`` 按状态文件反向改回。任何一步失败都只是跳过该文件，
 下次续跑重试；状态文件记录已确认完成的文件，可以随时中断。
 
 主力盘（wopan）拒绝含 emoji 的目录名，所以目标目录名会去 emoji——与 mover 的
 PRIMARY_SANITIZE_EMOJI 和网页侧 archive.sanitize_primary_dirs 用的是同一个函数。
 
-用法:
-    scripts/migrate_archive_to_primary.py --dry-run            # 只看计划
-    scripts/migrate_archive_to_primary.py                      # 全量续跑
+用法（2026-10-30 起默认 dry-run，加 --apply 才写云端）:
+    scripts/migrate_archive_to_primary.py                      # 只看计划
+    scripts/migrate_archive_to_primary.py --apply              # 全量续跑
     scripts/migrate_archive_to_primary.py --only 鱼幼薇        # 只迁指定用户目录
     scripts/migrate_archive_to_primary.py --max-files 200      # 本次只处理 200 个文件
     scripts/migrate_archive_to_primary.py --workers 3          # 3 个目录并发处理
@@ -889,7 +891,9 @@ def process_directory(
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="把备份盘归档复制到主力盘（只复制，不删除）")
-    parser.add_argument("--dry-run", action="store_true", help="只打印计划，不实际复制")
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument("--apply", action="store_true", help="实际执行 copy / rename；不加则只打印计划")
+    mode.add_argument("--dry-run", action="store_true", help="只打印计划（默认行为，保留以兼容旧命令）")
     parser.add_argument("--only", default="", help="只处理名字包含该子串的顶层用户目录")
     parser.add_argument("--max-files", type=int, default=0, help="本次最多处理多少个待复制文件（0=不限）")
     parser.add_argument("--batch-size", type=int, default=20, help="单次 copy 提交的文件数")
@@ -917,6 +921,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main() -> int:
     args = build_parser().parse_args()
+    args.dry_run = not args.apply
     full_settings = load_settings()
     settings = full_settings.archive
     if not settings.enabled:
@@ -942,7 +947,7 @@ def main() -> int:
     log(f"目标(主力盘): {dst_base}   目录去 emoji: {settings.sanitize_primary_dirs}")
     log(f"状态文件: {args.state}（已记录完成 {len(state.done)} 个，失败 {len(state.failed)} 个）")
     if args.dry_run:
-        log("dry-run 模式：不会实际复制")
+        log("dry-run 模式（默认）：不会复制或改名，加 --apply 才实际执行")
 
     # rollback 只动 state.renames，先于其余状态改动
     if args.rollback_renames:

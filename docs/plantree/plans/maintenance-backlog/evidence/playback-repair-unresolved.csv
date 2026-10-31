@@ -1,0 +1,90 @@
+status,user,user_id,aweme_id,error
+worker_failed,不处,01d19e25-a588-4d50-997a-094f38f6dfad,7665284185976460667,Source size or content identity differs from the audited object
+worker_failed,圆仔,01d9f5a2-088d-4dbc-978c-26cba90e569b,7604140374970076581,ffmpeg failed (1): [private URL] corrupt input packet in stream 0
+worker_failed,猫与一帆,065a3cb2-43b8-4f71-b24d-6a2bbf98fba5,7663805208086013179,Source size or content identity differs from the audited object
+worker_failed,跳跳糖🍬,0b9693af-0195-4693-a01f-080430169cd2,7681194065145635290,All documented D2 source paths returned file-not-found
+worker_failed,跳跳糖🍬,0b9693af-0195-4693-a01f-080430169cd2,7681940259882036954,All documented D2 source paths returned file-not-found
+worker_failed,跳跳糖🍬,0b9693af-0195-4693-a01f-080430169cd2,7683318722316870875,All documented D2 source paths returned file-not-found
+worker_failed,跳跳糖🍬,0b9693af-0195-4693-a01f-080430169cd2,7683400320958338675,All documented D2 source paths returned file-not-found
+worker_failed,跳跳糖🍬,0b9693af-0195-4693-a01f-080430169cd2,7683858574506946506,All documented D2 source paths returned file-not-found
+worker_failed,susu,0c47fdc7-61d7-49d2-974a-374dc6713792,7645598248439058619,ffmpeg failed (1): [private URL] corrupt input packet in stream 1
+worker_failed,susu,0c47fdc7-61d7-49d2-974a-374dc6713792,7663761017549617915,Source size or content identity differs from the audited object
+worker_failed,小欣怡🌸,0c955179-999b-406a-a1ac-2f41f8240d31,7649663778874787429,All documented D2 source paths returned file-not-found
+worker_failed,小欣怡🌸,0c955179-999b-406a-a1ac-2f41f8240d31,7650785238088572069,All documented D2 source paths returned file-not-found
+worker_failed,小欣怡🌸,0c955179-999b-406a-a1ac-2f41f8240d31,7654793804625004921,All documented D2 source paths returned file-not-found
+worker_failed,空与白,17ade171-4120-4e98-8d74-a51be87d90de,7610343192067598329,Source size or content identity differs from the audited object
+worker_failed,好想吃火锅,1b97571d-28b4-4c0d-a0a5-37bd3d046ad7,7663802694968646073,Source size or content identity differs from the audited object
+worker_failed,楚楚甜甜,1e391c61-7e66-4eae-9f3a-ea3f755a0774,7588746144190196078,ffmpeg failed (1): [private URL] corrupt input packet in stream 1
+worker_failed,楚楚甜甜,1e391c61-7e66-4eae-9f3a-ea3f755a0774,7618459057960523466,ffmpeg failed (1): [private URL] corrupt input packet in stream 0
+worker_failed,威化饼,24ecb8c4-e7f8-4860-a64e-0c7ece980f38,7588859805671446900,ffmpeg failed (1): [private URL] corrupt input packet in stream 0
+worker_failed,威化饼,24ecb8c4-e7f8-4860-a64e-0c7ece980f38,7663745671019907816,Source size or content identity differs from the audited object
+worker_failed,小雨绵绵,2868b377-66fc-478d-befd-e6fe83e943c9,7613800708195089506,ffmpeg failed (1): [private URL] corrupt input packet in stream 0
+worker_failed,小意oO,2bdad99e-07da-4e63-a877-ec0f5ffa2ff4,7663736140818982642,Source size or content identity differs from the audited object
+worker_failed,米多多 ￴ㅤㅤㅤㅤㅤ,344f074a-1c1b-4917-b6bc-d32a573dc7a0,7664035493998739791,Source size or content identity differs from the audited object
+rejected,小暖暖,37593e9a-54c0-42d2-bc5a-f59b40db5557,7652022650168465081,Source work is no longer in the user record
+rejected,小暖暖,37593e9a-54c0-42d2-bc5a-f59b40db5557,7652022726144559461,Source work is no longer in the user record
+rejected,小暖暖,37593e9a-54c0-42d2-bc5a-f59b40db5557,7652448622214180027,Source work is no longer in the user record
+rejected,小暖暖,37593e9a-54c0-42d2-bc5a-f59b40db5557,7654335733222484325,Source work is no longer in the user record
+rejected,小暖暖,37593e9a-54c0-42d2-bc5a-f59b40db5557,7654335852516368761,Source work is no longer in the user record
+rejected,小暖暖,37593e9a-54c0-42d2-bc5a-f59b40db5557,7654336122306199141,Source work is no longer in the user record
+rejected,小暖暖,37593e9a-54c0-42d2-bc5a-f59b40db5557,7654336234529439397,Source work is no longer in the user record
+rejected,小暖暖,37593e9a-54c0-42d2-bc5a-f59b40db5557,7654773330440511589,Source work is no longer in the user record
+rejected,小暖暖,37593e9a-54c0-42d2-bc5a-f59b40db5557,7654773408764486309,Source work is no longer in the user record
+rejected,小暖暖,37593e9a-54c0-42d2-bc5a-f59b40db5557,7654773473403562405,Source work is no longer in the user record
+rejected,小暖暖,37593e9a-54c0-42d2-bc5a-f59b40db5557,7654773541619486073,Source work is no longer in the user record
+rejected,小暖暖,37593e9a-54c0-42d2-bc5a-f59b40db5557,7654773622888166074,Source work is no longer in the user record
+rejected,小暖暖,37593e9a-54c0-42d2-bc5a-f59b40db5557,7655151167156975993,Source work is no longer in the user record
+rejected,小暖暖,37593e9a-54c0-42d2-bc5a-f59b40db5557,7655151770720703973,Source work is no longer in the user record
+rejected,小暖暖,37593e9a-54c0-42d2-bc5a-f59b40db5557,7655151880717574501,Source work is no longer in the user record
+rejected,小暖暖,37593e9a-54c0-42d2-bc5a-f59b40db5557,7655527964348539002,Source work is no longer in the user record
+rejected,小暖暖,37593e9a-54c0-42d2-bc5a-f59b40db5557,7655528051791727077,Source work is no longer in the user record
+rejected,小暖暖,37593e9a-54c0-42d2-bc5a-f59b40db5557,7655528112093260965,Source work is no longer in the user record
+rejected,小暖暖,37593e9a-54c0-42d2-bc5a-f59b40db5557,7655528197773215417,Source work is no longer in the user record
+rejected,小暖暖,37593e9a-54c0-42d2-bc5a-f59b40db5557,7655949399386927737,Source work is no longer in the user record
+worker_failed,陈浩存～潮汕,4ce2d2ee-c05e-446c-aeac-1723b34bea76,7628635863303496378,Source size or content identity differs from the audited object
+worker_failed,陈浩存～潮汕,4ce2d2ee-c05e-446c-aeac-1723b34bea76,7636146412170799867,Source size or content identity differs from the audited object
+worker_failed,陈浩存～潮汕,4ce2d2ee-c05e-446c-aeac-1723b34bea76,7638495212842552442,Source size or content identity differs from the audited object
+worker_failed,陈浩存～潮汕,4ce2d2ee-c05e-446c-aeac-1723b34bea76,7661017175222160869,Source size or content identity differs from the audited object
+worker_failed,青四岁°,4cf9bbcf-2f2f-416f-9fcf-537fee1f490d,7636006263479156453,Source size or content identity differs from the audited object
+worker_failed,加热土豆饼2.0,4d7a00e3-81cb-4c87-85a7-06097391ce64,7644306195663526257,Source size or content identity differs from the audited object
+worker_failed,菊花台,5918d175-6b90-46b0-83d5-4df166bd8219,7640161739396747365,Source size or content identity differs from the audited object
+worker_failed,跟男人说话都害羞,5be11ca2-1ea5-4a88-a71d-b3bef0870ce5,7598560971661287921,ffmpeg failed (1): [private URL] corrupt input packet in stream 1
+worker_failed,奶77,5f8abf53-d009-42ec-9d45-d58db182d65e,7631546449151756005,ffmpeg failed (1): [private URL] corrupt input packet in stream 1
+worker_failed,蛋崽,6a73ac06-88e5-49ea-b3ce-ae3b60e9bc1f,7654113588944804962,ffmpeg failed (1): [private URL] corrupt input packet in stream 0
+worker_failed,知哦周,6e8f6afa-50b3-4b8d-bbcc-f565c92c7ab7,7664997581054916773,Source size or content identity differs from the audited object
+worker_failed,ㅤ小咪,7095316d-bccb-45d5-8e1e-d4a8008e8b33,7660550855939237553,Source size or content identity differs from the audited object
+worker_failed,嘉菲猫猫虫,7b4c3da4-55fd-463f-a651-1d0243ca2ca7,7663825081600346297,Source size or content identity differs from the audited object
+worker_failed,大呆呆,7f5f4a43-0585-4c10-a93e-88a985772fb0,7639375154652911589,Source size or content identity differs from the audited object
+worker_failed,大呆呆,7f5f4a43-0585-4c10-a93e-88a985772fb0,7663803618251967729,Source size or content identity differs from the audited object
+worker_failed,关关🦋,83e531c3-573c-4784-99a8-a7e1d8695e70,7568422155253107569,Source size or content identity differs from the audited object
+worker_failed,婉柔,86d9d60c-dcaa-41a6-ba82-92e48b8c0d9e,7617073423969185210,ffmpeg failed (1): [private URL] corrupt input packet in stream 1
+worker_failed,婉柔,86d9d60c-dcaa-41a6-ba82-92e48b8c0d9e,7663707233247899813,Source size or content identity differs from the audited object
+worker_failed,小水老师💧2⃣️（夏日版）,93362cb3-6c97-470d-8de3-80ee3ddebaa4,7640250366056499194,Source size or content identity differs from the audited object
+worker_failed,小水老师💧2⃣️（夏日版）,93362cb3-6c97-470d-8de3-80ee3ddebaa4,7641194406247689338,Source size or content identity differs from the audited object
+worker_failed,大熊猫儿🐼,9d0b556b-a7b4-4289-9f5d-84ec9e631ccb,7663731029010779226,Source size or content identity differs from the audited object
+worker_failed,大熊猫儿🐼,9d0b556b-a7b4-4289-9f5d-84ec9e631ccb,7664924206693866048,Source size or content identity differs from the audited object
+worker_failed,八嘎牙路,a3a018c3-d447-4a6e-a0ce-bd068cb059d5,7663858651363772005,Source size or content identity differs from the audited object
+worker_failed,微微得到,aa6f192c-2d5c-48e5-addb-868c6a62fb41,7662877309640869032,All documented D2 source paths returned file-not-found
+worker_failed,微微得到,aa6f192c-2d5c-48e5-addb-868c6a62fb41,7664524214733955491,All documented D2 source paths returned file-not-found
+worker_failed,章鱼贼,af2138ca-e2d9-4c2a-a329-6e0c31b563bd,7578141222658904443,Source size or content identity differs from the audited object
+worker_failed,章鱼贼,af2138ca-e2d9-4c2a-a329-6e0c31b563bd,7625156136153169274,Source size or content identity differs from the audited object
+worker_failed,温泉度假村滑冰冰绿茶,b6044dce-0b44-46a5-bd43-cb36dea23c52,7661686512148790437,Source size or content identity differs from the audited object
+worker_failed,娜娜,bfd3663b-014d-49bf-b2c3-24467b77a9f2,7663788951702960037,Source size or content identity differs from the audited object
+worker_failed,小娩肉,c1b8a18c-2467-4894-b0a9-62ef5d05eda8,7551001086355033404,Source size or content identity differs from the audited object
+worker_failed,小娩肉,c1b8a18c-2467-4894-b0a9-62ef5d05eda8,7663700569048438769,Source size or content identity differs from the audited object
+worker_failed,💫｀何何,c867d4bd-8862-46f9-a6a7-8ebdd173b603,7664507815897374385,Remux source is not already lightweight H.264/AAC/yuv420p
+worker_failed,好多肉,ca465702-c6af-4000-b4ff-81cd085ec9e7,7554305206583102774,ffmpeg failed (1): [private URL] corrupt input packet in stream 0
+worker_failed,幸福蛋蛋崽,d7325eef-347c-45fa-8cf3-8b459b669da6,7624488595982127781,Source size or content identity differs from the audited object
+worker_failed,幸福蛋蛋崽,d7325eef-347c-45fa-8cf3-8b459b669da6,7663816459810244197,Source size or content identity differs from the audited object
+worker_failed,祖祖小姨妈,d7706402-3d01-423a-85f4-1ca9f57b7a5d,7578132132934468069,ffmpeg failed (1): [private URL] corrupt input packet in stream 0
+worker_failed,正妹,d803f6b4-a030-45b1-89b8-9212b33c847b,7493876437926071603,ffmpeg failed (1): [private URL] corrupt input packet in stream 0
+worker_failed,🦔,e1f88976-f5bf-4b16-9ceb-25bf2fcff503,7561079010190855443,Source size or content identity differs from the audited object
+worker_failed,文文的武器库,e424479c-7bf3-4233-a315-34e3f78519fe,7652189382778869434,Playback must be lightweight H.264/AAC/yuv420p MP4 with faststart
+worker_failed,疯狂小狮子🦁,e44d56b0-2869-4636-97f7-a6c4866b9a82,7663755145289883739,Source size or content identity differs from the audited object
+worker_failed,柳儿,ebc61811-6fa4-4981-b493-de0a8e38ab9c,7611111000012082865,Source size or content identity differs from the audited object
+worker_failed,豌豆尖,ee01619e-ec24-4737-885d-35c89531dbeb,7663726160752718406,Source size or content identity differs from the audited object
+worker_failed,芝芝很酷💫,f0086881-00cd-4be8-aea0-b662719d311f,7663742322194091621,Source size or content identity differs from the audited object
+worker_failed,饭書書,fac960ff-0d11-4961-ae02-24bcd55fd431,7663790044443977398,Source size or content identity differs from the audited object
+worker_failed,我起床失败了,fd2a647a-0b88-4f5d-b81c-d52acd571ea2,7602809570856120539,Source size or content identity differs from the audited object
+worker_failed,我起床失败了,fd2a647a-0b88-4f5d-b81c-d52acd571ea2,7663738783570170278,Source size or content identity differs from the audited object
+worker_failed,知知为不知,fd72ec07-2d41-43a2-9ef3-d73b56893ba3,7666166925730336000,Source size or content identity differs from the audited object

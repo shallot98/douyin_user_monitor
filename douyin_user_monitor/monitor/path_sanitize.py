@@ -169,7 +169,8 @@ def trim_relative_dirs(relative: str) -> Optional[str]:
     D2/夸克不接受尾空格目录名，mover 落地时去掉；记录里仍存原名。
     无需变换或某段变空时返回 ``None``（调用方跳过该候选）。
     """
-    text = str(relative or "").strip().strip("/")
+    # 只去掉两端的 "/"：整串 strip() 会吞掉首段的前导空白，算不出 mover 写入的目录名
+    text = str(relative or "").strip("/")
     parts = text.split("/")
     if len(parts) < 2:
         return None

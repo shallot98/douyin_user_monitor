@@ -80,7 +80,18 @@ function pageContext(search = "?user_id=user-1") {
   const body = Object.assign(element("body"), { appendChild: (node) => register(node) });
   const head = Object.assign(element("head"), { appendChild: (node) => register(node) });
   const page = { respond: defaultResponse, calls };
+  // 只模拟同步 popstate：back() 退一条并立刻派发给页面
+  const historyStack = [null];
+  const history = {
+    get state() { return historyStack[historyStack.length - 1]; },
+    pushState(state) { historyStack.push(state); },
+    back() {
+      if (historyStack.length > 1) historyStack.pop();
+      handlers["window:popstate"]?.({ state: history.state, stopImmediatePropagation() {} });
+    },
+  };
   const context = vm.createContext({
+    history,
     URLSearchParams, console, setTimeout, clearTimeout, requestAnimationFrame: (fn) => fn(),
     API_BASE: "/api/monitor",
     location: { search, origin: "https://monitor.test" },
@@ -106,7 +117,7 @@ function pageContext(search = "?user_id=user-1") {
   vm.runInContext(inline, context);
   const stage = () => get("viewerStage");
   return Object.assign(page, {
-    context, get, handlers, stage,
+    context, get, handlers, stage, history, historyStack,
     video: () => stage().querySelector("video"),
     image: () => stage().querySelector("img"),
     run: (code) => vm.runInContext(code, context),
@@ -130,7 +141,7 @@ test("gallery fetches the cover image without creating video elements", () => {
 
 test("viewer DOM is injected by the shared module, not duplicated in the page", () => {
   assert.doesNotMatch(html, /id="viewer"/);
-  assert.match(html, /<script src="\/static\/works-viewer\.js\?v=swipe-20260930b"><\/script>/);
+  assert.match(html, /<script src="\/static\/works-viewer\.js\?v=back-20261031"><\/script>/);
   const page = pageContext();
   assert.ok(page.get("viewer"));
   assert.match(page.get("viewer").innerHTML, /id="viewerOriginalLink" download/);
@@ -253,6 +264,33 @@ test("closing the viewer explicitly aborts the current media source", async () =
   assert.equal(page.stage().innerHTML, "");
   assert.equal(page.run("WorksViewer.isOpen()"), false);
   assert.equal(page.run("state.playingIndex"), -1);
+});
+
+test("system back closes the viewer; stepping works does not stack history", () => {
+  const page = pageContext();
+  page.context.testItems = [videoItem, { ...videoItem, aweme_id: "7002" }];
+  page.run("state.items = testItems; WorksViewer.open(0);");
+  assert.equal(page.historyStack.length, 2);
+  page.run("WorksViewer.stepWork(1)");
+  assert.equal(page.run("WorksViewer.currentAwemeId()"), "7002");
+  assert.equal(page.historyStack.length, 2);
+  page.history.back(); // iOS 右滑 / 浏览器返回
+  assert.equal(page.run("WorksViewer.isOpen()"), false);
+  assert.equal(page.historyStack.length, 1);
+  assert.equal(page.stage().innerHTML, "");
+});
+
+test("close button goes through history and ignores a second press before popstate", () => {
+  const page = pageContext();
+  page.show(videoItem);
+  let backs = 0;
+  page.history.back = () => { backs += 1; };
+  page.run("WorksViewer.close(); WorksViewer.close();");
+  assert.equal(backs, 1);
+  assert.equal(page.run("WorksViewer.isOpen()"), true);
+  page.historyStack.pop();
+  page.handlers["window:popstate"]({ state: null, stopImmediatePropagation() {} });
+  assert.equal(page.run("WorksViewer.isOpen()"), false);
 });
 
 test("Esc with the viewer closed asks the embedding overlay to close", () => {

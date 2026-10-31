@@ -33,7 +33,7 @@ push main / PR 触发，Python 3.10：安装 `requirements-dev.txt` → `ruff ch
 
 ## 测试覆盖空白
 
-无任何测试直接导入：`__main__`、`api/models`、`cookie_pool_rotation_write`、`cover_image`、`media_urls`、`schedule`、`sync_utils`、`telegram_notifier`、`timeutils`（可能被间接覆盖）。
+2026-10-31 已补 `cover_image`、`media_urls`、`schedule`、`sync_utils`、`telegram_notifier`、`timeutils` 的直接测试。仍无直接测试：`__main__`、`api/models`、`cookie_pool_rotation_write`（可能被间接覆盖）。
 
 ## 发布方式
 

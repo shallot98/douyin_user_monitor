@@ -49,6 +49,7 @@ class UserSyncService:
         *,
         cover_publisher=None,
         content_filter=None,
+        content_filter_queue=None,
         detail_cookie_pool: Optional[ParseCookiePool] = None,
     ):
         self._crawler = crawler
@@ -59,6 +60,8 @@ class UserSyncService:
         self._cookie_rotation_session = cookie_rotation_session
         self._cover_publisher = cover_publisher
         self._content_filter = content_filter
+        # 有队列时下载流程只入队，标注在 run_lock 之外执行（见 content_filter_queue）
+        self._content_filter_queue = content_filter_queue
 
     async def resolve_profile_snapshot(self, sec_user_id: str) -> UserProfileSnapshot:
         profile_data = await self._crawler.handler_user_profile(sec_user_id)
@@ -140,7 +143,9 @@ class UserSyncService:
                     reason=reason,
                 )
             except Exception:
-                pass
+                # 不中断同步，但这是封号/注销唯一的主动提醒，失败必须留痕
+                LOGGER.warning("账号状态变更通知发送失败 user=%s %s->%s", user.get("id"), old_status, new_status,
+                               exc_info=True)
 
     async def _sync_user_latest(self, user: Dict[str, Any], summary: Dict[str, Any]) -> int:
         account_status = str(user.get("account_status") or ACCOUNT_STATUS_NORMAL).strip()
@@ -268,7 +273,7 @@ class UserSyncService:
                 )
                 if self._cover_publisher is not None:
                     await self._cover_publisher(user, record)
-                if self._content_filter is not None:
+                if self._content_filter_queue is None and self._content_filter is not None:
                     # 自身吞掉并记录失败，结论写进 record["content_filter"]
                     await self._content_filter(user, aweme_detail, record)
                 if notify:
@@ -277,6 +282,9 @@ class UserSyncService:
                         record=record,
                     )
                 downloaded_records.append(record)
+                if self._content_filter_queue is not None:
+                    # 记录还没提交；队列处理时按 id 重新读盘，读不到就跳过（下次启动补回）
+                    self._content_filter_queue.submit(user, record, aweme_detail)
             except Exception as exc:
                 if not continue_on_error:
                     raise

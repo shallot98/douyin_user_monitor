@@ -15,7 +15,6 @@ Project-wide facts that plans should link to, not copy. Last full inventory: 202
 ## Unknown / needs inventory
 
 - 是否有 CDN/缓存位于 `/static` 之前
-- `data/douyin.db` 用途
 - mover D2 直传 HTTP 500 的原因
 
 ## Verified runtime

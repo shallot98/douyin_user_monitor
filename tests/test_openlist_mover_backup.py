@@ -561,3 +561,68 @@ def test_d2_transient_5xx_is_retried_without_counting_as_error_until_limit(tmp_p
     assert "round1 errors=0" in result.stdout
     assert "round2 errors=0" in result.stdout
     assert "round3 errors=1" in result.stdout
+
+
+D2_EXISTING_TARGET = r'''
+TARGET_BASE="/d2/target"
+VERIFY_CALLS_FILE="${TMP_ROOT}/verify-calls"
+: > "${VERIFY_CALLS_FILE}"
+api_post_json() {
+  local path="$2" payload="$3"
+  case "${path}" in
+    "/api/fs/list") jq -cn '{code:200,data:{total:1,content:[{name:"a.mp4",size:4}]}}' ;;
+    *) printf 'unexpected: %s\n' "${path}" >&2; return 1 ;;
+  esac
+}
+d2_verify_content() {
+  printf '%s\t%s\n' "$1" "$2" >> "${VERIFY_CALLS_FILE}"
+  printf '{"match":false}'
+  return "${VERIFY_RC}"
+}
+set +e
+resolve_existing_target_conflict token "${SOURCE_ROOT}/acct/a.mp4" /d2/target/acct a.mp4
+printf 'rc=%s\n' "$?"
+set -e
+printf 'local=%s\n' "$([[ -f "${SOURCE_ROOT}/acct/a.mp4" ]] && echo kept || echo deleted)"
+printf 'skipped=%s\n' "$(is_file_skipped "${SOURCE_ROOT}/acct/a.mp4" && echo yes || echo no)"
+printf 'verify=%s\n' "$(cut -f2 "${VERIFY_CALLS_FILE}")"
+'''
+
+
+def test_d2_same_size_but_different_content_keeps_local_and_skips(tmp_path: Path) -> None:
+    """D2 同名同大小但 content_identity 不同：不删本地，转入 skipped（线上配置开着 SKIP_CONFLICTING_FILES）。"""
+    result = run_bash(PRELUDE + 'SKIP_CONFLICTING_FILES="true"\nVERIFY_RC=3\n' + D2_EXISTING_TARGET, tmp_path)
+    assert "rc=3" in result.stdout
+    assert "local=kept" in result.stdout
+    assert "skipped=yes" in result.stdout
+    assert "verify=/target/acct/a.mp4" in result.stdout
+
+
+def test_d2_content_mismatch_without_skip_list_still_keeps_local(tmp_path: Path) -> None:
+    result = run_bash(PRELUDE + "VERIFY_RC=3\n" + D2_EXISTING_TARGET, tmp_path)
+    assert "rc=1" in result.stdout
+    assert "local=kept" in result.stdout
+
+
+def test_d2_content_check_failure_keeps_local_for_next_round(tmp_path: Path) -> None:
+    """校验本身失败（网络/接口错误）：不删、不标 skipped，下轮重试。"""
+    result = run_bash(PRELUDE + "VERIFY_RC=1\n" + D2_EXISTING_TARGET, tmp_path)
+    assert "rc=1" in result.stdout
+    assert "local=kept" in result.stdout
+    assert "skipped=no" in result.stdout
+
+
+def test_d2_matching_content_deletes_local(tmp_path: Path) -> None:
+    result = run_bash(PRELUDE + "VERIFY_RC=0\n" + D2_EXISTING_TARGET, tmp_path)
+    assert "rc=0" in result.stdout
+    assert "local=deleted" in result.stdout
+
+
+def test_non_d2_target_is_not_content_checked(tmp_path: Path) -> None:
+    """夸克等盘拿不到哈希，维持只比大小，也不调用 D2 校验。"""
+    script = D2_EXISTING_TARGET.replace('TARGET_BASE="/d2/target"', 'TARGET_BASE="/wopan/target"').replace(
+        "/d2/target/acct a.mp4", "/wopan/target/acct a.mp4")
+    result = run_bash(PRELUDE + "VERIFY_RC=3\n" + script, tmp_path)
+    assert "rc=0" in result.stdout
+    assert "local=deleted" in result.stdout
+    assert "verify=\n" in result.stdout

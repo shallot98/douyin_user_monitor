@@ -112,11 +112,14 @@
     ["chest", "胸部", 3], ["body", "身材", 3], ["overall", "整体", 3], ["camera", "镜头", 3], ["motion", "动作", 3],
   ];
 
+  const HISTORY_KEY = "worksViewer";
+
   let opts = null;
   // 播放器打开期间列表可以翻页/加载：item 是正在播的作品，index 是它在 getItems() 里的位置，
   // 不在当前列表时为 -1（此时上/下一个从列表首/尾开始）。
   const vs = {
     open: false,
+    closing: false,
     item: null,
     index: -1,
     busy: false,
@@ -253,6 +256,9 @@
   function open(index, options = {}) {
     const item = items()[index];
     if (!item) return;
+    // 从列表打开时压一条历史，系统返回（iOS 右滑、安卓返回键）先关播放器回到列表；
+    // 播放器内上下切作品不再压，一次返回就能退出
+    if (!vs.open) history.pushState({ [HISTORY_KEY]: true }, "");
     vs.open = true;
     vs.item = item;
     vs.index = index;
@@ -743,8 +749,28 @@
     video.load();
   }
 
+  // 关闭按钮 / Esc：有自己压的历史就走返回，由 popstate 真正关闭，历史栈与画面保持一致
   function close() {
     if (!opts) return;
+    if (!vs.open || !history.state?.[HISTORY_KEY]) {
+      closeNow();
+      return;
+    }
+    // 连按 Esc 时 popstate 还没到，再退一次就退出列表页了
+    if (vs.closing) return;
+    vs.closing = true;
+    history.back();
+  }
+
+  function onPopstate(event) {
+    if (!vs.open || event.state?.[HISTORY_KEY]) return;
+    vs.closing = false;
+    closeNow();
+    // 这一步只是关播放器，别让页面自己的 popstate（作品库按 URL 重读筛选）再处理一遍
+    event.stopImmediatePropagation();
+  }
+
+  function closeNow() {
     stopMedia();
     $("viewerStage").innerHTML = "";
     const lastIndex = vs.index;
@@ -803,6 +829,8 @@
     initDrag();
     initSwipe();
     document.addEventListener("keydown", onKeydown);
+    // 要先于页面自己的 popstate 注册（作品库 init 里先调 initViewer），stopImmediatePropagation 才挡得住
+    window.addEventListener("popstate", onPopstate);
     window.addEventListener("resize", () => {
       if (vs.open) sizeStage(vs.ratio, 1);
     });
