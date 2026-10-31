@@ -25,7 +25,11 @@ from urllib.parse import quote
 
 import httpx
 
-from douyin_user_monitor.monitor.path_sanitize import sanitize_relative_path
+from douyin_user_monitor.monitor.path_sanitize import (
+    sanitize_relative_path,
+    sanitize_user_dir_only,
+    trim_relative_dirs,
+)
 from douyin_user_monitor.settings import ArchiveSettings
 
 logger = logging.getLogger(__name__)
@@ -93,6 +97,8 @@ class OpenListClient:
 
         sanitized = self._primary_relative(relative, sec_user_id)
         directory_only = self._primary_relative(relative, sec_user_id, sanitize_filename=False)
+        user_dir_only = sanitize_user_dir_only(relative, sec_user_id)
+        dirs_trimmed = trim_relative_dirs(relative)
         bases = self._config.read_bases
         primary = self._config.primary_base
         if any(not any(path.startswith(f"{base}/") for base in bases) for path in verified_paths):
@@ -104,6 +110,9 @@ class OpenListClient:
             if base == primary:
                 if not self._config.sanitize_primary_dirs:
                     candidates.append(f"{base}/{relative}")
+                    if dirs_trimmed is not None:
+                        # mover 落地时去掉目录首尾空白
+                        candidates.append(f"{base}/{dirs_trimmed}")
                 elif directory_only is not None:
                     candidates.append(f"{base}/{directory_only}")
             if sanitized is not None:
@@ -112,6 +121,11 @@ class OpenListClient:
                 candidates.append(f"{base}/{directory_only}")
             if base != primary and sanitized != relative:
                 candidates.append(f"{base}/{relative}")
+            if base != primary and dirs_trimmed is not None:
+                candidates.append(f"{base}/{dirs_trimmed}")
+            if user_dir_only is not None:
+                # 去 emoji 迁移半途：用户目录已清洗、作品目录仍是原名
+                candidates.append(f"{base}/{user_dir_only}")
         if not candidates:
             raise ArchiveUnavailableError("归档路径在主力盘与备份盘均无法构造")
         return list(dict.fromkeys(candidates))

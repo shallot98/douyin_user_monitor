@@ -14,6 +14,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
+from douyin_user_monitor.monitor.library import rated_borderline_score
 from douyin_user_monitor.monitor.timeutils import CHINA_TZ, safe_int
 
 MEDIA_TYPE_IMAGE = "image"
@@ -170,7 +171,21 @@ def build_archive_item(record: Dict[str, Any]) -> Optional[Dict[str, Any]]:
             dict(record["fast_play_source"]) if isinstance(record.get("fast_play_source"), dict) else None
         ),
         "share_url": f"https://www.douyin.com/video/{aweme_id}",
+        "content_filter": _content_filter_summary(record.get("content_filter")),
     }
+
+
+def _content_filter_summary(value: Any) -> Optional[Dict[str, Any]]:
+    """作品页只需要结论，不下发 signals/motion 等调试细节。
+
+    version / caliber 要下发：判定口径变过（violation 规则、滞回），
+    前端得能区分新旧口径，否则同一列表里两种算法看起来完全一样。
+    """
+    if not isinstance(value, dict):
+        return None
+    keys = ("status", "verdict", "category", "ad_type", "confidence", "reason", "error", "mode", "tags",
+            "appearance", "summary", "version", "caliber", "inconsistent")
+    return {key: value.get(key) for key in keys if value.get(key) is not None}
 
 
 def _sorted_items(records: Iterable[Any]) -> List[Dict[str, Any]]:
@@ -184,9 +199,86 @@ def _sorted_items(records: Iterable[Any]) -> List[Dict[str, Any]]:
     return items
 
 
-def build_archive_page(user: Dict[str, Any], *, page: Any = 1, page_size: Any = DEFAULT_PAGE_SIZE) -> Dict[str, Any]:
+AI_FILTER_VIEWS = ("", "flagged", "error", "inconsistent", "borderline3", "borderline4",
+                   "borderline3_strict", "borderline4_strict")
+
+
+def _borderline(item: Dict[str, Any]) -> Dict[str, Any]:
+    appearance = (item.get("content_filter") or {}).get("appearance") or {}
+    borderline = appearance.get("borderline") if isinstance(appearance, dict) else None
+    return borderline if isinstance(borderline, dict) else {}
+
+
+def borderline_score(item: Dict[str, Any]) -> Optional[int]:
+    score = _borderline(item).get("score")
+    return score if isinstance(score, int) else None
+
+
+def _matches_ai_filter(item: Dict[str, Any], view: str) -> bool:
+    summary = item.get("content_filter") or {}
+    if view == "flagged":
+        return summary.get("verdict") == "reject"
+    if view == "error":
+        return summary.get("status") == "error"
+    if view == "inconsistent":
+        # 模型自相矛盾的条目：分数不能全信，值得重打或人工看一眼
+        return bool(summary.get("inconsistent"))
+    if view.startswith("borderline"):
+        strict = view.endswith("_strict")
+        minimum = view.removeprefix("borderline").removesuffix("_strict")
+        # *_strict 用保守档 score_low：重跑一遍分数会抖，实测 15% 会换档，
+        # 想「宁可少判」时用这个视图
+        score = _borderline(item).get("score_low" if strict else "score")
+        return isinstance(score, int) and score >= int(minimum)
+    return True
+
+
+SCORE_FILTER_MIN, SCORE_FILTER_MAX = 0, 5
+
+
+def _score_bound(raw: Optional[int], name: str) -> Optional[int]:
+    if raw is None:
+        return None
+    if isinstance(raw, bool) or not isinstance(raw, int) or not SCORE_FILTER_MIN <= raw <= SCORE_FILTER_MAX:
+        raise ValueError(f"{name}须在 {SCORE_FILTER_MIN}~{SCORE_FILTER_MAX} 之间：{raw!r}")
+    return raw
+
+
+def build_archive_page(
+    user: Dict[str, Any],
+    *,
+    page: Any = 1,
+    page_size: Any = DEFAULT_PAGE_SIZE,
+    ai_filter: str = "",
+    media_type: str = "",
+    score_min: Optional[int] = None,
+    score_max: Optional[int] = None,
+    unscored: bool = False,
+) -> Dict[str, Any]:
+    """score_min/score_max 按作品库同口径的擦边分（已评分无人物按 0 分）筛，只留已评分作品；
+    unscored 只看没评分/评分失败的作品，不能和区间同时用。"""
+    if ai_filter not in AI_FILTER_VIEWS:
+        raise ValueError(f"未知的 AI 筛选视图：{ai_filter!r}")
+    if media_type and media_type not in (MEDIA_TYPE_VIDEO, MEDIA_TYPE_IMAGE):
+        raise ValueError(f"作品类型须为 {MEDIA_TYPE_VIDEO}/{MEDIA_TYPE_IMAGE}：{media_type!r}")
+    low = _score_bound(score_min, "擦边分下限")
+    high = _score_bound(score_max, "擦边分上限")
+    if low is not None and high is not None and low > high:
+        raise ValueError(f"擦边分下限不能大于上限：{low} > {high}")
+    if unscored and (low is not None or high is not None):
+        raise ValueError("「未评分」不能和擦边分区间同时使用")
     records = user.get("download_records")
     items = _sorted_items(records if isinstance(records, list) else [])
+    if ai_filter:
+        items = [item for item in items if _matches_ai_filter(item, ai_filter)]
+    if media_type:
+        items = [item for item in items if item["media_type"] == media_type]
+    if unscored:
+        items = [item for item in items if rated_borderline_score(item) is None]
+    elif low is not None or high is not None:
+        low = SCORE_FILTER_MIN if low is None else low
+        high = SCORE_FILTER_MAX if high is None else high
+        items = [item for item in items if (score := rated_borderline_score(item)) is not None and low <= score <= high]
 
     size = clamp_page_size(page_size)
     total = len(items)
@@ -206,6 +298,24 @@ def build_archive_page(user: Dict[str, Any], *, page: Any = 1, page_size: Any = 
             MEDIA_TYPE_IMAGE: sum(1 for item in items if item["media_type"] == MEDIA_TYPE_IMAGE),
         },
     }
+
+
+def neighbor_items(
+    user: Dict[str, Any], aweme_id: str, *, before: int = 1, after: int = 2
+) -> List[Dict[str, Any]]:
+    """列表顺序里 aweme_id 前后的作品（不含自己，跨分页）；找不到返回空列表。
+
+    after 在前、离当前近的在前：预取时优先「下一个」。
+    """
+    records = user.get("download_records")
+    items = _sorted_items(records if isinstance(records, list) else [])
+    wanted = str(aweme_id or "").strip()
+    position = next((i for i, item in enumerate(items) if item["aweme_id"] == wanted), None)
+    if position is None:
+        return []
+    following = items[position + 1 : position + 1 + max(0, after)]
+    preceding = items[max(0, position - max(0, before)) : position][::-1]
+    return following + preceding
 
 
 def find_record(user: Dict[str, Any], aweme_id: str) -> Optional[Dict[str, Any]]:

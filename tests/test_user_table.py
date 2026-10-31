@@ -3,6 +3,7 @@ from datetime import datetime, timedelta, timezone
 from unittest.mock import patch
 
 from fastapi.testclient import TestClient
+from record_helpers import patch_monitor_users
 
 from douyin_user_monitor.api import monitor as monitor_api
 from douyin_user_monitor.main import app
@@ -292,6 +293,18 @@ class UsersRoutePaginationTests(unittest.TestCase):
         self.assertEqual(data["items"][0]["id"], "user-4")
         self.assertEqual(data["applied"]["monitor"], "enabled")
 
+    def test_paginated_users_route_derives_counts_from_record_store(self):
+        # 拆分后 list_users 不带记录：视频/图集数、最近发布必须来自 RecordStore
+        with patch_monitor_users(self.users, method="list_users"):
+            response = self.client.get(
+                "/api/monitor/users",
+                params={"page": 1, "page_size": 20, "search": "user-1"},
+            )
+        self.assertEqual(response.status_code, 200)
+        row = next(item for item in response.json()["data"]["items"] if item["id"] == "user-1")
+        self.assertEqual((row["known_video_posts"], row["known_image_posts"]), (1, 1))
+        self.assertTrue(row["activity_known"])
+
     def test_paginated_users_route_sort_by_created(self):
         seen = {}
         for order, expected_first in (("desc", "user-4"), ("asc", "user-1")):
@@ -323,6 +336,99 @@ class UsersRoutePaginationTests(unittest.TestCase):
         self.assertIn("recent_activity", body["data"])
         self.assertIsInstance(body["data"]["recent_activity"], list)
         mocked.assert_called_once_with()
+
+
+
+def scored_record(publish_time: str, index: int, score, *, version: int = 5, status: str = "ok"):
+    record = build_record(publish_time)
+    record["aweme_id"] = f"{publish_time}-{index}"
+    appearance = {} if score is None else {"borderline": {"score": score}}
+    record["content_filter"] = {"version": version, "status": status, "appearance": appearance}
+    return record
+
+
+def value_user(user_id: str, publish_time: str, scores, *, extra_unscored: int = 0):
+    records = [scored_record(publish_time, index, score) for index, score in enumerate(scores)]
+    records += [build_record(f"{publish_time[:10]}T0{index}:00:00+08:00") for index in range(extra_unscored)]
+    return {
+        "id": user_id,
+        "nickname": user_id,
+        "sec_user_id": f"sec-{user_id}",
+        "enabled": True,
+        "account_status": "normal",
+        "created_at": "2026-01-01T00:00:00+08:00",
+        "downloaded_count": len(records),
+        "download_records": records,
+    }
+
+
+class UserValueTests(unittest.TestCase):
+    def setUp(self):
+        self.now = datetime(2026, 9, 30, 12, 0, tzinfo=CHINA_TZ)
+        recent = "2026-09-25T10:00:00+08:00"
+        self.users = [
+            # 擦边低：5 条已评分，均分 0.8（无 borderline 分档按 0 分）
+            value_user("low", recent, [0, 1, 1, 2, None]),
+            # 分数高但 100 天没发 → 长期沉默
+            value_user("silent", "2026-06-22T10:00:00+08:00", [3, 4, 3, 3, 4]),
+            # 只评了 2 条：待评分，不参与擦边判定
+            value_user("pending", recent, [0, 0], extra_unscored=6),
+            # 正常：均分 2.6，最近在发
+            value_user("good", recent, [3, 3, 2, 3, 2]),
+        ]
+
+    def query(self, **kwargs):
+        return query_monitor_users(self.users, page=1, page_size=20, now=self.now, **kwargs)
+
+    def ids(self, **kwargs):
+        return [item["id"] for item in self.query(**kwargs)["items"]]
+
+    def test_score_metrics_on_rows(self):
+        rows = {item["id"]: item for item in self.query()["items"]}
+        self.assertEqual(rows["low"]["scored_works"], 5)
+        self.assertEqual(rows["low"]["avg_borderline_score"], 0.8)
+        self.assertEqual(rows["low"]["high_score_works"], 0)
+        self.assertEqual(rows["good"]["high_score_ratio"], 0.6)
+        self.assertEqual(rows["pending"]["scored_works"], 2)
+        self.assertTrue(rows["pending"]["is_score_pending"])
+        self.assertEqual(rows["low"]["low_value_reasons"], ["low_score"])
+        self.assertEqual(rows["silent"]["low_value_reasons"], ["long_silent"])
+        self.assertFalse(rows["good"]["is_low_value"])
+
+    def test_failed_or_old_version_scores_are_not_counted(self):
+        user = value_user("mixed", "2026-09-25T10:00:00+08:00", [3])
+        user["download_records"].append(scored_record("2026-09-24T10:00:00+08:00", 9, 0, status="error"))
+        user["download_records"].append(scored_record("2026-09-24T10:00:00+08:00", 8, 0, version=4))
+        row = query_monitor_users([user], page=1, page_size=20, now=self.now)["items"][0]
+        self.assertEqual(row["scored_works"], 1)
+        self.assertEqual(row["avg_borderline_score"], 3.0)
+
+    def test_value_filters(self):
+        self.assertEqual(sorted(self.ids(value="low_value")), ["low", "silent"])
+        self.assertEqual(self.ids(value="low_score"), ["low"])
+        self.assertEqual(self.ids(value="long_silent"), ["silent"])
+        self.assertEqual(self.ids(value="score_pending"), ["pending"])
+        self.assertEqual(self.query(value="bogus")["applied"]["value"], "all")
+
+    def test_silent_windows(self):
+        self.assertEqual(self.ids(activity="silent_90d"), ["silent"])
+        self.assertEqual(self.ids(activity="silent_180d"), [])
+        self.assertEqual(self.ids(activity="silent_60d"), ["silent"])
+
+    def test_summary_counts_value_groups(self):
+        from douyin_user_monitor.monitor.statistics import build_user_statistics
+
+        summary = build_user_statistics(self.users, now=self.now)["summary"]
+        self.assertEqual(summary["low_value_users"], 2)
+        self.assertEqual(summary["low_score_users"], 1)
+        self.assertEqual(summary["long_silent_users"], 1)
+        self.assertEqual(summary["score_pending_users"], 1)
+        self.assertEqual(summary["silent_users_90d"], 1)
+
+    def test_score_sort_puts_pending_last_both_ways(self):
+        self.assertEqual(self.ids(sort_by="avg_score", sort_order="asc"), ["low", "good", "silent", "pending"])
+        self.assertEqual(self.ids(sort_by="avg_score", sort_order="desc"), ["silent", "good", "low", "pending"])
+        self.assertEqual(self.ids(sort_by="high_score_ratio", sort_order="asc")[0], "low")
 
 
 if __name__ == "__main__":

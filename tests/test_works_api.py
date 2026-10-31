@@ -5,6 +5,7 @@ from typing import Any, Dict
 from unittest.mock import AsyncMock, patch
 
 from fastapi.testclient import TestClient
+from record_helpers import patch_monitor_users
 
 from douyin_user_monitor.api import monitor as monitor_api
 from douyin_user_monitor.main import app
@@ -47,7 +48,7 @@ class ListUserAwemesRouteTests(unittest.TestCase):
     def test_returns_items_plus_slim_user_header(self):
         users = [sample_user()]
         with (
-            patch.object(monitor_api.monitor_service, "list_users_async", return_value=users),
+            patch_monitor_users(users),
             patch.object(
                 monitor_api.AWEME_FEED_SERVICE,
                 "list_user_awemes",
@@ -90,7 +91,7 @@ class ListUserAwemesRouteTests(unittest.TestCase):
             )
         ]
         with (
-            patch.object(monitor_api.monitor_service, "list_users_async", return_value=users),
+            patch_monitor_users(users),
             patch.object(
                 monitor_api.AWEME_FEED_SERVICE,
                 "list_user_awemes",
@@ -104,7 +105,7 @@ class ListUserAwemesRouteTests(unittest.TestCase):
 
     def test_header_former_nicknames_empty_without_rename(self):
         with (
-            patch.object(monitor_api.monitor_service, "list_users_async", return_value=[sample_user()]),
+            patch_monitor_users([sample_user()]),
             patch.object(
                 monitor_api.AWEME_FEED_SERVICE,
                 "list_user_awemes",
@@ -115,20 +116,20 @@ class ListUserAwemesRouteTests(unittest.TestCase):
         self.assertEqual(response.json()["data"]["user"]["former_nicknames"], [])
 
     def test_unknown_user_is_404(self):
-        with patch.object(monitor_api.monitor_service, "list_users_async", return_value=[]):
+        with patch_monitor_users([]):
             response = self.client.get("/api/monitor/users/nope/awemes")
         self.assertEqual(response.status_code, 404)
 
     def test_user_without_sec_user_id_is_rejected(self):
         users = [sample_user(sec_user_id="")]
-        with patch.object(monitor_api.monitor_service, "list_users_async", return_value=users):
+        with patch_monitor_users(users):
             response = self.client.get("/api/monitor/users/user-1/awemes")
         self.assertEqual(response.status_code, 400)
 
     def test_upstream_failure_maps_to_502(self):
         users = [sample_user()]
         with (
-            patch.object(monitor_api.monitor_service, "list_users_async", return_value=users),
+            patch_monitor_users(users),
             patch.object(
                 monitor_api.AWEME_FEED_SERVICE,
                 "list_user_awemes",
@@ -156,7 +157,7 @@ class ProxyAwemeVideoRouteTests(unittest.TestCase):
             else AsyncMock(return_value=stream_result)
         )
         return (
-            patch.object(monitor_api.monitor_service, "list_users_async", return_value=users),
+            patch_monitor_users(users),
             patch.object(monitor_api.AWEME_FEED_SERVICE, "resolve_play_url", new=resolve),
             patch.object(
                 monitor_api.CRAWLER_CLIENT,
@@ -235,7 +236,7 @@ class ProxyAwemeVideoRouteTests(unittest.TestCase):
         self.assertEqual(response.status_code, 502)
 
     def test_unknown_user_is_404_before_any_upstream_call(self):
-        with patch.object(monitor_api.monitor_service, "list_users_async", return_value=[]):
+        with patch_monitor_users([]):
             with patch.object(
                 monitor_api.AWEME_FEED_SERVICE, "resolve_play_url", new=AsyncMock()
             ) as resolve:
@@ -257,7 +258,12 @@ class WorksPageTests(unittest.TestCase):
         html = self.client.get("/api/monitor/works/dashboard").text
         # 列表只走本地归档端点；实时抖音端点不应出现在页面里
         self.assertIn("/archive?", html)
-        self.assertIn("/archive/${encodeURIComponent(awemeId)}/media/", html)
+        # 媒体地址拼接已抽到共享播放器模块
+        self.assertIn('src="/static/works-viewer.js', html)
+        viewer_js = self.client.get("/static/works-viewer.js").text
+        self.assertIn("/archive`", viewer_js)
+        self.assertIn("${encodeURIComponent(item.aweme_id)}/media/", viewer_js)
+        self.assertNotIn("/awemes", viewer_js)
         self.assertNotIn("/awemes?", html)
         self.assertNotIn("/awemes/", html)
         self.assertIn('src="/static/common.js', html)
@@ -265,8 +271,10 @@ class WorksPageTests(unittest.TestCase):
 
     def test_video_cards_use_placeholder_since_archive_has_no_cover(self):
         html = self.client.get("/api/monitor/works/dashboard").text
-        self.assertIn("item.cover_index", html)
         self.assertIn("work-cover-empty", html)
+        # 封面地址回退到归档封面文件的逻辑在共享播放器模块里
+        viewer_js = self.client.get("/static/works-viewer.js").text
+        self.assertIn("item.cover_index", viewer_js)
 
     def test_page_escapes_untrusted_desc_and_restricts_media_urls(self):
         html = self.client.get("/api/monitor/works/dashboard").text
@@ -345,9 +353,16 @@ class WorksOverlayTests(unittest.TestCase):
         self.assertIn("history.pushState({ worksOverlay: id }", self.html)
         self.assertIn('window.addEventListener("popstate"', self.html)
         self.assertIn("fromHistory: true", self.html)
+        # 浮层里播放器开着时按钮关闭要连播放器那条历史一起退
+        self.assertIn("frameWindow.history.state?.worksViewer ? -2 : -1", self.html)
+
+    def test_iframe_navigation_does_not_add_history_entries(self):
+        # 改 iframe.src 会多压一条历史，右滑返回会退到 iframe 里而不是关浮层
+        self.assertNotIn('worksFrame").src =', self.html)
+        self.assertIn("contentWindow.location.replace(`${worksPageUrl(id)}&embed=1`)", self.html)
 
     def test_close_stops_iframe_video_stream(self):
-        self.assertIn('worksFrame").src = "about:blank"', self.html)
+        self.assertIn('frameWindow.location.replace("about:blank")', self.html)
 
     def test_child_close_messages_are_origin_checked(self):
         self.assertIn("event.origin !== window.location.origin", self.html)

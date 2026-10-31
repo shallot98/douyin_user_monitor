@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-import json
 import tempfile
 import threading
 import unittest
@@ -12,8 +11,10 @@ from unittest.mock import AsyncMock, patch
 import httpx
 from archive_http_server import ArchiveMediaServer
 from fastapi import FastAPI
+from record_helpers import write_state_file
 
 from douyin_user_monitor.api import monitor as monitor_api
+from douyin_user_monitor.api.archive_media_cache import ArchiveMediaCache
 from douyin_user_monitor.monitor.openlist_client import ArchiveUnavailableError, OpenListClient
 from douyin_user_monitor.monitor.storage import MonitorStorage, build_default_state
 
@@ -48,7 +49,7 @@ class ArchiveResponsivenessTests(unittest.IsolatedAsyncioTestCase):
         self.path = self.root / "state.json"
         state = build_default_state()
         state["users"] = [archive_user()]
-        self.path.write_text(json.dumps(state), encoding="utf-8")
+        write_state_file(self.path, state)
         self.server = ArchiveMediaServer({
             "cover.jpg": b"CLOUD-COVER", "play.mp4": PLAYBACK_BYTES, "original.mp4": ORIGINAL_BYTES,
         })
@@ -122,16 +123,18 @@ class ArchiveResponsivenessTests(unittest.IsolatedAsyncioTestCase):
                 await self._assert_route_does_not_block(route)
 
     async def test_selected_playback_and_original_indices_return_distinct_exact_ranges(self):
+        cache = ArchiveMediaCache(self.root / "media_cache", max_file_bytes=1024, max_total_bytes=4096)
         with (
             patch.object(monitor_api.monitor_service, "_storage", MonitorStorage(self.path)),
             patch.object(monitor_api, "SETTINGS", self.settings),
+            patch.object(monitor_api, "ARCHIVE_MEDIA_CACHE", cache),
         ):
             async with self._client() as client:
                 page = await client.get(USER_PATH + "/archive")
                 item = page.json()["data"]["items"][0]
                 self.assertEqual((item["cover_index"], item["play_index"], item["archive_index"]), (0, 1, 2))
-                self.assertEqual(self.server.requests, [])  # Prefetch resolves metadata, never media bytes.
-                self.assertTrue(any(path.endswith("/play.mp4") for path in self.metadata_paths))
+                # 预取只拉播放文件，整份落缓存；原片不预取
+                self.assertEqual(self.server.requests, [("play.mp4", None)])
                 for index, content in ((item["play_index"], PLAYBACK_BYTES), (item["archive_index"], ORIGINAL_BYTES)):
                     response = await client.get(
                         USER_PATH + f"/archive/7001/media/{index}", headers={"Range": "bytes=2-7"}
@@ -139,7 +142,8 @@ class ArchiveResponsivenessTests(unittest.IsolatedAsyncioTestCase):
                     self.assertEqual(response.status_code, 206)
                     self.assertEqual(response.content, content[2:8])
                     self.assertEqual(response.headers["content-range"], f"bytes 2-7/{len(content)}")
-        self.assertEqual(self.server.requests, [("play.mp4", "bytes=2-7"), ("original.mp4", "bytes=2-7")])
+        # 播放文件命中预取缓存不再回源；原片首次整份回源一次，Range 由本机切片
+        self.assertEqual(self.server.requests, [("play.mp4", None), ("original.mp4", None)])
         self.assertEqual((self.root / "original.mp4").read_bytes(), b"LOCAL-ORIGINAL")
 
     async def test_missing_playback_does_not_request_original_instead(self):

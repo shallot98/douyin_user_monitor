@@ -10,6 +10,7 @@ from unittest.mock import AsyncMock, patch
 
 from fastapi.testclient import TestClient
 from PIL import Image
+from record_helpers import patch_monitor_users
 
 from douyin_user_monitor.api import monitor as monitor_api
 from douyin_user_monitor.main import API_KEY_ENV, app
@@ -49,7 +50,7 @@ class CoverApiTests(unittest.TestCase):
         self.addCleanup(contexts.close)
         contexts.enter_context(patch.dict(os.environ, {API_KEY_ENV: ""}))
         contexts.enter_context(patch.object(monitor_api, "COVER_STORE", self.store))
-        contexts.enter_context(patch.object(monitor_api.monitor_service, "list_users_async", return_value=[self.user]))
+        contexts.enter_context(patch_monitor_users([self.user]))
         self.cloud = contexts.enter_context(patch.object(
             monitor_api.OPENLIST_CLIENT, "resolve_stream_url", new=AsyncMock(side_effect=AssertionError("cloud read")),
         ))

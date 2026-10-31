@@ -416,3 +416,213 @@ def test_target_base_switch_is_blocked_while_tasks_are_in_flight(tmp_path: Path)
     )
     assert "then_allowed=ok" in result.stdout
     assert "guard_blocked=1" in result.stdout
+
+
+def test_d2_direct_upload_stages_backup_and_cleans_local_source(tmp_path: Path) -> None:
+    """开启 D2_DIRECT_UPLOAD 时，先硬链接进暂存区并提交夸克 copy，再直传 D2 并删除本地源文件。"""
+    result = run_bash(
+        PRELUDE
+        + r'''
+        TARGET_BASE="/d2/target"
+        D2_DIRECT_UPLOAD="true"
+        D2_DIRECT_CALLS_FILE="${TMP_ROOT}/d2-direct-calls"
+        : > "${D2_DIRECT_CALLS_FILE}"
+
+        d2_direct_upload_file() {
+          local local_file_path="$1" dst_dir="$2" file_name="$3"
+          printf '%s\t%s\n' "${dst_dir}" "${file_name}" >> "${D2_DIRECT_CALLS_FILE}"
+          rm -f -- "${local_file_path}"
+          unmark_file_pending "${local_file_path}"
+          return 0
+        }
+
+        api_post_json() {
+          local path="$2" payload="$3"
+          case "${path}" in
+            "/api/fs/mkdir") printf '{"code":200}' ;;
+            "/api/fs/list") jq -cn '{code:200,data:{total:0,content:[]}}' ;;
+            "/api/fs/copy")
+              jq -r '.dst_dir' <<< "${payload}" >> "${COPY_CALLS_FILE}"
+              jq -cn '{code:200,data:{tasks:[{id:"copy-1"}]}}'
+              ;;
+            "/api/fs/move")
+              printf 'unexpected /api/fs/move call\n' >&2
+              return 1
+              ;;
+            *) printf 'unexpected: %s\n' "${path}" >&2; return 1 ;;
+          esac
+        }
+
+        process_files_batched "token" "$(date +%s)"
+
+        # 本地原路径已删，但暂存区硬链接保留以供夸克 copy 读取
+        [[ ! -f "${SOURCE_ROOT}/acct/a.mp4" ]]
+        [[ -f "${SOURCE_ROOT}/.backup-staging/acct/a.mp4" ]]
+        [[ "$(cat "${SOURCE_ROOT}/.backup-staging/acct/a.mp4")" == "abcd" ]]
+        [[ "$(cat "${COPY_CALLS_FILE}")" == "/kuake/target/acct" ]]
+        [[ "$(cat "${D2_DIRECT_CALLS_FILE}")" == $'/d2/target/acct\ta.mp4' ]]
+        printf 'moved=%s errors=%s\n' "${PROCESS_MOVED_COUNT}" "${PROCESS_ERROR_COUNT}"
+        ''',
+        tmp_path,
+    )
+    assert "moved=1 errors=0" in result.stdout
+
+
+
+def test_trailing_space_dir_is_trimmed_for_targets_but_source_keeps_original(tmp_path: Path) -> None:
+    """标题截断留下尾空格的图集目录：D2 与夸克目标去掉尾空格，/qbt 源路径和本地文件保持原名。"""
+    result = run_bash(
+        PRELUDE
+        + r'''
+        TARGET_BASE="/d2/target"
+        D2_DIRECT_UPLOAD="true"
+        D2_DIRECT_CALLS_FILE="${TMP_ROOT}/d2-direct-calls"
+        COPY_SRC_FILE="${TMP_ROOT}/copy-src"
+        : > "${D2_DIRECT_CALLS_FILE}"
+        : > "${COPY_SRC_FILE}"
+        rm -f "${SOURCE_ROOT}/acct/a.mp4"
+        mkdir -p "${SOURCE_ROOT}/acct/图片/标题截断 "
+        printf abcd > "${SOURCE_ROOT}/acct/图片/标题截断 /1.jpg"
+
+        mapfile -t ctx < <(build_remote_paths "${SOURCE_ROOT}/acct/图片/标题截断 /1.jpg")
+        [[ "${ctx[0]}" == "/qbt/source/acct/图片/标题截断 " ]]
+        [[ "${ctx[1]}" == "/d2/target/acct/图片/标题截断" ]]
+        [[ "$(backup_dir_for_local_file "${SOURCE_ROOT}/acct/图片/标题截断 /1.jpg")" == "/kuake/target/acct/图片/标题截断" ]]
+
+        d2_direct_upload_file() {
+          local local_file_path="$1" dst_dir="$2" file_name="$3"
+          printf '%s\t%s\n' "${dst_dir}" "${file_name}" >> "${D2_DIRECT_CALLS_FILE}"
+          rm -f -- "${local_file_path}"
+          unmark_file_pending "${local_file_path}"
+          return 0
+        }
+
+        api_post_json() {
+          local path="$2" payload="$3"
+          case "${path}" in
+            "/api/fs/mkdir") printf '{"code":200}' ;;
+            "/api/fs/list") jq -cn '{code:200,data:{total:0,content:[]}}' ;;
+            "/api/fs/copy")
+              jq -r '.dst_dir' <<< "${payload}" >> "${COPY_CALLS_FILE}"
+              jq -r '.src_dir' <<< "${payload}" >> "${COPY_SRC_FILE}"
+              jq -cn '{code:200,data:{tasks:[{id:"copy-1"}]}}'
+              ;;
+            *) printf 'unexpected: %s\n' "${path}" >&2; return 1 ;;
+          esac
+        }
+
+        process_files_batched "token" "$(date +%s)"
+
+        [[ "$(cat "${D2_DIRECT_CALLS_FILE}")" == $'/d2/target/acct/图片/标题截断\t1.jpg' ]]
+        [[ "$(cat "${COPY_CALLS_FILE}")" == "/kuake/target/acct/图片/标题截断" ]]
+        # 夸克 copy 从暂存区读，暂存区保留原目录名
+        [[ "$(cat "${COPY_SRC_FILE}")" == "/qbt/source/.backup-staging/acct/图片/标题截断 " ]]
+        printf 'moved=%s errors=%s\n' "${PROCESS_MOVED_COUNT}" "${PROCESS_ERROR_COUNT}"
+        ''',
+        tmp_path,
+    )
+    assert "moved=1 errors=0" in result.stdout
+
+
+def test_d2_transient_5xx_is_retried_without_counting_as_error_until_limit(tmp_path: Path) -> None:
+    """D2 网关间歇 500：本地文件保留、不计失败；同一文件连续达到上限才计为失败。
+
+    也锁住：一次失败不会让整轮 mover 因 set -e 提前退出。
+    """
+    result = run_bash(
+        PRELUDE
+        + r'''
+        TARGET_BASE="/d2/target"
+        D2_DIRECT_UPLOAD="true"
+        D2_TRANSIENT_MAX_ATTEMPTS=3
+        D2_DIRECT_PYTHON="${TMP_ROOT}/fake-python"
+        printf '#!/usr/bin/env bash\nprintf %s\nexit 1\n' "'{\"error\":\"D2 block upload: HTTP 500\"}'" > "${D2_DIRECT_PYTHON}"
+        chmod +x "${D2_DIRECT_PYTHON}"
+        OPENLIST_DB="${TMP_ROOT}/none.db"
+
+        api_post_json() {
+          local path="$2"
+          case "${path}" in
+            "/api/fs/mkdir") printf '{"code":200}' ;;
+            "/api/fs/list") jq -cn '{code:200,data:{total:0,content:[]}}' ;;
+            "/api/fs/copy") jq -cn '{code:200,data:{tasks:[{id:"copy-1"}]}}' ;;
+            *) printf 'unexpected: %s\n' "${path}" >&2; return 1 ;;
+          esac
+        }
+
+        for round in 1 2 3; do
+          process_files_batched "token" "$(date +%s)"
+          printf 'round%s errors=%s\n' "${round}" "${PROCESS_ERROR_COUNT}"
+        done
+        [[ -f "${SOURCE_ROOT}/acct/a.mp4" ]]
+        ''',
+        tmp_path,
+    )
+    assert "round1 errors=0" in result.stdout
+    assert "round2 errors=0" in result.stdout
+    assert "round3 errors=1" in result.stdout
+
+
+D2_EXISTING_TARGET = r'''
+TARGET_BASE="/d2/target"
+VERIFY_CALLS_FILE="${TMP_ROOT}/verify-calls"
+: > "${VERIFY_CALLS_FILE}"
+api_post_json() {
+  local path="$2" payload="$3"
+  case "${path}" in
+    "/api/fs/list") jq -cn '{code:200,data:{total:1,content:[{name:"a.mp4",size:4}]}}' ;;
+    *) printf 'unexpected: %s\n' "${path}" >&2; return 1 ;;
+  esac
+}
+d2_verify_content() {
+  printf '%s\t%s\n' "$1" "$2" >> "${VERIFY_CALLS_FILE}"
+  printf '{"match":false}'
+  return "${VERIFY_RC}"
+}
+set +e
+resolve_existing_target_conflict token "${SOURCE_ROOT}/acct/a.mp4" /d2/target/acct a.mp4
+printf 'rc=%s\n' "$?"
+set -e
+printf 'local=%s\n' "$([[ -f "${SOURCE_ROOT}/acct/a.mp4" ]] && echo kept || echo deleted)"
+printf 'skipped=%s\n' "$(is_file_skipped "${SOURCE_ROOT}/acct/a.mp4" && echo yes || echo no)"
+printf 'verify=%s\n' "$(cut -f2 "${VERIFY_CALLS_FILE}")"
+'''
+
+
+def test_d2_same_size_but_different_content_keeps_local_and_skips(tmp_path: Path) -> None:
+    """D2 同名同大小但 content_identity 不同：不删本地，转入 skipped（线上配置开着 SKIP_CONFLICTING_FILES）。"""
+    result = run_bash(PRELUDE + 'SKIP_CONFLICTING_FILES="true"\nVERIFY_RC=3\n' + D2_EXISTING_TARGET, tmp_path)
+    assert "rc=3" in result.stdout
+    assert "local=kept" in result.stdout
+    assert "skipped=yes" in result.stdout
+    assert "verify=/target/acct/a.mp4" in result.stdout
+
+
+def test_d2_content_mismatch_without_skip_list_still_keeps_local(tmp_path: Path) -> None:
+    result = run_bash(PRELUDE + "VERIFY_RC=3\n" + D2_EXISTING_TARGET, tmp_path)
+    assert "rc=1" in result.stdout
+    assert "local=kept" in result.stdout
+
+
+def test_d2_content_check_failure_keeps_local_for_next_round(tmp_path: Path) -> None:
+    """校验本身失败（网络/接口错误）：不删、不标 skipped，下轮重试。"""
+    result = run_bash(PRELUDE + "VERIFY_RC=1\n" + D2_EXISTING_TARGET, tmp_path)
+    assert "rc=1" in result.stdout
+    assert "local=kept" in result.stdout
+    assert "skipped=no" in result.stdout
+
+
+def test_d2_matching_content_deletes_local(tmp_path: Path) -> None:
+    result = run_bash(PRELUDE + "VERIFY_RC=0\n" + D2_EXISTING_TARGET, tmp_path)
+    assert "rc=0" in result.stdout
+    assert "local=deleted" in result.stdout
+
+
+def test_non_d2_target_is_not_content_checked(tmp_path: Path) -> None:
+    """夸克等盘拿不到哈希，维持只比大小，也不调用 D2 校验。"""
+    script = D2_EXISTING_TARGET.replace('TARGET_BASE="/d2/target"', 'TARGET_BASE="/wopan/target"').replace(
+        "/d2/target/acct a.mp4", "/wopan/target/acct a.mp4")
+    result = run_bash(PRELUDE + "VERIFY_RC=3\n" + script, tmp_path)
+    assert "rc=0" in result.stdout
+    assert "local=deleted" in result.stdout
+    assert "verify=\n" in result.stdout

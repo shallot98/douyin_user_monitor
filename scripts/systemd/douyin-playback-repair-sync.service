@@ -1,0 +1,10 @@
+[Unit]
+Description=Publish verified D2 playback repair receipts
+After=network-online.target douyin-monitor-8900.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=/root/douyin_user_monitor
+EnvironmentFile=/etc/douyin-monitor/auth.env
+ExecStart=/root/douyin_user_monitor/.venv/bin/python -m scripts.cloud_playback.sync_results --config /etc/douyin-playback-repair/sync.json
+TimeoutStartSec=300

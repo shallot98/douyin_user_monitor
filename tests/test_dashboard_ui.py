@@ -101,7 +101,7 @@ class DashboardUiTests(unittest.TestCase):
         self.assertIn('background: #172033;', html)
         self.assertIn('-webkit-backdrop-filter: none;', html)
         self.assertIn('backdrop-filter: none;', html)
-        self.assertIn('/static/common.css?v=theme-20260921b', html)
+        self.assertIn('/static/common.css?v=theme-20261006a', html)
         self.assertIn('UI theme-20260921b', html)
 
     def test_cookies_dashboard_has_pool_controls(self):

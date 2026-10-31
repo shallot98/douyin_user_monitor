@@ -62,6 +62,7 @@ from crawlers.utils.utils import (
     gen_random_str,
     get_timestamp,
     extract_valid_urls,
+    proxy_mounts,
     split_filename,
 )
 
@@ -115,7 +116,7 @@ class TokenManager:
         }
 
         transport = httpx.HTTPTransport(retries=5)
-        with httpx.Client(transport=transport, proxies=cls.proxies) as client:
+        with httpx.Client(transport=transport, mounts=proxy_mounts(cls.proxies, httpx.HTTPTransport)) as client:
             try:
                 response = client.post(
                     cls.token_conf["url"], content=payload, headers=headers
@@ -357,7 +358,7 @@ class SecUserIdFetcher:
         try:
             transport = httpx.AsyncHTTPTransport(retries=5)
             async with httpx.AsyncClient(
-                    transport=transport, proxies=TokenManager.proxies, timeout=10
+                    transport=transport, mounts=proxy_mounts(TokenManager.proxies, httpx.AsyncHTTPTransport), timeout=10
             ) as client:
                 response = await client.get(url, follow_redirects=True)
                 # 444一般为Nginx拦截，不返回状态 (444 is generally intercepted by Nginx and does not return status)
@@ -545,7 +546,7 @@ class WebCastIdFetcher:
             # 重定向到完整链接
             transport = httpx.AsyncHTTPTransport(retries=5)
             async with httpx.AsyncClient(
-                    transport=transport, proxies=TokenManager.proxies, timeout=10
+                    transport=transport, mounts=proxy_mounts(TokenManager.proxies, httpx.AsyncHTTPTransport), timeout=10
             ) as client:
                 response = await client.get(url, follow_redirects=True)
                 response.raise_for_status()

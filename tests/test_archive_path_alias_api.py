@@ -4,6 +4,7 @@ import unittest
 from unittest.mock import AsyncMock, call, patch
 
 from fastapi.testclient import TestClient
+from record_helpers import patch_monitor_users
 
 from douyin_user_monitor.api import monitor as monitor_api
 from douyin_user_monitor.main import app
@@ -48,7 +49,7 @@ class ArchiveAliasApiTests(unittest.TestCase):
         upstream = (206, {"Content-Type": "video/mp4", "Content-Range": "bytes 0-4/100"}, self._body())
         opener = AsyncMock(side_effect=[monitor_api.MediaUpstreamError("expired"), upstream])
         with (
-            patch.object(monitor_api.monitor_service, "list_users_async", return_value=[alias_user()]),
+            patch_monitor_users([alias_user()]),
             patch.object(monitor_api, "ARCHIVE_PATH_ALIASES", aliases()),
             patch.object(monitor_api.OPENLIST_CLIENT, "resolve_candidate_url", new=AsyncMock(return_value="https://d2.example/video")) as resolve,
             patch.object(monitor_api, "open_media_stream", new=opener),
@@ -65,7 +66,7 @@ class ArchiveAliasApiTests(unittest.TestCase):
         user = alias_user()
         user["download_records"][0]["downloaded_at"] = "2026-09-13T16:00:00+08:00"
         with (
-            patch.object(monitor_api.monitor_service, "list_users_async", return_value=[user]),
+            patch_monitor_users([user]),
             patch.object(monitor_api, "ARCHIVE_PATH_ALIASES", aliases()),
             patch.object(monitor_api.OPENLIST_CLIENT, "resolve_candidate_url", new=AsyncMock()) as resolve,
         ):

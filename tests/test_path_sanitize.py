@@ -9,7 +9,6 @@ download_records 保留原名。网页播放要用同一套变换才能在主力
 
 from __future__ import annotations
 
-import json
 import shutil
 import subprocess
 import unittest
@@ -22,7 +21,10 @@ from douyin_user_monitor.monitor.path_sanitize import (
     sanitize_component,
     sanitize_relative_dir,
     sanitize_relative_path,
+    sanitize_user_dir_only,
+    trim_relative_dirs,
 )
+from douyin_user_monitor.monitor.record_store import load_state_with_records, record_db_path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 STATE_FILE = REPO_ROOT / "data" / "monitor_users.json"
@@ -48,6 +50,28 @@ def shell_sanitize_component(text: str) -> str:
         check=True,
     )
     return result.stdout
+
+
+def shell_trim_relative_dir(relative_dir: str) -> tuple[int, str]:
+    """调用 paths.sh 的 trim_relative_dir，返回 (退出码, 输出)。"""
+    script = f"""
+    set -uo pipefail
+    SCRIPT_DIR="{REPO_ROOT}/scripts"
+    SCRIPT_BASENAME="openlist-auto-move-mp4.sh"
+    DEFAULT_CONFIG_FILE="${{SCRIPT_DIR}}/openlist-auto-move.conf"
+    OPENLIST_MOVER_PROJECT_ROOT="{REPO_ROOT}"
+    source "${{SCRIPT_DIR}}/openlist-auto-move/common.sh"
+    source "${{SCRIPT_DIR}}/openlist-auto-move/paths.sh"
+    log() {{ :; }}
+    trim_relative_dir "$1"
+    """
+    result = subprocess.run(
+        ["bash", "-c", script, "bash", relative_dir],
+        cwd=REPO_ROOT,
+        text=True,
+        capture_output=True,
+    )
+    return result.returncode, result.stdout
 
 
 class SanitizeComponentTests(unittest.TestCase):
@@ -187,11 +211,39 @@ class SanitizeRelativePathTests(unittest.TestCase):
         self.assertEqual(path, f"{FALLBACK_DIR_PREFIX}ABC/x.mp4")
 
 
+class SanitizeUserDirOnlyTests(unittest.TestCase):
+    def test_only_first_segment_is_sanitised(self):
+        self.assertEqual(
+            sanitize_user_dir_only("小米糕🐑/图片/20260717_205055_黑武士和他的公主🪽/1.jpg"),
+            "小米糕/图片/20260717_205055_黑武士和他的公主🪽/1.jpg",
+        )
+
+    def test_all_emoji_user_dir_uses_sec_fallback(self):
+        self.assertEqual(sanitize_user_dir_only("🐱/作品🍬/1.jpg", sec_user_id="sid-1"), "sec_sid-1/作品🍬/1.jpg")
+        self.assertIsNone(sanitize_user_dir_only("🐱/作品🍬/1.jpg"))
+
+    def test_single_segment_has_no_user_dir(self):
+        self.assertIsNone(sanitize_user_dir_only("带🍬.mp4"))
+
+
+class TrimRelativeDirsTests(unittest.TestCase):
+    def test_trailing_space_dirs_are_trimmed_and_filename_kept(self):
+        self.assertEqual(trim_relative_dirs("用户 /图片/标题截断 /1 .jpg"), "用户/图片/标题截断/1 .jpg")
+
+    def test_unchanged_or_single_segment_returns_none(self):
+        self.assertIsNone(trim_relative_dirs("用户/图片/标题/1.jpg"))
+        self.assertIsNone(trim_relative_dirs("a .mp4"))
+
+    def test_blank_dir_segment_returns_none(self):
+        self.assertIsNone(trim_relative_dirs("用户/ /1.jpg"))
+
+
 def _real_corpus() -> List[str]:
     """仓库真实数据里的账号目录名与图文标题目录名。"""
-    if not STATE_FILE.is_file():
+    if not STATE_FILE.is_file() or not record_db_path(STATE_FILE).is_file():
         return []
-    state = json.loads(STATE_FILE.read_text(encoding="utf-8"))
+    # 目录名语料主要来自作品记录，拆分后记录在旁边的 monitor_records.db
+    state = load_state_with_records(STATE_FILE)
     names = set()
     for user in state.get("users", []):
         nickname = str(user.get("nickname") or "").strip()
@@ -232,7 +284,33 @@ class ShellParityTests(unittest.TestCase):
         "𓇼",
         "🇲🇴澳门",
         "𠮷野家",
+        # 标题截断落在空格上（2026-10-30 mover 静默卡住的来源）
+        "20261027_221728_7701351591635407345_或许有一天我还会再次来到北京 但那时又会是新的篇章 ",
+        "标题\t带制表符 ",
     )
+
+    TRIM_SAMPLES = (
+        "知哦周/图片/20261027_221728_7701351591635407345_或许有一天我还会再次来到北京 ",
+        "nana/图片/20260803_老板我们苏州继续见🤍🤍🤍🎻 澳门场圆满结束🔚🫶#演唱会 ",
+        " 前导空格用户/图片/标题",
+        "用户/图片/没有空格",
+        "单层目录 ",
+    )
+
+    def test_trim_matches_shell_on_samples(self):
+        """mover 写目标目录与网页侧找文件必须算出同一路径。"""
+        for relative_dir in self.TRIM_SAMPLES:
+            with self.subTest(relative_dir=relative_dir):
+                rc, shell_out = shell_trim_relative_dir(relative_dir)
+                self.assertEqual(rc, 0)
+                python_out = trim_relative_dirs(f"{relative_dir}/1.jpg")
+                expected = (python_out or f"{relative_dir}/1.jpg").rsplit("/", 1)[0]
+                self.assertEqual(shell_out, expected)
+
+    def test_trim_blank_segment_fails_on_both_sides(self):
+        rc, _ = shell_trim_relative_dir("用户/ /图片")
+        self.assertNotEqual(rc, 0)
+        self.assertIsNone(trim_relative_dirs("用户/ /图片/1.jpg"))
 
     def test_matches_shell_on_samples(self):
         for text in self.SAMPLES:

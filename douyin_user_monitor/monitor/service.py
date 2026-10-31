@@ -1,10 +1,12 @@
 import asyncio
+import logging
 import uuid
 from copy import deepcopy
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Set, Tuple
 
+from douyin_user_monitor.monitor.content_filter_queue import RESUME_WINDOW_DAYS as CONTENT_FILTER_RESUME_WINDOW_DAYS
 from douyin_user_monitor.monitor.cookie_liveness_service import CookieLivenessService
 from douyin_user_monitor.monitor.crawler_protocol import MonitorCrawlerProtocol
 from douyin_user_monitor.monitor.dashboard_payload import (
@@ -31,6 +33,7 @@ from douyin_user_monitor.monitor.profile_parser import (
     ACCOUNT_STATUS_DELETED,
     ACCOUNT_STATUS_NORMAL,
 )
+from douyin_user_monitor.monitor.record_store import RecordStore
 from douyin_user_monitor.monitor.schedule import (
     LOOP_ERROR_RETRY_SECONDS,
     MODE_INTERVAL,
@@ -52,6 +55,7 @@ from douyin_user_monitor.monitor.timeutils import CHINA_TZ, cn_now
 from douyin_user_monitor.monitor.user_lookup import find_user_by_id, find_user_by_sec_uid
 from douyin_user_monitor.monitor.user_sync import UserSyncService
 
+LOGGER = logging.getLogger("uvicorn.error")
 MIN_INTERVAL_HOURS = SCHEDULE_MIN_INTERVAL_HOURS
 COVERAGE_PHASE_RUNNING = "running"
 COVERAGE_PHASE_IDLE = "idle"
@@ -130,6 +134,9 @@ class MonitorService:
         cookie_pool_service: Optional[Any] = None,
         *,
         cover_publisher=None,
+        content_filter=None,
+        content_filter_queue=None,
+        detail_cookie_pool=None,
     ):
         self._crawler = crawler
         self._storage = storage
@@ -146,7 +153,11 @@ class MonitorService:
             notifier=self._notifier,
             cookie_rotation_session=rotation_session,
             cover_publisher=cover_publisher,
+            content_filter=content_filter,
+            content_filter_queue=content_filter_queue,
+            detail_cookie_pool=detail_cookie_pool,
         )
+        self._content_filter_queue = content_filter_queue
 
         self._run_lock = asyncio.Lock()
         self._loop_task: Optional[asyncio.Task] = None
@@ -158,28 +169,38 @@ class MonitorService:
         self._coverage_priority_user_ids: List[str] = []
         self._coverage_cycle_active = False
         self._wake_event = asyncio.Event()
-        self._reset_runtime_state()
+        self._load_runtime_state()
 
-    def _reset_runtime_state(self) -> None:
-        state = self._storage.load_state()
-        monitoring = state["monitoring"]
+    def _load_runtime_state(self) -> None:
+        """构造时只读状态：任何 import（脚本、测试、临时实例）都不能写线上 state。"""
+        monitoring = self._storage.load_state()["monitoring"]
         # 优先用 desired_running（用户意图）；兼容旧数据里只有 is_running=True 的情况
         if "desired_running" in monitoring:
             self._was_running = bool(monitoring.get("desired_running"))
         else:
             self._was_running = bool(monitoring.get("is_running", False))
-            monitoring["desired_running"] = self._was_running
-        monitoring["is_running"] = False
         self._apply_runtime_from_monitoring(monitoring)
-        monitoring["updated_at"] = cn_now()
-        monitoring.pop("interval_seconds", None)
-        monitoring.pop("random_min_seconds", None)
-        monitoring.pop("random_max_seconds", None)
-        self._drop_legacy_scan_keys(monitoring)
-        self._storage.save_state(state)
+
+    def _reset_runtime_state(self) -> None:
+        """进程启动时把上次残留的运行标记归零，并清掉旧字段。"""
+        was_running = self._was_running
+
+        def _apply(state: Dict[str, Any]) -> None:
+            monitoring = state["monitoring"]
+            monitoring.setdefault("desired_running", was_running)
+            monitoring["is_running"] = False
+            monitoring["updated_at"] = cn_now()
+            monitoring.pop("interval_seconds", None)
+            monitoring.pop("random_min_seconds", None)
+            monitoring.pop("random_max_seconds", None)
+            self._drop_legacy_scan_keys(monitoring)
+
+        self._storage.update_state(_apply)
 
     async def auto_resume(self) -> None:
         """进程启动后若用户意图仍是监控中，则恢复循环并接续覆盖进度。"""
+        self._reset_runtime_state()
+        self._start_content_filter_queue()
         if self._was_running:
             await self.start_monitoring(
                 mode=self._mode,
@@ -277,7 +298,6 @@ class MonitorService:
             "last_aweme_id": None,
             "downloaded_count": 0,
             "downloaded_aweme_ids": [],
-            "download_records": [],
             "history_sync": build_history_sync_state(
                 status=HISTORY_SYNC_STATUS_PENDING,
                 page_size=HISTORY_SYNC_PAGE_SIZE,
@@ -400,6 +420,8 @@ class MonitorService:
             state["users"] = [item for item in state["users"] if item["id"] != user_id]
 
         self._storage.update_state(_remove)
+        # JSON 先落盘再删记录：中途失败最多留一行孤儿记录，不会出现用户还在、记录没了
+        self._storage.records.delete(user_id)
         self._coverage_priority_user_ids = [uid for uid in self._coverage_priority_user_ids if uid != user_id]
         return found["user"]
 
@@ -514,15 +536,27 @@ class MonitorService:
         activity_limit: int = DASHBOARD_ACTIVITY_LIMIT,
     ) -> Dict[str, Any]:
         """大盘列表：省略 aweme_ids，只保留少量最近下载记录 + 全局动态。"""
-        users = await self.list_users_with_profile()
+        users = self._storage.records.attach_all(await self.list_users_with_profile())
         return project_dashboard_users(
             users,
             recent_records_per_user=recent_records_per_user,
             activity_limit=activity_limit,
         )
 
+    def _start_content_filter_queue(self) -> None:
+        queue = self._content_filter_queue
+        if queue is None:
+            return
+        since = (datetime.now(CHINA_TZ) - timedelta(days=CONTENT_FILTER_RESUME_WINDOW_DAYS)).isoformat(timespec="seconds")
+        added = queue.enqueue_unlabeled(self._storage.load_state().get("users", []), since=since)
+        if added:
+            LOGGER.info("内容标注队列：启动时补回 %d 条未标注的新作品", added)
+        queue.start()
+
     async def shutdown(self) -> None:
         """进程退出：保留 desired_running 与覆盖进度，便于重启后续跑。"""
+        if self._content_filter_queue is not None:
+            await self._content_filter_queue.stop()
         await self._graceful_pause_for_restart()
         await self._close_resource(self._crawler)
         await self._close_resource(self._notifier)
@@ -606,6 +640,8 @@ class MonitorService:
                 self._persist_runtime_checkpoint()
                 raise
             except Exception as exc:
+                # loop_error 会被下一次成功运行的汇总覆盖，堆栈只能靠日志保留
+                LOGGER.warning("监控循环异常，%ss 后重试", LOOP_ERROR_RETRY_SECONDS, exc_info=True)
                 self._save_loop_error(sanitize_public_error(exc))
                 await asyncio.sleep(LOOP_ERROR_RETRY_SECONDS)
 
@@ -726,10 +762,12 @@ class MonitorService:
         return None
 
     @staticmethod
-    def _merge_user_sync_fields(disk_user: Dict[str, Any], synced_snapshot: Dict[str, Any]) -> None:
+    def _merge_user_sync_fields(
+        disk_user: Dict[str, Any], synced_snapshot: Dict[str, Any], records: RecordStore,
+    ) -> None:
         prev_status = str(disk_user.get("account_status") or ACCOUNT_STATUS_NORMAL)
         prev_nickname = str(disk_user.get("nickname") or "")
-        merge_synced_downloads(disk_user, synced_snapshot)
+        merge_synced_downloads(disk_user, synced_snapshot, records)
         for key in USER_SYNC_MERGE_FIELDS:
             if key in synced_snapshot:
                 disk_user[key] = synced_snapshot[key]
@@ -757,7 +795,7 @@ class MonitorService:
             for synced in synced_users:
                 disk_user = find_user_by_id(state["users"], str(synced.get("id") or ""))
                 if disk_user is not None:
-                    self._merge_user_sync_fields(disk_user, synced)
+                    self._merge_user_sync_fields(disk_user, synced, self._storage.records)
             monitoring = state["monitoring"]
             monitoring["last_run_at"] = cn_now()
             monitoring["last_run_result"] = summary
@@ -790,7 +828,7 @@ class MonitorService:
             disk_user = find_user_by_id(state["users"], user_id)
             # 用户已被并发删除：丢弃本次增量，绝不复活
             if disk_user is not None:
-                self._merge_user_sync_fields(disk_user, user_snapshot)
+                self._merge_user_sync_fields(disk_user, user_snapshot, self._storage.records)
             monitoring = state["monitoring"]
             monitoring["coverage_progress"] = progress
             monitoring["last_run_at"] = cn_now()
@@ -1076,7 +1114,8 @@ class MonitorService:
         # 探测网络在锁外的 state 快照上完成；仅把 cookie_liveness 字段合并回最新磁盘态，
         # 不整体回写快照，避免探测期间并发写入的 users/cookie_pool 被陈旧快照覆盖。
         try:
-            payload = await service.maybe_run(state)
+            # 下载时间样本来自作品记录，给探测一个带记录的用户视图
+            payload = await service.maybe_run({**state, "users": self._storage.records.attach_all(state["users"])})
         except Exception as exc:  # noqa: BLE001
             self._merge_cookie_liveness_error(sanitize_public_error(exc))
             return

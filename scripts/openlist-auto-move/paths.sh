@@ -74,6 +74,29 @@ sanitize_file_name_in_place() {
   printf '%s' "${target_path}"
 }
 
+# 目标盘（D2/夸克）不接受首尾带空白的目录名（OpenList 报 object not found），
+# 标题截断常落在空格上。只改远端目标目录；本地与 /qbt 源路径保持原样。
+# 网页侧 path_sanitize.trim_relative_dirs 做同样变换。
+trim_relative_dir() {
+  local relative_dir="$1"
+  if [[ "${relative_dir}" == "." ]]; then
+    printf '.'
+    return 0
+  fi
+
+  local result="" component trimmed
+  IFS='/' read -r -a components <<< "${relative_dir}"
+  for component in "${components[@]}"; do
+    trimmed=$(printf '%s' "${component}" | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//')
+    if [[ -z "${trimmed}" ]]; then
+      log "目录名去除首尾空白后为空: ${component}"
+      return 1
+    fi
+    result="${result:+${result}/}${trimmed}"
+  done
+  printf '%s' "${result}"
+}
+
 predict_sanitized_file_path() {
   local file_path="$1"
   local dir_path
@@ -137,9 +160,11 @@ build_remote_paths() {
   # 主力盘（wopan）拒绝含 emoji 的目录名，报误导性的「8005 登录失败」。
   # 这里只清洗目标目录名：文件名与本地文件都不动，备份盘另算（见 backup.sh），
   # 这样 download_records 里存的相对路径依然有效，网页侧做同样变换即可命中。
-  local effective_relative_dir="${relative_dir}"
+  local effective_relative_dir
   if [[ "${SANITIZE_EMOJI}" == "true" || "${PRIMARY_SANITIZE_EMOJI}" == "true" ]]; then
     effective_relative_dir=$(sanitize_relative_dir "${relative_dir}") || return 1
+  else
+    effective_relative_dir=$(trim_relative_dir "${relative_dir}") || return 1
   fi
 
   local dst_dir="${TARGET_BASE}"

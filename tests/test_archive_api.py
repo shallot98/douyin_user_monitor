@@ -9,6 +9,7 @@ from typing import Any, Dict
 from unittest.mock import AsyncMock, patch
 
 from fastapi.testclient import TestClient
+from record_helpers import patch_monitor_users
 
 from douyin_user_monitor.api import monitor as monitor_api
 from douyin_user_monitor.main import app
@@ -57,7 +58,7 @@ class ArchiveListRouteTests(unittest.TestCase):
 
     def test_lists_local_records_without_touching_douyin(self):
         with (
-            patch.object(monitor_api.monitor_service, "list_users_async", return_value=[archive_user()]),
+            patch_monitor_users([archive_user()]),
             patch.object(
                 monitor_api.AWEME_FEED_SERVICE, "list_user_awemes", new=AsyncMock()
             ) as douyin_mock,
@@ -81,20 +82,98 @@ class ArchiveListRouteTests(unittest.TestCase):
     def test_works_for_user_whose_douyin_list_is_forbidden(self):
         """作品列表被隐藏(403)的账号，归档列表照样能看——这正是改用本地的原因。"""
         user = archive_user(last_error="获取用户作品列表失败: HTTP Status Code 403")
-        with patch.object(monitor_api.monitor_service, "list_users_async", return_value=[user]):
+        with patch_monitor_users([user]):
             response = self.client.get("/api/monitor/users/user-1/archive")
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["data"]["total"], 2)
 
     def test_unknown_user_is_404(self):
-        with patch.object(monitor_api.monitor_service, "list_users_async", return_value=[]):
+        with patch_monitor_users([]):
             response = self.client.get("/api/monitor/users/nope/archive")
         self.assertEqual(response.status_code, 404)
 
     def test_reports_archive_backend_state(self):
-        with patch.object(monitor_api.monitor_service, "list_users_async", return_value=[archive_user()]):
+        with patch_monitor_users([archive_user()]):
             response = self.client.get("/api/monitor/users/user-1/archive")
         self.assertIn("archive_enabled", response.json()["data"])
+
+    def test_prefetch_neighbors_queues_adjacent_works(self):
+        with (
+            patch_monitor_users([archive_user()]),
+            patch.object(monitor_api, "_prefetch_archive_urls", new=AsyncMock()) as prefetch_mock,
+        ):
+            response = self.client.post("/api/monitor/users/user-1/archive/7001/prefetch")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["data"]["queued"], ["7002"])
+        prefetch_mock.assert_awaited_once()
+        user, items = prefetch_mock.await_args.args
+        self.assertEqual(user["id"], "user-1")
+        self.assertEqual([item["aweme_id"] for item in items], ["7002"])
+
+    def test_playback_urls_returns_direct_links_and_separates_failures(self):
+        user = archive_user()
+        user["download_records"].append(
+            {
+                "aweme_id": "7003",
+                "publish_time": "2026-04-01T10:00:00+08:00",
+                "media_type": "video",
+                "files": ["CutE1n/20260401_100000_7003_aweme.mp4"],
+            }
+        )
+        user["download_records"].append(
+            {
+                "aweme_id": "7004",
+                "publish_time": "2026-03-01T10:00:00+08:00",
+                "media_type": "video",
+                "files": ["CutE1n/20260301_100000_7004_aweme.mp4"],
+            }
+        )
+        self_proxy = f"{monitor_api.OPENLIST_CLIENT._self_proxy_prefix()}/kuake/x.mp4?sign=s"  # noqa: SLF001
+
+        async def fake_resolve(relative_path: str, **_: Any) -> str:
+            if "7001" in relative_path:
+                return "https://cdn.example/file/abc?auth_key=k"
+            if "7003" in relative_path:
+                return self_proxy
+            if relative_path.endswith("/1.jpg"):
+                return "https://cdn.example/file/img1"
+            if relative_path.endswith("/2.jpg"):
+                return self_proxy
+            raise ArchiveUnavailableError("归档文件在主力盘与备份盘均不可用")
+
+        with (
+            patch_monitor_users([user]),
+            patch.object(monitor_api.OPENLIST_CLIENT, "resolve_stream_url", new=AsyncMock(side_effect=fake_resolve)),
+        ):
+            response = self.client.post(
+                "/api/monitor/users/user-1/archive/playback-urls",
+                json={"aweme_ids": ["7001", "7002", "7003", "7004", "nope", "7001"]},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        data = response.json()["data"]
+        # 7003 只能经本机 OpenList 自代理：None 让前端走代理
+        self.assertEqual(data["urls"], {"7001": "https://cdn.example/file/abc?auth_key=k", "7003": None})
+        # 图文按张给直链，自代理的那张同样为 None
+        self.assertEqual(data["image_urls"], {"7002": ["https://cdn.example/file/img1", None]})
+        self.assertEqual(set(data["errors"]), {"7004", "nope"})
+        self.assertEqual(data["ttl_seconds"], monitor_api.ARCHIVE_DIRECT_URL_CLIENT_TTL_SECONDS)
+
+    def test_playback_urls_rejects_empty_and_oversized_batches(self):
+        with patch_monitor_users([archive_user()]):
+            empty = self.client.post("/api/monitor/users/user-1/archive/playback-urls", json={"aweme_ids": []})
+            huge = self.client.post(
+                "/api/monitor/users/user-1/archive/playback-urls",
+                json={"aweme_ids": [str(i) for i in range(101)]},
+            )
+        self.assertEqual(empty.status_code, 422)
+        self.assertEqual(huge.status_code, 422)
+
+    def test_prefetch_neighbors_unknown_user_is_404(self):
+        with patch_monitor_users([]):
+            response = self.client.post("/api/monitor/users/nope/archive/7001/prefetch")
+        self.assertEqual(response.status_code, 404)
 
 
 class ArchiveMediaRouteTests(unittest.TestCase):
@@ -114,7 +193,7 @@ class ArchiveMediaRouteTests(unittest.TestCase):
         }
         opener = AsyncMock(return_value=(206, upstream, self._body()))
         with (
-            patch.object(monitor_api.monitor_service, "list_users_async", return_value=[archive_user()]),
+            patch_monitor_users([archive_user()]),
             patch.object(
                 monitor_api.OPENLIST_CLIENT,
                 "resolve_candidate_url",
@@ -139,7 +218,7 @@ class ArchiveMediaRouteTests(unittest.TestCase):
     def test_serves_image_by_file_index(self):
         opener = AsyncMock(return_value=(200, {"Content-Type": "image/jpeg"}, self._body()))
         with (
-            patch.object(monitor_api.monitor_service, "list_users_async", return_value=[archive_user()]),
+            patch_monitor_users([archive_user()]),
             patch.object(
                 monitor_api.OPENLIST_CLIENT, "resolve_candidate_url", new=AsyncMock(return_value="http://x/p/a.jpg")
             ) as resolve,
@@ -163,7 +242,7 @@ class ArchiveMediaRouteTests(unittest.TestCase):
                 monitor=replace(monitor_api.SETTINGS.monitor, download_root=root),
             )
             with (
-                patch.object(monitor_api.monitor_service, "list_users_async", return_value=[archive_user()]),
+                patch_monitor_users([archive_user()]),
                 patch.object(monitor_api, "SETTINGS", patched_settings),
                 patch.object(
                     monitor_api.OPENLIST_CLIENT, "resolve_candidate_url",
@@ -181,18 +260,18 @@ class ArchiveMediaRouteTests(unittest.TestCase):
             resolve.assert_awaited_once()
 
     def test_unknown_aweme_is_404(self):
-        with patch.object(monitor_api.monitor_service, "list_users_async", return_value=[archive_user()]):
+        with patch_monitor_users([archive_user()]):
             response = self.client.get("/api/monitor/users/user-1/archive/missing/media/0")
         self.assertEqual(response.status_code, 404)
 
     def test_out_of_range_index_is_404(self):
-        with patch.object(monitor_api.monitor_service, "list_users_async", return_value=[archive_user()]):
+        with patch_monitor_users([archive_user()]):
             response = self.client.get("/api/monitor/users/user-1/archive/7001/media/9")
         self.assertEqual(response.status_code, 404)
 
     def test_archive_unavailable_is_404(self):
         with (
-            patch.object(monitor_api.monitor_service, "list_users_async", return_value=[archive_user()]),
+            patch_monitor_users([archive_user()]),
             patch.object(
                 monitor_api.OPENLIST_CLIENT,
                 "resolve_candidate_url",
@@ -204,7 +283,7 @@ class ArchiveMediaRouteTests(unittest.TestCase):
 
     def test_upstream_failure_is_502(self):
         with (
-            patch.object(monitor_api.monitor_service, "list_users_async", return_value=[archive_user()]),
+            patch_monitor_users([archive_user()]),
             patch.object(
                 monitor_api.OPENLIST_CLIENT, "resolve_candidate_url", new=AsyncMock(return_value="http://x/p/a.mp4")
             ),
@@ -336,6 +415,18 @@ class OpenListClientTests(unittest.IsolatedAsyncioTestCase):
                 client.remote_paths_for("鱼幼薇🐱/a.mp4")[0],
                 "/wopan/抖音视频/鱼幼薇🐱/a.mp4",
             )
+
+    def test_trailing_space_dirs_add_trimmed_candidate_on_both_drives(self):
+        """mover 落地时去掉目录尾空格；原名在前，去尾空格形态紧随，备份盘同样两种都查。"""
+        with tempfile.TemporaryDirectory() as tmp:
+            client = OpenListClient(archive_settings(Path(tmp), sanitize_primary_dirs=False))
+            candidates = client.remote_paths_for("知哦周/图片/20261027_标题截断 /1.jpg")
+            self.assertEqual(candidates[:2], [
+                "/wopan/抖音视频/知哦周/图片/20261027_标题截断 /1.jpg",
+                "/wopan/抖音视频/知哦周/图片/20261027_标题截断/1.jpg",
+            ])
+            self.assertIn("/kuake/抖音视频/知哦周/图片/20261027_标题截断/1.jpg", candidates)
+            self.assertIn("/kuake/抖音视频/知哦周/图片/20261027_标题截断 /1.jpg", candidates)
 
     def test_identical_bases_are_deduped(self):
         with tempfile.TemporaryDirectory() as tmp:

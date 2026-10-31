@@ -70,7 +70,8 @@ from crawlers.douyin.web.web_sign import sign_web_request  # noqa: E402
 class DouyinWebCrawler:
 
     # 从配置文件中获取抖音的请求头
-    async def get_douyin_headers(self):
+    async def get_douyin_headers(self, cookie=None):
+        """cookie 给定时只替换本次请求的 Cookie，不改全局配置（解析 API 用独立 Cookie）。"""
         config = get_config()
         douyin_config = config["TokenManager"]["douyin"]
         kwargs = {
@@ -78,7 +79,7 @@ class DouyinWebCrawler:
                 "Accept-Language": douyin_config["headers"]["Accept-Language"],
                 "User-Agent": douyin_config["headers"]["User-Agent"],
                 "Referer": douyin_config["headers"]["Referer"],
-                "Cookie": douyin_config["headers"]["Cookie"],
+                "Cookie": cookie if cookie else douyin_config["headers"]["Cookie"],
             },
             "proxies": {"http://": douyin_config["proxies"]["http"], "https://": douyin_config["proxies"]["https"]},
         }
@@ -87,16 +88,19 @@ class DouyinWebCrawler:
     "-------------------------------------------------------handler接口列表-------------------------------------------------------"
 
     # 获取单个作品数据
-    async def fetch_one_video(self, aweme_id: str):
-        return await self._fetch_signed_get(DouyinAPIEndpoints.POST_DETAIL, PostDetail(aweme_id=aweme_id).dict())
+    async def fetch_one_video(self, aweme_id: str, cookie=None):
+        return await self._fetch_signed_get(
+            DouyinAPIEndpoints.POST_DETAIL, PostDetail(aweme_id=aweme_id).model_dump(), cookie=cookie
+        )
 
     # 获取用户发布作品数据
     async def fetch_user_post_videos(self, sec_user_id: str, max_cursor: int, count: int):
         params = UserPost(sec_user_id=sec_user_id, max_cursor=max_cursor, count=count)
-        return await self._fetch_signed_get(DouyinAPIEndpoints.USER_POST, params.dict())
+        return await self._fetch_signed_get(DouyinAPIEndpoints.USER_POST, params.model_dump())
 
-    async def _fetch_signed_get(self, base_endpoint, params):
-        kwargs = await self.get_douyin_headers()
+    async def _fetch_signed_get(self, base_endpoint, params, cookie=None):
+        # 不覆盖 Cookie 时保持原调用方式（监控路径不变）
+        kwargs = await (self.get_douyin_headers(cookie) if cookie else self.get_douyin_headers())
         params_dict = {**params, "msToken": ""}
         a_bogus = BogusManager.ab_model_2_endpoint(params_dict, kwargs["headers"]["User-Agent"])
         endpoint = f"{base_endpoint}?{urlencode(params_dict)}&a_bogus={a_bogus}"
@@ -112,11 +116,11 @@ class DouyinWebCrawler:
         async with base_crawler as crawler:
             params = UserLike(sec_user_id=sec_user_id, max_cursor=max_cursor, count=count)
             # endpoint = BogusManager.xb_model_2_endpoint(
-            #     DouyinAPIEndpoints.USER_FAVORITE_A, params.dict(), kwargs["headers"]["User-Agent"]
+            #     DouyinAPIEndpoints.USER_FAVORITE_A, params.model_dump(), kwargs["headers"]["User-Agent"]
             # )
             # response = await crawler.fetch_get_json(endpoint)
 
-            params_dict = params.dict()
+            params_dict = params.model_dump()
             params_dict["msToken"] = ''
             a_bogus = BogusManager.ab_model_2_endpoint(params_dict, kwargs["headers"]["User-Agent"])
             endpoint = f"{DouyinAPIEndpoints.USER_FAVORITE_A}?{urlencode(params_dict)}&a_bogus={a_bogus}"
@@ -132,7 +136,7 @@ class DouyinWebCrawler:
         async with base_crawler as crawler:
             params = UserCollection(cursor=cursor, count=count)
             endpoint = BogusManager.xb_model_2_endpoint(
-                DouyinAPIEndpoints.USER_COLLECTION, params.dict(), kwargs["headers"]["User-Agent"]
+                DouyinAPIEndpoints.USER_COLLECTION, params.model_dump(), kwargs["headers"]["User-Agent"]
             )
             response = await crawler.fetch_post_json(endpoint)
         return response
@@ -144,7 +148,7 @@ class DouyinWebCrawler:
         async with base_crawler as crawler:
             params = UserMix(mix_id=mix_id, cursor=cursor, count=count)
             endpoint = BogusManager.xb_model_2_endpoint(
-                DouyinAPIEndpoints.MIX_AWEME, params.dict(), kwargs["headers"]["User-Agent"]
+                DouyinAPIEndpoints.MIX_AWEME, params.model_dump(), kwargs["headers"]["User-Agent"]
             )
             response = await crawler.fetch_get_json(endpoint)
         return response
@@ -156,7 +160,7 @@ class DouyinWebCrawler:
         async with base_crawler as crawler:
             params = UserLive(web_rid=webcast_id, room_id_str=room_id_str)
             endpoint = BogusManager.xb_model_2_endpoint(
-                DouyinAPIEndpoints.LIVE_INFO, params.dict(), kwargs["headers"]["User-Agent"]
+                DouyinAPIEndpoints.LIVE_INFO, params.model_dump(), kwargs["headers"]["User-Agent"]
             )
             response = await crawler.fetch_get_json(endpoint)
         return response
@@ -168,7 +172,7 @@ class DouyinWebCrawler:
         async with base_crawler as crawler:
             params = UserLive2(room_id=room_id)
             endpoint = BogusManager.xb_model_2_endpoint(
-                DouyinAPIEndpoints.LIVE_INFO_ROOM_ID, params.dict(), kwargs["headers"]["User-Agent"]
+                DouyinAPIEndpoints.LIVE_INFO_ROOM_ID, params.model_dump(), kwargs["headers"]["User-Agent"]
             )
             response = await crawler.fetch_get_json(endpoint)
         return response
@@ -180,7 +184,7 @@ class DouyinWebCrawler:
         async with base_crawler as crawler:
             params = LiveRoomRanking(room_id=room_id, rank_type=rank_type)
             endpoint = BogusManager.xb_model_2_endpoint(
-                DouyinAPIEndpoints.LIVE_GIFT_RANK, params.dict(), kwargs["headers"]["User-Agent"]
+                DouyinAPIEndpoints.LIVE_GIFT_RANK, params.model_dump(), kwargs["headers"]["User-Agent"]
             )
             response = await crawler.fetch_get_json(endpoint)
         return response
@@ -192,7 +196,7 @@ class DouyinWebCrawler:
         async with base_crawler as crawler:
             params = UserProfile(sec_user_id=sec_user_id)
             endpoint = BogusManager.xb_model_2_endpoint(
-                DouyinAPIEndpoints.USER_DETAIL, params.dict(), kwargs["headers"]["User-Agent"]
+                DouyinAPIEndpoints.USER_DETAIL, params.model_dump(), kwargs["headers"]["User-Agent"]
             )
             response = await crawler.fetch_get_json(endpoint)
         return response
@@ -204,7 +208,7 @@ class DouyinWebCrawler:
         async with base_crawler as crawler:
             params = PostComments(aweme_id=aweme_id, cursor=cursor, count=count)
             endpoint = BogusManager.xb_model_2_endpoint(
-                DouyinAPIEndpoints.POST_COMMENT, params.dict(), kwargs["headers"]["User-Agent"]
+                DouyinAPIEndpoints.POST_COMMENT, params.model_dump(), kwargs["headers"]["User-Agent"]
             )
             response = await crawler.fetch_get_json(endpoint)
         return response
@@ -216,7 +220,7 @@ class DouyinWebCrawler:
         async with base_crawler as crawler:
             params = PostCommentsReply(item_id=item_id, comment_id=comment_id, cursor=cursor, count=count)
             endpoint = BogusManager.xb_model_2_endpoint(
-                DouyinAPIEndpoints.POST_COMMENT_REPLY, params.dict(), kwargs["headers"]["User-Agent"]
+                DouyinAPIEndpoints.POST_COMMENT_REPLY, params.model_dump(), kwargs["headers"]["User-Agent"]
             )
             response = await crawler.fetch_get_json(endpoint)
         return response
@@ -228,7 +232,7 @@ class DouyinWebCrawler:
         async with base_crawler as crawler:
             params = BaseRequestModel()
             endpoint = BogusManager.xb_model_2_endpoint(
-                DouyinAPIEndpoints.DOUYIN_HOT_SEARCH, params.dict(), kwargs["headers"]["User-Agent"]
+                DouyinAPIEndpoints.DOUYIN_HOT_SEARCH, params.model_dump(), kwargs["headers"]["User-Agent"]
             )
             response = await crawler.fetch_get_json(endpoint)
         return response
@@ -249,7 +253,7 @@ class DouyinWebCrawler:
         async with base_crawler as crawler:
             params = UserSearch(keyword=keyword, offset=offset, count=count)
             # 生成带有a_bogus加密参数的Endpoint
-            params_dict = params.dict()
+            params_dict = params.model_dump()
             params_dict["msToken"] = ''
             a_bogus = BogusManager.ab_model_2_endpoint(params_dict, kwargs["headers"]["User-Agent"])
             endpoint = f"{DouyinAPIEndpoints.USER_SEARCH}?{urlencode(params_dict)}&a_bogus={a_bogus}"
@@ -272,7 +276,7 @@ class DouyinWebCrawler:
         async with base_crawler as crawler:
             params = GeneralSearch(keyword=keyword, offset=offset, count=count)
             # 生成带有a_bogus加密参数的Endpoint
-            params_dict = params.dict()
+            params_dict = params.model_dump()
             params_dict["msToken"] = ''
             a_bogus = BogusManager.ab_model_2_endpoint(params_dict, kwargs["headers"]["User-Agent"])
             endpoint = f"{DouyinAPIEndpoints.GENERAL_SEARCH}?{urlencode(params_dict)}&a_bogus={a_bogus}"

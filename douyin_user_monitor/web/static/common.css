@@ -273,6 +273,11 @@ body.theme-dark .theme-toggle .theme-icon-sun { display: block; }
   box-shadow: var(--shadow-sm);
   backdrop-filter: blur(8px);
 }
+body.theme-dark .stats-grid {
+  background: var(--bg-surface-solid);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
 .stat-card {
   background: transparent;
   border: 0;
@@ -557,6 +562,10 @@ body.theme-dark .theme-toggle .theme-icon-sun { display: block; }
   transition: all 0.25s ease;
 }
 .toast.show { transform: translateY(0); opacity: 1; }
+body.theme-dark .toast {
+  background: var(--bg-elevated);
+  color: var(--text-main);
+}
 .toast-success { border-left: 3px solid var(--success); }
 .toast-error { border-left: 3px solid var(--danger); }
 .toast svg { width: 18px; height: 18px; flex-shrink: 0; }

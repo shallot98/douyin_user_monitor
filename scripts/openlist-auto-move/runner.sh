@@ -94,6 +94,34 @@ handle_submitted_move() {
   local file_name="$5"
   local move_rc=0
 
+  if is_d2_direct_upload_target "${dst_dir}"; then
+    # d2_direct_upload_file 内部会重开 set -e，外层 set +e 兜不住，用 || 取返回码
+    move_rc=0
+    d2_direct_upload_file "${file_path}" "${dst_dir}" "${file_name}" || move_rc=$?
+
+    invalidate_remote_dir_cache "${dst_dir}"
+    if [[ "${move_rc}" -eq 0 ]]; then
+      api_post_json "${token}" "/api/fs/list" "$(jq -cn --arg p "${dst_dir}" '{path:$p,refresh:true,page:1,per_page:1}')" >/dev/null 2>&1 || true
+      emit_process_outcome "${ACTION_COMPLETED}"
+      return 0
+    fi
+    if [[ "${move_rc}" -eq 2 ]]; then
+      api_post_json "${token}" "/api/fs/list" "$(jq -cn --arg p "${dst_dir}" '{path:$p,refresh:true,page:1,per_page:1}')" >/dev/null 2>&1 || true
+      finalize_move_file "${token}" "${file_path}" "${src_dir}" "${dst_dir}" "${file_name}" "D2直传检测到目标端已存在同名文件" "${ACTION_WAIT}"
+      return 0
+    fi
+    if [[ "${move_rc}" -eq 3 ]]; then
+      emit_process_outcome "${ACTION_CAPACITY}"
+      return 0
+    fi
+    if [[ "${move_rc}" -eq 4 ]]; then
+      emit_process_outcome "${ACTION_WAIT}"
+      return 0
+    fi
+    emit_process_outcome "${ACTION_ERROR}"
+    return 0
+  fi
+
   set +e
   move_remote_file "${token}" "${src_dir}" "${dst_dir}" "${file_name}"
   move_rc=$?

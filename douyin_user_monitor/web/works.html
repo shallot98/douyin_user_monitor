@@ -5,8 +5,10 @@
   <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
   <meta http-equiv="Pragma" content="no-cache" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <!-- 视频直连归档 CDN 时网关带 Referer 就 403（实测），整页不发 Referer -->
+  <meta name="referrer" content="no-referrer" />
   <title>作品浏览 | Monitor</title>
-  <link rel="stylesheet" href="/static/common.css?v=theme-20260920a" />
+  <link rel="stylesheet" href="/static/common.css?v=theme-20261006a" />
   <style>
     /* works page-only styles; shell/sidebar/buttons come from common.css */
     .owner-card { display:flex; align-items:center; gap:14px; background:var(--bg-surface); border:1px solid var(--border-color); border-radius:var(--radius-lg); box-shadow:var(--shadow-sm); padding:14px 16px; }
@@ -27,6 +29,8 @@
     .work-chips { position:absolute; left:8px; top:8px; display:flex; gap:6px; flex-wrap:wrap; }
     .work-chip { font-size:11px; font-weight:700; padding:3px 8px; border-radius:999px; color:#fff; background:rgba(15,23,42,.62); backdrop-filter:blur(4px); }
     .work-chip.downloaded { background:rgba(5,150,105,.88); }
+    .work-chip.ai-reject { background:rgba(225,29,72,.88); }
+    .work-chip.ai-error { background:rgba(217,119,6,.88); }
     .work-time-tag { position:absolute; right:8px; bottom:8px; font-size:11px; font-weight:700; padding:3px 7px; border-radius:8px; color:#fff; background:rgba(15,23,42,.62); }
     .work-play { position:absolute; inset:0; display:grid; place-items:center; color:#fff; pointer-events:none; }
     .work-play svg { width:40px; height:40px; filter:drop-shadow(0 2px 6px rgba(0,0,0,.45)); }
@@ -34,22 +38,18 @@
     .work-desc { font-size:12.5px; line-height:1.45; min-height:36px; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; }
     .work-foot { display:flex; align-items:center; justify-content:space-between; gap:8px; font-size:11px; color:var(--text-lighter); }
 
-    .viewer { position:fixed; inset:0; z-index:80; display:none; align-items:center; justify-content:center; padding:24px; background:rgba(15,23,42,.82); backdrop-filter:blur(6px); }
-    .viewer.show { display:flex; }
-    .viewer-box { display:flex; flex-direction:column; width:auto; max-width:min(92vw,960px); max-height:92vh; overflow:hidden; background:var(--bg-surface); border-radius:var(--radius-lg); box-shadow:0 24px 70px rgba(0,0,0,.38); }
-    .viewer-head { display:flex; align-items:center; justify-content:space-between; gap:10px; padding:12px 14px; border-bottom:1px solid var(--border-color); }
-    .viewer-title { min-width:0; font-size:13px; font-weight:700; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-    .viewer-stage { position:relative; flex:none; width:min(82vw,860px); max-height:72vh; aspect-ratio:16/9; display:grid; place-items:center; background:#0b1220; overflow:hidden; }
-    .viewer-stage video, .viewer-stage img { display:block; width:auto; height:auto; max-width:100%; max-height:100%; object-fit:contain; }
-    .viewer-nav { position:absolute; top:50%; transform:translateY(-50%); width:40px; height:40px; border:0; border-radius:999px; background:rgba(255,255,255,.88); color:#0f172a; cursor:pointer; display:grid; place-items:center; }
-    .viewer-nav.prev { left:10px; } .viewer-nav.next { right:10px; }
-    .viewer-nav svg { width:20px; height:20px; }
-    .viewer-foot { display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:10px; padding:10px 14px; border-top:1px solid var(--border-color); font-size:12px; color:var(--text-muted); }
+    .work-card.playing { border-color:var(--primary); box-shadow:0 0 0 2px var(--primary), var(--shadow); }
+
+    .work-tags { display:flex; gap:4px; flex-wrap:nowrap; overflow:hidden; min-height:18px; }
+    .work-tag { flex-shrink:0; font-size:10.5px; line-height:16px; padding:0 6px; border-radius:999px; background:var(--primary-light); color:var(--accent); white-space:nowrap; }
+    .work-tag.more { background:var(--bg-elevated); color:var(--text-muted); }
+    .work-chip.borderline-1 { background:rgba(14,165,233,.85); }
+    .work-chip.borderline-2 { background:rgba(99,102,241,.88); }
+    .work-chip.borderline-3 { background:rgba(217,119,6,.9); }
+    .work-chip.borderline-4 { background:rgba(234,88,12,.92); }
+    .work-chip.borderline-5 { background:rgba(220,38,38,.92); }
     @media (max-width:640px) {
       .works-grid { grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px; }
-      .viewer { padding:12px; }
-      .viewer-box { width:100%; max-width:100%; max-height:calc(100dvh - 24px); border-radius:var(--radius); }
-      .viewer-stage { width:100%; max-height:70dvh; }
     }
 
     /* 分页条：与统计页用户表同一套视觉 */
@@ -85,6 +85,14 @@
       <a class="nav-item active" href="/api/monitor/statistics/dashboard" onclick="return navigateToPage('/api/monitor/statistics/dashboard')" title="用户统计">
         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M7.5 3.75h9A2.25 2.25 0 0 1 18.75 6v12A2.25 2.25 0 0 1 16.5 20.25h-9A2.25 2.25 0 0 1 5.25 18V6A2.25 2.25 0 0 1 7.5 3.75Zm1.5 4.5h6m-6 3h6m-6 3h3" /></svg>
         用户统计
+      </a>
+      <a class="nav-item" href="/api/monitor/library/dashboard" onclick="return navigateToPage('/api/monitor/library/dashboard')" title="作品库">
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M3.375 19.5h17.25m-17.25 0a1.125 1.125 0 0 1-1.125-1.125M3.375 19.5h1.5C5.496 19.5 6 18.996 6 18.375m-3.75 0V5.625m0 12.75v-1.5c0-.621.504-1.125 1.125-1.125m18.375 2.625V5.625m0 12.75c0 .621-.504 1.125-1.125 1.125m1.125-1.125v-1.5c0-.621-.504-1.125-1.125-1.125m0 3.75h-1.5A1.125 1.125 0 0 1 18 18.375M20.625 4.5H3.375m17.25 0c.621 0 1.125.504 1.125 1.125M20.625 4.5h-1.5C18.504 4.5 18 5.004 18 5.625m3.75 0v1.5c0 .621-.504 1.125-1.125 1.125M3.375 4.5c-.621 0-1.125.504-1.125 1.125M3.375 4.5h1.5C5.496 4.5 6 5.004 6 5.625m-3.75 0v1.5c0 .621.504 1.125 1.125 1.125m0 0h1.5m-1.5 0c-.621 0-1.125.504-1.125 1.125v1.5c0 .621.504 1.125 1.125 1.125m1.5-3.75C5.496 8.25 6 7.746 6 7.125v-1.5M4.875 8.25C5.496 8.25 6 8.754 6 9.375v1.5m0-5.25v5.25m0-5.25C6 5.004 6.504 4.5 7.125 4.5h9.75c.621 0 1.125.504 1.125 1.125m1.125 2.625h1.5m-1.5 0A1.125 1.125 0 0 1 18 7.125v-1.5m1.125 2.625c-.621 0-1.125.504-1.125 1.125v1.5m2.625-2.625c.621 0 1.125.504 1.125 1.125v1.5c0 .621-.504 1.125-1.125 1.125M18 5.625v5.25M7.125 12h9.75m-9.75 0A1.125 1.125 0 0 1 6 10.875M7.125 12C6.504 12 6 12.504 6 13.125m0-2.25C6 11.496 5.496 12 4.875 12M18 10.875c0 .621-.504 1.125-1.125 1.125M18 10.875c0 .621.504 1.125 1.125 1.125m-2.25 0c.621 0 1.125.504 1.125 1.125m-12 5.25v-5.25m0 5.25c0 .621.504 1.125 1.125 1.125h9.75c.621 0 1.125-.504 1.125-1.125m-12 0v-1.5c0-.621-.504-1.125-1.125-1.125M18 18.375v-5.25m0 5.25v-1.5c0-.621.504-1.125 1.125-1.125M18 13.125v1.5c0 .621.504 1.125 1.125 1.125M18 13.125c0-.621.504-1.125 1.125-1.125M6 13.125v1.5c0 .621-.504 1.125-1.125 1.125M6 13.125C6 12.504 5.496 12 4.875 12m-1.5 0h1.5m-1.5 0c-.621 0-1.125.504-1.125 1.125v1.5c0 .621.504 1.125 1.125 1.125M19.125 12h1.5m0 0c.621 0 1.125.504 1.125 1.125v1.5c0 .621-.504 1.125-1.125 1.125m-17.25 0h1.5m14.25 0h1.5" /></svg>
+        作品库
+      </a>
+      <a class="nav-item" href="/api/monitor/swipe/dashboard" onclick="return navigateToPage('/api/monitor/swipe/dashboard')" title="刷视频">
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" /><path stroke-linecap="round" stroke-linejoin="round" d="M15.91 11.672a.375.375 0 0 1 0 .656l-5.603 3.113a.375.375 0 0 1-.557-.328V8.887c0-.286.307-.466.557-.327l5.603 3.112Z" /></svg>
+        刷视频
       </a>
       <a class="nav-item" href="/api/monitor/cookies/dashboard" onclick="return navigateToPage('/api/monitor/cookies/dashboard')" title="Cookie 池">
         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 5.25a3 3 0 0 1 3 3m3 0a6 6 0 0 1-7.029 5.912c-.563-.097-1.159.026-1.563.43L10.5 17.25H8.25v2.25H6v2.25H2.25v-2.818c0-.597.237-1.17.659-1.591l6.499-6.499c.404-.404.527-1 .43-1.563A6 6 0 1 1 21.75 8.25Z" /></svg>
@@ -158,6 +166,47 @@
             <div class="card-title">作品列表 <span class="pill-count" id="worksCount">0</span></div>
             <div class="card-header-actions">
               <label class="help-text" style="display:flex;align-items:center;gap:6px;">
+                内容筛选
+                <select class="input" id="worksAiFilter" onchange="onAiFilterChange()" style="width:auto;padding:6px 8px;">
+                  <option value="">全部</option>
+                  <option value="flagged">判为筛掉</option>
+                  <option value="error">检测失败</option>
+                  <option value="borderline3_strict">擦边 3 分以上（保守档）</option>
+                  <option value="borderline4_strict">擦边 4 分以上（保守档）</option>
+                  <option value="inconsistent">结论自相矛盾</option>
+                </select>
+              </label>
+              <label class="help-text" style="display:flex;align-items:center;gap:6px;">
+                类型
+                <select class="input" id="worksMediaType" onchange="onMediaTypeChange()" style="width:auto;padding:6px 8px;">
+                  <option value="">全部</option>
+                  <option value="video">视频</option>
+                  <option value="image">图文</option>
+                </select>
+              </label>
+              <label class="help-text" style="display:flex;align-items:center;gap:6px;">
+                擦边分
+                <select class="input" id="worksScoreMin" onchange="onScoreChange('min')" style="width:auto;padding:6px 8px;">
+                  <option value="">不限</option>
+                  <option value="unscored">未评分</option>
+                  <option value="0">≥0</option>
+                  <option value="1">≥1</option>
+                  <option value="2">≥2</option>
+                  <option value="3">≥3</option>
+                  <option value="4">≥4</option>
+                  <option value="5">≥5</option>
+                </select>
+                <select class="input" id="worksScoreMax" onchange="onScoreChange('max')" style="width:auto;padding:6px 8px;" aria-label="擦边分上限">
+                  <option value="">不限</option>
+                  <option value="0">≤0</option>
+                  <option value="1">≤1</option>
+                  <option value="2">≤2</option>
+                  <option value="3">≤3</option>
+                  <option value="4">≤4</option>
+                  <option value="5">≤5</option>
+                </select>
+              </label>
+              <label class="help-text" style="display:flex;align-items:center;gap:6px;">
                 每页
                 <select class="input" id="worksPageSize" onchange="onPageSizeChange()" style="width:auto;padding:6px 8px;">
                   <option value="20">20</option>
@@ -187,26 +236,10 @@
     </main>
   </div>
 
-  <div class="viewer" id="viewer" onclick="onViewerBackdrop(event)">
-    <div class="viewer-box">
-      <div class="viewer-head">
-        <div class="viewer-title" id="viewerTitle">-</div>
-        <button class="btn-icon" onclick="closeViewer()" aria-label="关闭">
-          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.8" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" /></svg>
-        </button>
-      </div>
-      <div class="viewer-stage" id="viewerStage"></div>
-      <div class="viewer-foot">
-        <span id="viewerMeta">-</span>
-        <a class="btn btn-secondary btn-sm" id="viewerOriginalLink" download hidden>下载原片</a>
-        <a class="btn btn-secondary btn-sm" id="viewerShareLink" target="_blank" rel="noreferrer noopener">抖音打开</a>
-      </div>
-    </div>
-  </div>
-
   <div class="toast-container" id="toast-container"></div>
 
-  <script src="/static/common.js?v=theme-20260920a"></script>
+  <script src="/static/common.js?v=live-20260929a"></script>
+  <script src="/static/works-viewer.js?v=back-20261031"></script>
   <script>
     function isMobileViewport() { return window.innerWidth <= 1024; }
 
@@ -230,26 +263,24 @@
       pageSize: 20,
       total: 0,
       totalPages: 1,
+      aiFilter: "",
+      mediaType: "",
+      // scoreMin 为 "unscored" 时只看未评分，scoreMax 不生效
+      scoreMin: "",
+      scoreMax: "",
+      filtersDirty: false,
       mediaCounts: {},
       archiveEnabled: true,
       loading: false,
       user: null,
-      viewerIndex: -1,
-      imageIndex: 0,
+      // 正在播放的作品在当前页的位置（播放器通知），-1 表示没在播或不在本页
+      playingIndex: -1,
     };
 
     const PAGE_NUMBER_WINDOW = 3;
 
-    function archiveMediaUrl(awemeId, fileIndex) {
-      return `${API_BASE}/users/${encodeURIComponent(USER_ID)}/archive/${encodeURIComponent(awemeId)}/media/${Number(fileIndex)}`;
-    }
-
     function coverImageUrl(item) {
-      const local = String(item.cover_url || "");
-      const prefix = `${API_BASE}/users/${encodeURIComponent(USER_ID)}/archive/${encodeURIComponent(item.aweme_id)}/cover?v=`;
-      if (local.startsWith(prefix) && /^[0-9a-f]{64}$/.test(local.slice(prefix.length))) return local;
-      return item.cover_index !== null && item.cover_index !== undefined
-        ? archiveMediaUrl(item.aweme_id, item.cover_index) : "";
+      return WorksViewer.coverImageUrl(item);
     }
 
     function escapeHtml(value) {
@@ -351,6 +382,7 @@
         return;
       }
       grid.innerHTML = state.items.map((item, index) => renderCard(item, index)).join("");
+      markPlayingCard();
       document.getElementById("worksCount").textContent = String(state.total);
       const empty = document.getElementById("worksEmpty");
       empty.textContent = "该用户还没有已下载的作品";
@@ -407,6 +439,70 @@
       return `${Math.max(1, Math.round(value / 1024))}KB`;
     }
 
+    const AI_CATEGORY_LABELS = { ad: "广告", text_only: "纯文字", screenshot: "截图", normal: "正常" };
+    const AI_AD_TYPE_LABELS = { selling: "带货", sponsored: "商单", traffic: "引流", local_promo: "探店团购" };
+
+    // 只标“判为筛掉”和“检测失败”，正常作品不加标签免得满屏噪音；原因放 title 悬停查看
+    function renderAiChip(result) {
+      if (!result) return "";
+      if (result.status === "error") {
+        return `<span class="work-chip ai-error" title="${escapeHtml(result.error || "检测失败")}">内容标签未检测</span>`;
+      }
+      if (result.verdict !== "reject") return "";
+      return `<span class="work-chip ai-reject" title="${escapeHtml(result.reason || "")}">${escapeHtml(renderAiChipLabel(result))}</span>`;
+    }
+
+    function renderAiChipLabel(result) {
+      const label = result.category === "ad"
+        ? `广告·${AI_AD_TYPE_LABELS[result.ad_type] || "其他"}`
+        : AI_CATEGORY_LABELS[result.category] || result.category;
+      return `分类：${label} ${Math.round(Number(result.confidence || 0) * 100)}%`;
+    }
+
+    // 标签分组：[来源, 键, 显示名]；来源 tags=作品标签，appearance=人物外观
+    const AI_TAG_GROUPS = [
+      ["tags", "content", "内容"], ["appearance", "outfit", "着装"], ["tags", "style", "风格"],
+      ["tags", "scene", "场景"], ["tags", "subject", "主体"], ["appearance", "exposed_areas", "部位"],
+      ["appearance", "camera_focus", "镜头"], ["appearance", "poses", "姿态"], ["tags", "features", "特征"],
+    ];
+    // 卡片空间有限：只取“内容 → 着装”前几个，其余折成 +N；完整信息在播放器里看
+    const CARD_TAG_GROUPS = new Set(["content", "outfit"]);
+    const CARD_TAG_LIMIT = 3;
+    const BORDERLINE_FIELDS = [
+      ["chest", "胸部", 3], ["body", "身材", 3], ["overall", "整体", 3], ["camera", "镜头", 3], ["motion", "动作", 3],
+    ];
+
+    function aiGroupValues(result, source, key) {
+      const bag = result && result[source] ? result[source] : {};
+      return Array.isArray(bag[key]) ? bag[key] : [];
+    }
+
+    function borderlineOf(result) {
+      const borderline = result && result.appearance ? result.appearance.borderline : null;
+      return borderline && Number.isInteger(borderline.score) ? borderline : null;
+    }
+
+    function renderBorderlineChip(result) {
+      const borderline = borderlineOf(result);
+      if (!borderline || borderline.score <= 0) return "";
+      const level = Math.min(borderline.score, 5);
+      const detail = BORDERLINE_FIELDS.map(([key, label, max]) => `${label} ${borderline[key] ?? "–"}/${max}`).join(" · ");
+      return `<span class="work-chip borderline-${level}" title="${escapeHtml(detail)}">擦边 ${level}${borderline.violation ? " ⚠" : ""}</span>`;
+    }
+
+    function renderCardTags(result) {
+      if (!result || result.status !== "ok") return "";
+      const tags = AI_TAG_GROUPS.filter(([, key]) => CARD_TAG_GROUPS.has(key))
+        .flatMap(([source, key]) => aiGroupValues(result, source, key));
+      const all = AI_TAG_GROUPS.flatMap(([source, key]) => aiGroupValues(result, source, key));
+      if (!tags.length) return "";
+      const shown = tags.slice(0, CARD_TAG_LIMIT)
+        .map((tag) => `<span class="work-tag">${escapeHtml(tag)}</span>`);
+      if (all.length > shown.length) shown.push(`<span class="work-tag more">+${all.length - shown.length}</span>`);
+      const title = [result.summary, all.join("、")].filter(Boolean).join("\n");
+      return `<div class="work-tags" title="${escapeHtml(title)}">${shown.join("")}</div>`;
+    }
+
     function renderCard(item, index) {
       const isImage = String(item.media_type) === "image";
       const coverUrl = coverImageUrl(item);
@@ -417,6 +513,10 @@
       const chips = [
         `<span class="work-chip">${isImage ? `图文 ${Number(item.image_count || 0)} 张` : "视频"}</span>`,
       ];
+      const aiChip = renderAiChip(item.content_filter);
+      if (aiChip) chips.push(aiChip);
+      const borderlineChip = renderBorderlineChip(item.content_filter);
+      if (borderlineChip) chips.push(borderlineChip);
 
       const timeTag = isImage
         ? ""
@@ -434,6 +534,7 @@
           </div>
           <div class="work-body">
             <div class="work-desc">${escapeHtml(desc)}</div>
+            ${renderCardTags(item.content_filter)}
             <div class="work-foot">
               <span>${escapeHtml(formatTime(item.publish_time, "时间未知"))}</span>
               <span>${escapeHtml(formatSize(item.total_size_bytes))}</span>
@@ -463,6 +564,13 @@
           page: String(Math.max(1, Number(page) || 1)),
           page_size: String(state.pageSize),
         });
+        if (state.aiFilter) query.set("ai_filter", state.aiFilter);
+        if (state.mediaType) query.set("media_type", state.mediaType);
+        if (state.scoreMin === "unscored") query.set("unscored", "true");
+        else {
+          if (state.scoreMin) query.set("score_min", state.scoreMin);
+          if (state.scoreMax) query.set("score_max", state.scoreMax);
+        }
         const data = await api(`/users/${encodeURIComponent(USER_ID)}/archive?${query.toString()}`);
         renderOwner(data.user);
         state.items = Array.isArray(data.items) ? data.items : [];
@@ -472,12 +580,27 @@
         state.totalPages = Number(data.total_pages || 1);
         state.mediaCounts = data.media_counts || {};
         state.archiveEnabled = data.archive_enabled !== false;
+        WorksViewer.syncAfterReload();
+        WorksViewer.prefetchDirectUrls(state.items);
       } catch (error) {
         showToast(error.message || "加载作品失败", "error");
       } finally {
         state.loading = false;
         renderAll();
       }
+      if (state.filtersDirty) {
+        state.filtersDirty = false;
+        loadPage(1);
+      }
+    }
+
+    // 连着改几个筛选时上一次请求可能还没回来：先记下，等它结束再按最新条件重载第 1 页
+    function applyFilters() {
+      if (state.loading) {
+        state.filtersDirty = true;
+        return;
+      }
+      loadPage(1);
     }
 
     function goToPage(page) {
@@ -488,10 +611,35 @@
       scrollContentToTop();
     }
 
+    function onAiFilterChange() {
+      state.aiFilter = document.getElementById("worksAiFilter")?.value || "";
+      applyFilters();
+    }
+
+    function onMediaTypeChange() {
+      state.mediaType = document.getElementById("worksMediaType")?.value || "";
+      applyFilters();
+    }
+
+    // 上下限交叉时把另一端拉到同一分，避免后端报「下限大于上限」
+    function onScoreChange(changed) {
+      const minEl = document.getElementById("worksScoreMin");
+      const maxEl = document.getElementById("worksScoreMax");
+      const unscored = minEl.value === "unscored";
+      maxEl.disabled = unscored;
+      if (!unscored && minEl.value && maxEl.value && Number(minEl.value) > Number(maxEl.value)) {
+        if (changed === "min") maxEl.value = minEl.value;
+        else minEl.value = maxEl.value;
+      }
+      state.scoreMin = minEl.value;
+      state.scoreMax = unscored ? "" : maxEl.value;
+      applyFilters();
+    }
+
     function onPageSizeChange() {
       const el = document.getElementById("worksPageSize");
       state.pageSize = Number(el?.value || 20);
-      loadPage(1);
+      applyFilters();
     }
 
     function reloadWorks() {
@@ -500,125 +648,52 @@
       return false;
     }
 
-    function openViewer(index) {
-      const item = state.items[index];
-      if (!item) return;
-      state.viewerIndex = index;
-      state.imageIndex = 0;
-
-      document.getElementById("viewerTitle").textContent = String(item.desc || "").trim() || item.aweme_id;
-      const shareLink = document.getElementById("viewerShareLink");
-      const shareUrl = safeMediaUrl(item.share_url);
-      shareLink.href = shareUrl || "#";
-      shareLink.hidden = !shareUrl;
-      const originalLink = document.getElementById("viewerOriginalLink");
-      const hasOriginal = item.media_type === "video" && item.archive_index !== null && item.archive_index !== undefined;
-      originalLink.hidden = !hasOriginal;
-      if (hasOriginal) originalLink.href = archiveMediaUrl(item.aweme_id, item.archive_index);
-      else originalLink.removeAttribute("href");
-
-      renderStage();
-      document.getElementById("viewer").classList.add("show");
+    // 播放器里切换作品不滚动列表；关闭时才把最后看的那张一次性带进视野
+    function revealCard(index) {
+      const card = index >= 0 ? document.querySelector(`.work-card[data-index="${index}"]`) : null;
+      if (card) card.scrollIntoView({ block: "nearest" });
     }
 
-    function renderStage() {
-      const item = state.items[state.viewerIndex];
-      const stage = document.getElementById("viewerStage");
-      const meta = document.getElementById("viewerMeta");
-      if (!item) return;
-      stopViewerMedia();
-
-      if (String(item.media_type) === "image") {
-        // 服务端已排除单独存的封面，只展示内容图片。
-        const indices = Array.isArray(item.image_indices) ? item.image_indices : [];
-        const urls = indices.map((i) => archiveMediaUrl(item.aweme_id, i));
-        if (!urls.length) {
-          stage.innerHTML = '<div class="empty-state">该图文没有已归档的图片</div>';
-          meta.textContent = "图文 · 0 张";
-          return;
-        }
-        const clamped = Math.min(Math.max(state.imageIndex, 0), urls.length - 1);
-        state.imageIndex = clamped;
-        const navHtml = urls.length > 1
-          ? `<button class="viewer-nav prev" onclick="stepImage(-1)" aria-label="上一张"><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 19.5 8.25 12l7.5-7.5" /></svg></button>
-             <button class="viewer-nav next" onclick="stepImage(1)" aria-label="下一张"><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5" /></svg></button>`
-          : "";
-        stage.innerHTML = `<img src="${escapeHtml(urls[clamped])}" alt="" />${navHtml}`;
-        meta.textContent = `图文 · 第 ${clamped + 1} / ${urls.length} 张`;
-        return;
-      }
-
-      if (item.play_index === null || item.play_index === undefined) {
-        stage.innerHTML = '<div class="empty-state">该视频没有可播放文件</div>';
-        meta.textContent = "视频 · 无可播放文件";
-        return;
-      }
-      const coverUrl = coverImageUrl(item);
-      const poster = coverUrl ? ` poster="${escapeHtml(coverUrl)}"` : "";
-      // 通过服务端媒体代理播放：由服务端携带 OpenList/CDN 所需请求头并透传 Range，
-      // 避免浏览器直连短时签名 URL 后丢失鉴权或遇到跨域/Range 失败。
-      const playbackUrl = archiveMediaUrl(item.aweme_id, item.play_index);
-      stage.innerHTML = `<video controls autoplay playsinline preload="metadata"${poster} src="${escapeHtml(playbackUrl)}" onloadedmetadata="fitViewerVideo(this)" onerror="showVideoError()"></video>`;
-      const source = item.has_fast_play ? item.fast_play_source : item.video_source;
-      const quality = source && source.height ? ` · ${source.width}x${source.height}` : "";
-      const label = item.has_fast_play ? "流畅播放" : "原片";
-      meta.textContent = `视频 · ${label}${quality} · ${formatDuration(item.duration_ms)}`;
+    function markPlayingCard(scroll = false) {
+      document.querySelectorAll(".work-card.playing").forEach((card) => card.classList.remove("playing"));
+      if (state.playingIndex < 0) return;
+      const card = document.querySelector(`.work-card[data-index="${state.playingIndex}"]`);
+      if (!card) return;
+      card.classList.add("playing");
+      if (scroll) card.scrollIntoView({ block: "nearest", behavior: "smooth" });
     }
 
-    function stepImage(delta) {
-      if (state.items[state.viewerIndex]?.media_type !== "image") return;
-      state.imageIndex += Number(delta || 0);
-      renderStage();
+    // 播放器跨页切换作品：翻到相邻页，页码真的变了才让它接着播
+    async function loadAdjacentPage(delta) {
+      const target = state.page + delta;
+      await loadPage(target);
+      return state.page === target;
     }
 
-    function showVideoError() {
-      document.getElementById("viewerMeta").textContent = "视频加载失败，请重新打开重试";
+    function initViewer() {
+      WorksViewer.init({
+        defaultUserId: USER_ID || null,
+        getItems: () => state.items,
+        getListInfo: () => ({ offset: (state.page - 1) * state.pageSize, total: state.total }),
+        loadAdjacent: loadAdjacentPage,
+        hasAdjacent: (delta) => (delta > 0 ? state.page < state.totalPages : state.page > 1),
+        onPlayingChange: (index, options = {}) => {
+          state.playingIndex = index;
+          markPlayingCard(options.scroll);
+          if (index < 0 && Number.isInteger(options.revealIndex)) revealCard(options.revealIndex);
+        },
+        onEscapeWhenClosed: requestOverlayClose,
+      });
     }
-
-    function fitViewerVideo(video) {
-      if (!video.videoWidth || !video.videoHeight) return;
-      const stage = document.getElementById("viewerStage");
-      stage.style.aspectRatio = `${video.videoWidth} / ${video.videoHeight}`;
-    }
-
-    function stopViewerMedia() {
-      const video = document.querySelector("#viewerStage video");
-      if (!video) return;
-      video.pause();
-      video.removeAttribute("src");
-      video.load();
-    }
-
-    function closeViewer() {
-      const stage = document.getElementById("viewerStage");
-      stopViewerMedia();
-      stage.innerHTML = "";
-      state.viewerIndex = -1;
-      document.getElementById("viewer").classList.remove("show");
-    }
-
-    function onViewerBackdrop(event) {
-      if (event.target === document.getElementById("viewer")) closeViewer();
-    }
-
-    document.addEventListener("keydown", (event) => {
-      if (state.viewerIndex < 0) {
-        // 没开预览时，Esc 用来关掉外层浮层（焦点在 iframe 内，父页收不到按键）
-        if (event.key === "Escape") requestOverlayClose();
-        return;
-      }
-      if (event.key === "Escape") closeViewer();
-      if (event.key === "ArrowLeft") stepImage(-1);
-      if (event.key === "ArrowRight") stepImage(1);
-    });
 
     document.getElementById("worksGrid").addEventListener("click", (event) => {
       const card = event.target.closest(".work-card");
       if (!card) return;
-      openViewer(Number(card.dataset.index));
+      WorksViewer.open(Number(card.dataset.index));
     });
 
     function init() {
+      initViewer();
       if (!USER_ID) {
         document.getElementById("ownerName").textContent = "缺少 user_id";
         document.getElementById("worksHint").textContent = "请从用户列表点击头像进入";

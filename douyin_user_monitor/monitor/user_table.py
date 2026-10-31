@@ -12,10 +12,10 @@ from typing import Any, Dict, List, Mapping, Sequence
 
 from douyin_user_monitor.monitor.profile_parser import ACCOUNT_STATUS_NORMAL
 from douyin_user_monitor.monitor.statistics import (
-    SILENT_7D_DAYS,
-    SILENT_30D_DAYS,
+    SILENT_WINDOW_DAYS,
     _build_user_row,
     _public_list_user,
+    value_windows,
 )
 from douyin_user_monitor.monitor.timeutils import CHINA_TZ
 
@@ -30,11 +30,12 @@ ACTIVITY_VALUES = frozenset(
         "all",
         "active_7d",
         "active_30d",
-        "silent_7d",
-        "silent_30d",
+        *(f"silent_{days}d" for days in SILENT_WINDOW_DAYS),
         "publish_unknown",
     }
 )
+# 用户价值：low_value = 长期沉默 或 擦边低；score_pending = 已评分作品不够、暂不判擦边
+VALUE_VALUES = frozenset({"all", "low_value", "long_silent", "low_score", "score_pending"})
 BACKFILL_VALUES = frozenset({"all", "idle", "active", "paused", "completed", "failed"})
 SORT_BY_VALUES = frozenset(
     {
@@ -44,6 +45,8 @@ SORT_BY_VALUES = frozenset(
         "last_download",
         "nickname",
         "created",
+        "avg_score",
+        "high_score_ratio",
     }
 )
 SORT_ORDER_VALUES = frozenset({"asc", "desc"})
@@ -120,10 +123,23 @@ def _match_activity(row: Mapping[str, Any], activity: str) -> bool:
         return bool(row.get("has_publish_in_7d"))
     if activity == "active_30d":
         return bool(row.get("has_publish_in_30d"))
-    if activity == "silent_7d":
-        return bool(row.get("is_silent_7d"))
-    if activity == "silent_30d":
-        return bool(row.get("is_silent_30d"))
+    if activity.startswith("silent_"):
+        days = int(activity[len("silent_"):-1])
+        return bool((row.get("silent_days") or {}).get(days))
+    return True
+
+
+def _match_value(row: Mapping[str, Any], value: str) -> bool:
+    if value == "all":
+        return True
+    if value == "low_value":
+        return bool(row.get("is_low_value"))
+    if value == "long_silent":
+        return bool(row.get("is_long_silent"))
+    if value == "low_score":
+        return bool(row.get("is_low_score"))
+    if value == "score_pending":
+        return bool(row.get("is_score_pending"))
     return True
 
 
@@ -188,6 +204,14 @@ def _sort_key(row: Mapping[str, Any], sort_by: str, sort_order: str) -> tuple:
         return (0, _ts("last_download_at"), uid)
     if sort_by == "created":
         return (0, _ts("created_at"), uid)
+    if sort_by in ("avg_score", "high_score_ratio"):
+        field = "avg_borderline_score" if sort_by == "avg_score" else "high_score_ratio"
+        raw = row.get(field)
+        # 已评分不足的用户分数不可信：两个方向都沉到最后
+        if raw is None or row.get("is_score_pending"):
+            return (1, 0.0, uid)
+        value = _num(raw, missing=0.0)
+        return (0, -value if reverse else value, uid)
     if sort_by == "nickname":
         name = str(row.get("nickname") or row.get("sec_user_id") or "").lower()
         name_key = tuple((-ord(ch) if reverse else ord(ch)) for ch in name)
@@ -240,6 +264,7 @@ def query_monitor_users(
     account: str = "all",
     activity: str = "all",
     backfill: str = "all",
+    value: str = "all",
     sort_by: str = "downloads",
     sort_order: str = "desc",
     page: Any = 1,
@@ -251,6 +276,7 @@ def query_monitor_users(
     account_v = _norm_enum(account, ACCOUNT_VALUES, "all")
     activity_v = _norm_enum(activity, ACTIVITY_VALUES, "all")
     backfill_v = _norm_enum(backfill, BACKFILL_VALUES, "all")
+    value_v = _norm_enum(value, VALUE_VALUES, "all")
     sort_by_v = _norm_enum(sort_by, SORT_BY_VALUES, "downloads")
     sort_order_v = _norm_enum(sort_order, SORT_ORDER_VALUES, "desc")
     # nickname default order is asc when unspecified noise — still honor sort_order
@@ -266,6 +292,7 @@ def query_monitor_users(
         and _match_account(row, account_v)
         and _match_activity(row, activity_v)
         and _match_backfill(row, backfill_v)
+        and _match_value(row, value_v)
     ]
 
     # stable sort via transformed key (numeric desc = negate; null timestamps sink)
@@ -295,13 +322,11 @@ def query_monitor_users(
             "account": account_v,
             "activity": activity_v,
             "backfill": backfill_v,
+            "value": value_v,
             "sort_by": sort_by_v,
             "sort_order": sort_order_v,
         },
-        "windows": {
-            "silent_7d_days": SILENT_7D_DAYS,
-            "silent_30d_days": SILENT_30D_DAYS,
-        },
+        "windows": value_windows(),
     }
 
 

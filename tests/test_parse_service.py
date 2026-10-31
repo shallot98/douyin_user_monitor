@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import unittest
+from pathlib import Path
 from typing import Any, Dict
 from unittest.mock import AsyncMock, patch
 
@@ -146,6 +147,95 @@ class ParseServiceTests(unittest.IsolatedAsyncioTestCase):
         self.assertIsNone(result["video_source"])
         self.assertIsInstance(result["raw"], dict)
         resolve_mock.assert_not_awaited()
+
+
+
+class LocalAwemeIdTests(unittest.TestCase):
+    def test_long_links_resolve_without_network(self):
+        from douyin_user_monitor.monitor.parse_service import local_aweme_id
+
+        cases = {
+            "https://www.iesdouyin.com/share/video/7687999745575033715/?region=CN": "7687999745575033715",
+            "https://www.douyin.com/video/7687999745575033715": "7687999745575033715",
+            "https://www.douyin.com/note/7600000000000000001?x=1": "7600000000000000001",
+            "https://www.douyin.com/user/abc?modal_id=7612345678901234567": "7612345678901234567",
+            "https://www.douyin.com/discover?vid=7612345678901234567": "7612345678901234567",
+        }
+        for url, expected in cases.items():
+            self.assertEqual(local_aweme_id(url), expected, url)
+        for url in ("https://v.douyin.com/AbCdEf/", "https://evil.example/video/7687999745575033715",
+                    "https://www.douyin.com/user/abc", "https://notdouyin.com/video/7687999745575033715"):
+            self.assertIsNone(local_aweme_id(url), url)
+
+
+class ParseCacheTests(unittest.IsolatedAsyncioTestCase):
+    async def test_second_parse_of_same_work_is_cached_and_long_link_skips_redirect(self):
+        crawler = FakeCrawler({"aweme_detail": _video_detail()})
+        service = ParseService(crawler)
+        fetch_id = AsyncMock(return_value="7123456789")
+        with (
+            patch("douyin_user_monitor.monitor.parse_service.AwemeIdFetcher.get_aweme_id", new=fetch_id),
+            patch("douyin_user_monitor.monitor.parse_service.resolve_original_play_url",
+                  new=AsyncMock(return_value="https://cdn.example/original.mp4")) as resolve_mock,
+        ):
+            first = await service.parse("https://www.douyin.com/video/7123456789")
+            first["download_url"] = "mutated"
+            second = await service.parse("https://www.iesdouyin.com/share/video/7123456789/")
+            raw = await service.parse("https://www.douyin.com/video/7123456789", include_raw=True)
+        fetch_id.assert_not_awaited()
+        self.assertEqual(crawler.fetch_one_video.await_count, 2, "缓存命中一次；include_raw 不走缓存")
+        self.assertEqual(resolve_mock.await_count, 2)
+        self.assertEqual(second["download_url"], "https://cdn.example/original.mp4", "缓存要深拷贝")
+        self.assertEqual(second["resolved_from"], "https://www.iesdouyin.com/share/video/7123456789/")
+        self.assertIsNotNone(raw["raw"])
+
+
+
+class ParseCookiePoolTests(unittest.IsolatedAsyncioTestCase):
+    def setUp(self):
+        import tempfile
+
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.dir = Path(tmp.name)
+
+    def _pool(self):
+        from douyin_user_monitor.monitor.parse_cookies import ParseCookiePool
+
+        return ParseCookiePool(self.dir)
+
+    def test_round_robin_and_reload(self):
+        (self.dir / "a.txt").write_text("ttwid=a; x=1\n", encoding="utf-8")
+        (self.dir / "b.txt").write_text("ttwid=b", encoding="utf-8")
+        (self.dir / "empty.txt").write_text("   ", encoding="utf-8")
+        pool = self._pool()
+        self.assertEqual(pool.count(), 2)
+        self.assertEqual([pool.take()[1] for _ in range(3)], ["ttwid=a; x=1", "ttwid=b", "ttwid=a; x=1"])
+        (self.dir / "c.txt").write_text("ttwid=c", encoding="utf-8")
+        self.assertEqual(pool.count(), 3)
+
+    async def test_empty_pool_fails_loudly_without_touching_monitor_cookie(self):
+        from douyin_user_monitor.monitor.parse_cookies import ParseCookiesUnavailable
+
+        crawler = FakeCrawler({"aweme_detail": _video_detail()})
+        service = ParseService(crawler, cookie_pool=self._pool())
+        with self.assertRaises(ParseCookiesUnavailable):
+            await service.parse("https://www.douyin.com/video/7123456789")
+        crawler.fetch_one_video.assert_not_awaited()
+
+    async def test_parse_uses_dedicated_cookie_and_rotates_on_error(self):
+        (self.dir / "a.txt").write_text("ttwid=a", encoding="utf-8")
+        (self.dir / "b.txt").write_text("ttwid=b", encoding="utf-8")
+        crawler = FakeCrawler({"aweme_detail": _video_detail()})
+        crawler.fetch_one_video = AsyncMock(side_effect=[RuntimeError("boom"), {"aweme_detail": _video_detail()}])
+        service = ParseService(crawler, cookie_pool=self._pool())
+        with patch("douyin_user_monitor.monitor.parse_service.resolve_original_play_url",
+                   new=AsyncMock(return_value="https://cdn.example/o.mp4")):
+            result = await service.parse("https://www.douyin.com/video/7123456789")
+        self.assertEqual(result["download_url"], "https://cdn.example/o.mp4")
+        cookies = [call.kwargs.get("cookie") for call in crawler.fetch_one_video.await_args_list]
+        self.assertEqual(cookies, ["ttwid=a", "ttwid=b"])
+        crawler.get_douyin_headers.assert_awaited_with("ttwid=b")
 
 
 if __name__ == "__main__":

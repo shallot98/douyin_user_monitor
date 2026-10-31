@@ -1,8 +1,10 @@
 # 浏览器播放修复
 
 Role: entrypoint
-Mode: execute-ready
-Status: In Progress — 上传与网站发布已恢复，普通批量正在执行
+Mode: archive
+Status: Closed — 2026-10-30 收尾
+
+> **关闭说明（2026-10-30）**：BOH 队列已于 2026-09-19 跑完，worker exit 3 表示正常结束但有失败项，不是崩溃。12,400 条普通队列成功 12,331 条，加 10 条恢复原片；网站已发布 12,321 条。未解决 89 条：69 条 worker 失败、20 条因作品已从记录删除而拒发。逐条清单已转入 [maintenance-backlog](../maintenance-backlog/README.md) 的 [unresolved CSV](../maintenance-backlog/evidence/playback-repair-unresolved.csv)。`douyin-playback-repair-sync.timer` 已停止并 disable；BOH 目录 `/var/tmp/douyin-playback-repair-20260913` 与本机 `runtime/web-playback-repair-20260913/` 保留未删。以下为关闭前原文。
 Date: 2026-09-14
 
 ## 目标与约束

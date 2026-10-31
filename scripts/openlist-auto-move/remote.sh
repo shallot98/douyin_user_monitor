@@ -116,6 +116,9 @@ resolve_existing_target_conflict() {
       size_diff=$((-size_diff))
     fi
     if (( size_diff <= SIZE_MISMATCH_TOLERANCE_BYTES )); then
+      local verify_rc=0
+      verify_existing_target_content "${local_file_path}" "${dst_dir}" "${file_name}" || verify_rc=$?
+      (( verify_rc == 0 )) || return "${verify_rc}"
       rm -f -- "${local_file_path}"
       log "目标端已存在同名且大小差异在容差内，已删除本地源文件: ${local_file_path} (local=${local_size}, remote=${remote_size}, tolerance=${SIZE_MISMATCH_TOLERANCE_BYTES})"
       return 0
@@ -130,9 +133,50 @@ resolve_existing_target_conflict() {
     return 1
   fi
 
+  local verify_rc=0
+  verify_existing_target_content "${local_file_path}" "${dst_dir}" "${file_name}" || verify_rc=$?
+  (( verify_rc == 0 )) || return "${verify_rc}"
   rm -f -- "${local_file_path}"
   log "目标端已存在同名且大小一致，已删除本地源文件: ${local_file_path}"
   return 0
+}
+
+# 调 D2 比对本地与远端 content_identity；退出码 0 = 相同，3 = 不同，其他 = 无法确认
+d2_verify_content() {
+  local local_file_path="$1" d2_path="$2"
+  local py_bin="${D2_DIRECT_PYTHON}"
+  [[ -x "${py_bin}" ]] || py_bin="python3"
+  PYTHONPATH="${OPENLIST_MOVER_PROJECT_DIR}${PYTHONPATH:+:${PYTHONPATH}}" \
+    "${py_bin}" -m scripts.cloud_playback.d2_verify \
+    --openlist-db "${OPENLIST_DB}" --mount-path "/d2" \
+    --file "${local_file_path}" --path "${d2_path}" 2>&1
+}
+
+# 删本地前的内容校验。只有 D2 目标能拿到内容标识（content_identity）；
+# 其他盘 OpenList 不返回哈希，维持只比大小。
+# 返回 0 = 可删；1 = 暂不能确认，下轮再试；3 = 内容不同，转 skipped 保留本地
+verify_existing_target_content() {
+  local local_file_path="$1" dst_dir="$2" file_name="$3"
+  [[ "${D2_VERIFY_BEFORE_DELETE}" == "true" ]] || return 0
+  [[ "${dst_dir}" == /d2/* || "${dst_dir}" == "/d2" ]] || return 0
+
+  local d2_rel="${dst_dir#/d2}" out="" rc=0
+  out=$(d2_verify_content "${local_file_path}" "${d2_rel}/${file_name}") || rc=$?
+  case "${rc}" in
+    0) return 0 ;;
+    3)
+      if mark_file_skipped "${local_file_path}"; then
+        log "目标端同名同大小但内容不同，保留本地并加入跳过列表: ${local_file_path} (${out})"
+        return 3
+      fi
+      log "目标端同名同大小但内容不同，保留本地（未开启 SKIP_CONFLICTING_FILES）: ${local_file_path} (${out})"
+      return 1
+      ;;
+    *)
+      log "目标端内容校验失败，本轮不删除本地: ${local_file_path} (${out})"
+      return 1
+      ;;
+  esac
 }
 
 finalize_move_file() {

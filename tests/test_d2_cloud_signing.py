@@ -102,6 +102,15 @@ class TransportTests(unittest.TestCase):
     def test_redirect_does_not_forward_signed_headers_or_task_url(self):
         self.assertIsNone(_NoRedirect().redirect_request(None, None, 307, None, {}, "https://other.example.test"))
 
+    def test_insecure_hosts_only_applies_to_configured_block_host(self):
+        transport = HttpTransport(insecure_hosts=("simple-file-proxy.2dland.cn",))
+        self.assertIs(transport._opener_for("https://openapi.2dland.cn/v6/userfile/get"), transport._opener)
+        self.assertIs(
+            transport._opener_for("https://simple-file-proxy.2dland.cn/int/blocks/test"),
+            transport._insecure_opener,
+        )
+        self.assertIsNot(transport._opener, transport._insecure_opener)
+
 
 class HTTPErrorTests(unittest.TestCase):
     def test_missing_file_has_status_code_and_safe_message(self):

@@ -88,15 +88,15 @@ def _merge_record(user, record, publication):
     return result
 
 
-def _merge_user(user, publications):
+def _merge_user(user, records, publications):
     pending = dict(publications)
-    records = []
-    for record in user.get("download_records", []):
+    merged = []
+    for record in records:
         publication = pending.pop(str(record.get("aweme_id")), None)
-        records.append(_merge_record(user, record, publication) if publication else record)
+        merged.append(_merge_record(user, record, publication) if publication else record)
     if pending:
         raise PublicationError("Source work is no longer in the user record")
-    return {**user, "download_records": records}
+    return merged
 
 
 def publish_verified(storage, publications):
@@ -110,13 +110,16 @@ def publish_verified(storage, publications):
         per_user[publication["aweme_id"]] = deepcopy(publication)
 
     def merge(state):
+        # 记录在 RecordStore；update_state 只为拿状态文件锁，与监控进程的记录写入串行
         pending = dict(grouped)
-        users = []
+        merged = {}
         for user in state["users"]:
             updates = pending.pop(user["id"], None)
-            users.append(_merge_user(user, updates) if updates else user)
+            if updates:
+                merged[user["id"]] = _merge_user(user, storage.records.get(user["id"]), updates)
         if pending:
             raise PublicationError("Source user is no longer in monitor state")
-        state["users"] = users
+        storage.records.put_many(merged)
 
-    return storage.update_state(merge)
+    state = storage.update_state(merge)
+    return {**state, "users": storage.records.attach_all(state["users"])}

@@ -12,6 +12,7 @@ from douyin_user_monitor.monitor.archive_feed import (
     clamp_page_size,
     find_record,
     list_archive_files,
+    neighbor_items,
     resolve_archive_file,
 )
 
@@ -132,6 +133,50 @@ class BuildPageTests(unittest.TestCase):
         page = build_archive_page(user_with([video_record(), image_record(), video_record(aweme_id="7003")]))
         self.assertEqual(page["media_counts"], {"video": 2, "image": 1})
 
+    def _scored_user(self) -> Dict[str, Any]:
+        def scored(record: Dict[str, Any], score: Any, *, version: int = 5, status: str = "ok") -> Dict[str, Any]:
+            appearance = {"borderline": {"score": score}} if score is not None else {}
+            record["content_filter"] = {"status": status, "version": version, "appearance": appearance}
+            return record
+
+        return user_with([
+            scored(video_record(aweme_id="s4"), 4),
+            scored(image_record(aweme_id="s2"), 2),
+            scored(video_record(aweme_id="s0"), None),  # 已评分但无人物 → 按 0 分
+            scored(video_record(aweme_id="old"), 5, version=1),  # 旧口径不算已评分
+            scored(video_record(aweme_id="err"), 3, status="error"),
+            video_record(aweme_id="none"),
+        ])
+
+    def _ids(self, **filters: Any) -> List[str]:
+        return sorted(item["aweme_id"] for item in build_archive_page(self._scored_user(), **filters)["items"])
+
+    def test_score_range_keeps_only_rated_works_in_range(self):
+        self.assertEqual(self._ids(score_min=2), ["s2", "s4"])
+        self.assertEqual(self._ids(score_max=2), ["s0", "s2"])
+        self.assertEqual(self._ids(score_min=2, score_max=3), ["s2"])
+        self.assertEqual(self._ids(score_min=0), ["s0", "s2", "s4"])
+
+    def test_unscored_lists_missing_failed_and_outdated_scores(self):
+        self.assertEqual(self._ids(unscored=True), ["err", "none", "old"])
+
+    def test_media_type_combines_with_score(self):
+        self.assertEqual(self._ids(media_type="image"), ["s2"])
+        self.assertEqual(self._ids(media_type="video", score_min=1), ["s4"])
+        page = build_archive_page(self._scored_user(), media_type="video")
+        self.assertEqual(page["total"], 5)
+
+    def test_invalid_filters_raise(self):
+        for filters in (
+            {"media_type": "live"},
+            {"score_min": 6},
+            {"score_max": -1},
+            {"score_min": 4, "score_max": 2},
+            {"unscored": True, "score_min": 1},
+        ):
+            with self.subTest(filters=filters), self.assertRaises(ValueError):
+                build_archive_page(self._scored_user(), **filters)
+
     def test_empty_user_is_safe(self):
         page = build_archive_page({"id": "u1"})
         self.assertEqual(page["items"], [])
@@ -178,6 +223,30 @@ class ResolveFileTests(unittest.TestCase):
         self.assertIsNone(find_record(self.user, "  "))
         self.assertEqual(len(list_archive_files(self.user, "7002")), 4)
         self.assertEqual(list_archive_files(self.user, "nope"), [])
+
+
+class NeighborItemsTests(unittest.TestCase):
+    def setUp(self):
+        # 按发布时间倒序：7005(最新) 7004 7003 7002 7001
+        self.user = {
+            "download_records": [
+                video_record(aweme_id=f"700{n}", publish=f"2026-08-0{n}T12:00:00+08:00") for n in range(1, 6)
+            ]
+        }
+
+    def ids(self, aweme_id: str, **kwargs: Any) -> List[str]:
+        return [item["aweme_id"] for item in neighbor_items(self.user, aweme_id, **kwargs)]
+
+    def test_following_first_then_preceding_nearest_first(self):
+        self.assertEqual(self.ids("7003", before=1, after=2), ["7002", "7001", "7004"])
+
+    def test_edges_are_truncated(self):
+        self.assertEqual(self.ids("7005", before=1, after=2), ["7004", "7003"])
+        self.assertEqual(self.ids("7001", before=1, after=2), ["7002"])
+
+    def test_unknown_aweme_returns_empty(self):
+        self.assertEqual(self.ids("nope"), [])
+        self.assertEqual(neighbor_items({}, "7001"), [])
 
 
 if __name__ == "__main__":

@@ -6,6 +6,7 @@ import argparse
 import asyncio
 import fcntl
 import json
+import os
 import shlex
 import subprocess
 from collections import Counter
@@ -24,7 +25,8 @@ SSH_TIMEOUT_SECONDS = 30
 PROCESS_TIMEOUT_SECONDS = 45
 WEBSITE_TIMEOUT_SECONDS = 30
 SSH_SKILL_EXECUTE = Path("/root/.codex/skills/ssh-skill/scripts/ssh_execute.py")
-SSH_PYTHON = "/root/.local/bin/python"
+# ssh-skill 依赖 paramiko：系统 python 有，项目 venv 没有
+SSH_PYTHON = "/usr/bin/python3"
 
 
 @dataclass(frozen=True)
@@ -107,7 +109,10 @@ def _configured(config, stack):
     client = D2Client(credentials, transport=HttpTransport())
     storage = MonitorStorage(Path(config["state_file"]))
     reader = RemoteReader(**config["remote"])
-    web = stack.enter_context(httpx.Client(base_url=config["website_url"], timeout=WEBSITE_TIMEOUT_SECONDS, trust_env=False))
+    # 网站启用鉴权后媒体接口要 Key；没配就不带，401 会在 Range 校验里原样报出来
+    api_key = os.getenv("DYMON_API_KEY", "").strip()
+    web = stack.enter_context(httpx.Client(base_url=config["website_url"], timeout=WEBSITE_TIMEOUT_SECONDS,
+                                           trust_env=False, headers={"X-API-Key": api_key} if api_key else None))
     archive = load_settings().archive
     openlist = OpenListClient(archive)
     loop = asyncio.new_event_loop()

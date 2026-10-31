@@ -28,7 +28,6 @@ def make_user(user_id="user-1", *, history_status=HISTORY_SYNC_STATUS_COMPLETED)
         "enabled": True,
         "downloaded_count": 0,
         "downloaded_aweme_ids": [],
-        "download_records": [],
         "history_sync": build_history_sync_state(status=history_status),
     }
 

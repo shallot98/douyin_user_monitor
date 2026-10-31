@@ -1,8 +1,8 @@
 import unittest
 from datetime import datetime, timedelta, timezone
-from unittest.mock import patch
 
 from fastapi.testclient import TestClient
+from record_helpers import patch_monitor_users
 
 from douyin_user_monitor.api import monitor as monitor_api
 from douyin_user_monitor.main import app
@@ -145,11 +145,7 @@ class UserStatisticsRouteTests(unittest.TestCase):
                 ],
             }
         ]
-        with patch.object(
-            monitor_api.monitor_service,
-            "list_users",
-            return_value=users,
-        ):
+        with patch_monitor_users(users, method="list_users"):
             # clear module-level statistics cache between tests
             monitor_api._STATISTICS_CACHE = None
             monitor_api._STATISTICS_CACHE_STAMP = None

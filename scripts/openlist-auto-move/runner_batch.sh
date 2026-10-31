@@ -151,6 +151,52 @@ precheck_batch_candidate_target() {
   esac
 }
 
+flush_batch_d2_direct() {
+  local token="$1" key="$2" count src_dir dst_dir file_path file_name move_rc=0 uploaded_any=0 action
+  count="${BATCH_COUNTS["${key}"]:-0}"
+  (( count > 0 )) || return 0
+  src_dir="${BATCH_SRC_DIRS["${key}"]}"
+  dst_dir="${BATCH_DST_DIRS["${key}"]}"
+
+  ensure_remote_dir "${token}" "${dst_dir}" || { PROCESS_ERROR_COUNT=$((PROCESS_ERROR_COUNT + count)); clear_batch "${key}"; return 0; }
+
+  while IFS= read -r file_path; do
+    [[ "${CAPACITY_LIMIT_HIT}" == "1" ]] && break
+    [[ -n "${file_path}" ]] || continue
+    file_name="${file_path##*/}"
+    # d2_direct_upload_file 内部会重开 set -e，外层 set +e 兜不住，用 || 取返回码
+    move_rc=0
+    d2_direct_upload_file "${file_path}" "${dst_dir}" "${file_name}" || move_rc=$?
+
+    case "${move_rc}" in
+      0)
+        uploaded_any=1
+        PROCESS_MOVED_COUNT=$((PROCESS_MOVED_COUNT + 1))
+        ;;
+      2)
+        uploaded_any=1
+        invalidate_remote_dir_cache "${dst_dir}"
+        action=$(finalize_move_file "${token}" "${file_path}" "${src_dir}" "${dst_dir}" "${file_name}" "D2直传检测到目标端已存在同名文件" "${ACTION_WAIT}")
+        record_process_action "${action}"
+        ;;
+      3)
+        CAPACITY_LIMIT_HIT=1
+        break
+        ;;
+      4) ;;
+      *)
+        PROCESS_ERROR_COUNT=$((PROCESS_ERROR_COUNT + 1))
+        ;;
+    esac
+  done <<< "${BATCH_FILES["${key}"]}"
+
+  if (( uploaded_any > 0 )); then
+    invalidate_remote_dir_cache "${dst_dir}"
+    api_post_json "${token}" "/api/fs/list" "$(jq -cn --arg p "${dst_dir}" '{path:$p,refresh:true,page:1,per_page:1}')" >/dev/null 2>&1 || true
+  fi
+  clear_batch "${key}"
+}
+
 flush_batch() {
   local token="$1" key="$2" count src_dir dst_dir names_json move_rc=0
   [[ "${CAPACITY_LIMIT_HIT}" == "1" ]] && return 0
@@ -158,6 +204,10 @@ flush_batch() {
   (( count > 0 )) || return 0
   src_dir="${BATCH_SRC_DIRS["${key}"]}"
   dst_dir="${BATCH_DST_DIRS["${key}"]}"
+  if is_d2_direct_upload_target "${dst_dir}"; then
+    flush_batch_d2_direct "${token}" "${key}"
+    return 0
+  fi
   names_json=$(batch_names_json "${key}")
 
   ensure_remote_dir "${token}" "${dst_dir}" || { PROCESS_ERROR_COUNT=$((PROCESS_ERROR_COUNT + count)); clear_batch "${key}"; return 0; }

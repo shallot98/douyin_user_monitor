@@ -50,6 +50,8 @@ MAX_RECONCILE_FILES_PER_RUN=0
 VERIFY_AFTER_MOVE="true"
 REMOTE_LIST_CACHE_ENABLED="false"
 REMOTE_LIST_REFRESH="true"
+D2_DIRECT_UPLOAD="false"
+D2_DIRECT_PYTHON="${OPENLIST_MOVER_PROJECT_DIR}/.venv/bin/python"
 
 ACTION_COMPLETED="completed"
 ACTION_WAIT="wait"
@@ -63,6 +65,12 @@ ACTION_CAPACITY="capacity_limit"
 # 目标盘存储或上传配额不足时置位，停止主力盘操作，备份盘仍可继续复制
 CAPACITY_LIMIT_HIT=0
 CAPACITY_ERROR_PATTERN='capacity limit|USER_DAILY_UPLOAD_QUOTA_EXCEEDED'
+# D2 网关间歇 5xx / 超时：本地文件保留、下轮重试，不计入本轮失败；
+# 同一文件连续这么多轮仍失败才算真失败（10 分钟一轮约 1 小时）。
+D2_TRANSIENT_ERROR_PATTERN='HTTP 5[0-9][0-9]|transport failed'
+D2_TRANSIENT_MAX_ATTEMPTS=6
+# 远端已有同名同大小文件时，删本地前先比对 D2 content_identity
+D2_VERIFY_BEFORE_DELETE="true"
 
 is_capacity_limit_error() {
   local err="${1:-${MOVE_TASK_ERROR:-}}"

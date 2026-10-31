@@ -1,5 +1,8 @@
 # 封面补全执行状态
 
+> **Archived 2026-10-30**：计划已关闭，本文件只作历史快照；见同目录 README 顶部关闭说明。
+
+
 Role: current-state
 Date: 2026-09-14
 Current Phase: Deployed; all recovery batches finished, 26 covers unresolved
