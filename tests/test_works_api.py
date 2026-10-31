@@ -353,9 +353,16 @@ class WorksOverlayTests(unittest.TestCase):
         self.assertIn("history.pushState({ worksOverlay: id }", self.html)
         self.assertIn('window.addEventListener("popstate"', self.html)
         self.assertIn("fromHistory: true", self.html)
+        # 浮层里播放器开着时按钮关闭要连播放器那条历史一起退
+        self.assertIn("frameWindow.history.state?.worksViewer ? -2 : -1", self.html)
+
+    def test_iframe_navigation_does_not_add_history_entries(self):
+        # 改 iframe.src 会多压一条历史，右滑返回会退到 iframe 里而不是关浮层
+        self.assertNotIn('worksFrame").src =', self.html)
+        self.assertIn("contentWindow.location.replace(`${worksPageUrl(id)}&embed=1`)", self.html)
 
     def test_close_stops_iframe_video_stream(self):
-        self.assertIn('worksFrame").src = "about:blank"', self.html)
+        self.assertIn('frameWindow.location.replace("about:blank")', self.html)
 
     def test_child_close_messages_are_origin_checked(self):
         self.assertIn("event.origin !== window.location.origin", self.html)
