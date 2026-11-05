@@ -1,0 +1,53 @@
+name: iOS IPA
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [feat/ios-app]
+
+jobs:
+  build-ipa:
+    runs-on: macos-15
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 环境信息
+        run: |
+          xcodebuild -version
+          sw_vers
+
+      - name: 安装 XcodeGen
+        run: brew install xcodegen
+
+      - name: 生成 Xcode 工程
+        working-directory: ios
+        run: xcodegen generate
+
+      - name: 构建（不签名）
+        working-directory: ios
+        run: |
+          set -o pipefail
+          xcodebuild -project DyMon.xcodeproj -scheme DyMon -configuration Release \
+            -destination 'generic/platform=iOS' -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
+            build | tail -30
+
+      - name: 临时签名并打包 IPA
+        run: |
+          set -euo pipefail
+          APP="$(find ios/build/Build/Products/Release-iphoneos -maxdepth 1 -name 'DyMon.app' -print -quit)"
+          test -n "$APP"
+          codesign --force --deep --sign - "$APP"
+          rm -rf Payload DyMon-unsigned.ipa
+          mkdir Payload
+          cp -R "$APP" Payload/
+          zip -qry DyMon-unsigned.ipa Payload
+          ls -lh DyMon-unsigned.ipa
+          unzip -l DyMon-unsigned.ipa | head -20
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: DyMon-ipa
+          path: DyMon-unsigned.ipa
+          if-no-files-found: error

@@ -399,6 +399,8 @@
     const Core = window.SwipeCore;
     // 游客：服务端渲染时标记；只能随机刷视频、开关声音（接口侧按白名单拒绝其余请求）
     const GUEST = document.body.classList.contains("sw-guest");
+    // 原生壳 App（WKWebView 外壳，UA 带 DyMonApp）：默认开声音、加深封面预载、向原生报播放状态
+    const APP = /\bDyMonApp\b/.test(navigator.userAgent);
     const PAGE_SIZE = 20;
     const PREVIEW_PAGE_SIZE = 12;
     // 剩余不足这么多条时加载下一页
@@ -514,7 +516,14 @@
     }
 
     function readMutedPref() {
-      try { return localStorage.getItem(MUTED_KEY) !== "0"; } catch { return true; }
+      // App 壳里默认有声（原生已放开免手势播放）；浏览器里默认静音，等用户点开
+      const fallback = !APP;
+      try {
+        const saved = localStorage.getItem(MUTED_KEY);
+        return saved === null ? fallback : saved !== "0";
+      } catch (error) {
+        return fallback;
+      }
     }
 
     function writeMutedPref(muted) {
@@ -698,6 +707,11 @@
     }
 
     // ---- 播放：一个常驻 <video> 只换 src ----
+    // 原生壳桥：只用来让 App 决定「播放中不自动锁屏」，浏览器里静默跳过
+    function notifyNative(type, value) {
+      try { window.webkit?.messageHandlers?.dymon?.postMessage({ type, value }); } catch (error) { /* 非 App 环境 */ }
+    }
+
     function stopPlayer() {
       state.playToken += 1;
       state.playingKey = "";
@@ -803,6 +817,14 @@
       if (preloader.getAttribute("src") !== src) preloader.src = src;
       const poster = coverUrl(next);
       if (poster) new Image().src = poster;
+      if (APP) {
+        // 壳里多预热两张封面，快速连滑时先有图、不黑屏
+        for (let ahead = 2; ahead <= 3; ahead += 1) {
+          const aheadItem = state.items[state.active + ahead];
+          const aheadUrl = aheadItem && coverUrl(aheadItem);
+          if (aheadUrl) new Image().src = aheadUrl;
+        }
+      }
     }
 
     function togglePause() {
@@ -1551,6 +1573,8 @@
       window.addEventListener("wheel", onWheel, { passive: false });
       $("ui").addEventListener("click", onUiClick);
 
+      player.addEventListener("playing", () => notifyNative("playing", true));
+      player.addEventListener("pause", () => notifyNative("playing", false));
       player.addEventListener("playing", onPlayerPlaying);
       player.addEventListener("waiting", () => { if (!state.userPaused) { state.waiting = true; renderOverlay(); } });
       player.addEventListener("canplay", () => { state.waiting = false; renderOverlay(); });
