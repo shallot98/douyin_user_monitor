@@ -44,7 +44,24 @@ xcodebuild -project DyMon.xcodeproj -scheme DyMon -configuration Release \
 ## 安装（越狱 / 侧载自选）
 
 - **TrollStore**：手机上直接打开 IPA → 用 TrollStore 安装（iOS ≤17.0 的 CoreTrust 机型）
-- **deb（RootHide/rootless 越狱）**：`dpkg -i DyMon_*.deb && uicache -a`
+- **deb（RootHide/rootless 越狱）**：`dpkg -i DyMon_*.deb && uicache -a`，deb 可以从 IPA 现场打：
+
+```bash
+mkdir -p debroot/var/jb/Applications debroot/DEBIAN
+unzip -o DyMon-unsigned.ipa -d ipa
+cp -R ipa/Payload/DyMon.app debroot/var/jb/Applications/
+cat > debroot/DEBIAN/control <<'CTL'
+Package: de.cenai.dymon
+Name: 刷视频
+Version: 0.1.0
+Architecture: iphoneos-arm64
+Description: 抖音监控「刷视频」页的原生壳（WKWebView）。
+Maintainer: shallot98
+Section: Applications
+Priority: optional
+CTL
+dpkg-deb -b --root-owner-group debroot DyMon_0.1.0_iphoneos-arm64.deb
+```
 - **自签侧载**：AltStore / Sideloadly 等导入 IPA 用 Apple ID 重签
 
 首次打开会落在登录页：输入账号或点「游客进入」，之后不再需要。

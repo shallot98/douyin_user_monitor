@@ -182,6 +182,7 @@ extension FeedViewController: WKNavigationDelegate {
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
         errorView.isHidden = true
+        showMenuHintIfNeeded()
     }
 
     func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
@@ -190,6 +191,20 @@ extension FeedViewController: WKNavigationDelegate {
 
     func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
         showError(error)
+    }
+
+    /// 首次加载成功后提示一次：这个壳没有按钮，刷新/切页靠摇一摇
+    private func showMenuHintIfNeeded() {
+        let key = "dymon.menuHintShown"
+        guard !UserDefaults.standard.bool(forKey: key) else { return }
+        UserDefaults.standard.set(true, forKey: key)
+        let alert = UIAlertController(
+            title: "摇一摇出菜单",
+            message: "刷新、回到刷视频、打开作品库、回登录页都在摇一摇菜单里。",
+            preferredStyle: .alert
+        )
+        alert.addAction(UIAlertAction(title: "知道了", style: .default))
+        present(alert, animated: true)
     }
 
     /// 站内照常走 WebView，站外链接交给 Safari
