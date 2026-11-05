@@ -87,8 +87,8 @@ jobs:
           } > debroot/DEBIAN/control
           {
             echo "#!/bin/bash"
-            echo "for u in /var/jb/usr/bin/uicache /usr/bin/uicache; do"
-            echo "  if [ -x \"$u\" ]; then \"$u\" -a && break; fi"
+            echo 'for u in /var/jb/usr/bin/uicache /usr/bin/uicache; do'
+            echo '  if [ -x "$u" ]; then "$u" -a && break; fi'
             echo "done"
             echo "exit 0"
           } > debroot/DEBIAN/postinst
