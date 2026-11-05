@@ -40,6 +40,7 @@ final class FeedPageView: UIView {
     private var mode: Mode = .idle
     private var proxyURL: URL?
     private var retriedWithProxy = false
+    private var playbackStarted = false
     private var imageTask: Task<Void, Never>?
     private var loadToken = UUID()
 
@@ -166,6 +167,7 @@ final class FeedPageView: UIView {
         self.item = item
         loadToken = UUID()
         retriedWithProxy = false
+        playbackStarted = false
         messageLabel.isHidden = true
         proxyURL = api.proxyMediaURL(item)
         player.stop()
@@ -260,7 +262,6 @@ final class FeedPageView: UIView {
         switch mode {
         case .active:
             player.activate(muted: PlaybackSettings.muted)
-            playerLayerView.playerLayer.videoGravity = .resizeAspectFill
             pauseIcon.isHidden = true
         case .preload:
             player.preload(muted: true)
@@ -273,10 +274,12 @@ final class FeedPageView: UIView {
     func tick() {
         guard mode == .active else { return }
         if player.isPlaying {
+            playbackStarted = true
             if !coverView.isHidden { coverView.isHidden = true }
             pauseIcon.isHidden = true
         } else {
-            pauseIcon.isHidden = false
+            // 还在缓冲就只显示封面；播过之后再停下才显示播放图标
+            pauseIcon.isHidden = !playbackStarted
         }
         if player.didFail {
             if player.isDirect, !retriedWithProxy, let proxyURL {
