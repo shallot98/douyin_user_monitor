@@ -53,6 +53,15 @@ xcodebuild -project DyMon.xcodeproj -scheme DyMon -configuration Release \
   -destination 'generic/platform=iOS' CODE_SIGNING_ALLOWED=NO build
 ```
 
+## 下载
+
+最新构建固定在发行版 `ios-latest`（每次 push 到 `feat/ios-app` 由 CI 自动更新 IPA 与 deb）：
+
+```
+https://github.com/shallot98/douyin_user_monitor/releases/download/ios-latest/DyMon-unsigned.ipa
+https://github.com/shallot98/douyin_user_monitor/releases/download/ios-latest/DyMon_iphoneos-arm64.deb
+```
+
 ## 安装
 
 - **TrollStore**：手机上直接打开 IPA → 用 TrollStore 安装（iOS ≤17.0 的 CoreTrust 机型）
