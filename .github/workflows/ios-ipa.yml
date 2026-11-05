@@ -5,6 +5,9 @@ on:
   push:
     branches: [feat/ios-app]
 
+permissions:
+  contents: write
+
 jobs:
   build-ipa:
     runs-on: macos-15
@@ -39,15 +42,80 @@ jobs:
           APP="$(find ios/build/Build/Products/Release-iphoneos -maxdepth 1 -name 'DyMon.app' -print -quit)"
           test -n "$APP"
           codesign --force --deep --sign - "$APP"
-          rm -rf Payload DyMon-unsigned.ipa
-          mkdir Payload
+          rm -rf Payload dist
+          mkdir -p Payload dist
           cp -R "$APP" Payload/
-          zip -qry DyMon-unsigned.ipa Payload
-          ls -lh DyMon-unsigned.ipa
-          unzip -l DyMon-unsigned.ipa | head -20
+          zip -qry dist/DyMon-unsigned.ipa Payload
+          ls -lh dist/DyMon-unsigned.ipa
 
       - uses: actions/upload-artifact@v4
         with:
           name: DyMon-ipa
-          path: DyMon-unsigned.ipa
+          path: dist/DyMon-unsigned.ipa
           if-no-files-found: error
+
+  publish:
+    needs: build-ipa
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: DyMon-ipa
+          path: dist
+
+      - name: 打 RootHide / rootless deb
+        run: |
+          set -euo pipefail
+          VERSION="$(grep -m1 'MARKETING_VERSION' ios/project.yml | sed -e 's/.*"\(.*\)".*/\1/')"
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+          rm -rf debroot tmp
+          mkdir -p debroot/var/jb/Applications debroot/DEBIAN tmp
+          unzip -q dist/DyMon-unsigned.ipa -d tmp
+          cp -R tmp/Payload/DyMon.app debroot/var/jb/Applications/
+          {
+            echo "Package: de.cenai.dymon"
+            echo "Name: 刷视频"
+            echo "Version: $VERSION"
+            echo "Architecture: iphoneos-arm64"
+            echo "Description: 原生刷短视频客户端，数据来自自建监控站点。"
+            echo "Maintainer: shallot98"
+            echo "Section: Applications"
+            echo "Priority: optional"
+          } > debroot/DEBIAN/control
+          {
+            echo "#!/bin/bash"
+            echo "for u in /var/jb/usr/bin/uicache /usr/bin/uicache; do"
+            echo "  if [ -x \"$u\" ]; then \"$u\" -a && break; fi"
+            echo "done"
+            echo "exit 0"
+          } > debroot/DEBIAN/postinst
+          chmod 755 debroot/DEBIAN/postinst
+          dpkg-deb -b --root-owner-group debroot dist/DyMon_iphoneos-arm64.deb
+          dpkg-deb -I dist/DyMon_iphoneos-arm64.deb | head -12
+          ls -lh dist
+
+      - name: 更新发行版（固定 tag ios-latest）
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          NOTES="刷视频 iOS App 最新构建（原生 App：AVPlayer 竖滑 feed，数据来自自建监控站点）。
+
+          安装方式
+
+          - TrollStore：手机打开 DyMon-unsigned.ipa 直接安装
+          - 越狱机：dpkg -i DyMon_iphoneos-arm64.deb（装到 /var/jb/Applications，自动 uicache）
+          - 自签侧载：AltStore / Sideloadly 导入 IPA 用 Apple ID 重签
+
+          首次打开会落在登录页：填服务器地址（默认 https://dy.cenai.de）与账号密码，或点游客进入。
+
+          版本 $VERSION · 构建 ${GITHUB_SHA::7} · 每次 push 到 feat/ios-app 会自动更新这里的 IPA 与 deb。"
+          if gh release view ios-latest >/dev/null 2>&1; then
+            gh release edit ios-latest --title "刷视频 iOS App（最新构建）" --notes "$NOTES" --latest
+          else
+            gh release create ios-latest --title "刷视频 iOS App（最新构建）" --notes "$NOTES" --latest
+          fi
+          gh release upload ios-latest dist/DyMon-unsigned.ipa dist/DyMon_iphoneos-arm64.deb --clobber
